@@ -347,6 +347,17 @@ create table if not exists public.app_user_profiles (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.app_notifications (
+  id text primary key,
+  audience text not null,
+  title text not null,
+  body text not null,
+  entity_id text,
+  is_read boolean not null default false,
+  created_at timestamptz not null,
+  updated_at timestamptz not null default now()
+);
+
 create index if not exists dispatch_orders_org_status_start_idx on public.dispatch_orders(organization_id, dispatch_status, start_at);
 create index if not exists dispatch_assignments_vehicle_active_idx on public.dispatch_assignments(vehicle_id, valid_from, valid_to) where status = 'active';
 create index if not exists dispatch_assignments_driver_active_idx on public.dispatch_assignments(driver_id, valid_from, valid_to) where status = 'active';
@@ -445,6 +456,7 @@ alter table public.app_dispatch_assignments enable row level security;
 alter table public.app_payments enable row level security;
 alter table public.app_audit_events enable row level security;
 alter table public.app_user_profiles enable row level security;
+alter table public.app_notifications enable row level security;
 
 drop policy if exists "ops_snapshots_select" on public.ops_snapshots;
 create policy "ops_snapshots_select" on public.ops_snapshots for select using (true);
@@ -473,3 +485,5 @@ drop policy if exists "app_audit_events_all" on public.app_audit_events;
 create policy "app_audit_events_all" on public.app_audit_events for all using (true) with check (true);
 drop policy if exists "app_user_profiles_all" on public.app_user_profiles;
 create policy "app_user_profiles_all" on public.app_user_profiles for all using (true) with check (true);
+drop policy if exists "app_notifications_all" on public.app_notifications;
+create policy "app_notifications_all" on public.app_notifications for all using (true) with check (true);

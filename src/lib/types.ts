@@ -134,6 +134,16 @@ export interface AuditEvent {
   createdAt: string;
 }
 
+export interface AppNotification {
+  id: string;
+  audience: "sale" | "dispatcher" | "driver" | "accountant" | "manager" | "admin";
+  title: string;
+  body: string;
+  entityId?: string;
+  createdAt: string;
+  read?: boolean;
+}
+
 export interface OpsState {
   vehicles: Vehicle[];
   drivers: Driver[];
@@ -144,4 +154,5 @@ export interface OpsState {
   assignments: Assignment[];
   payments: Payment[];
   auditEvents: AuditEvent[];
+  notifications?: AppNotification[];
 }

@@ -3,6 +3,7 @@
 import {
   AlertTriangle,
   Banknote,
+  Bell,
   CalendarClock,
   Car,
   ChevronLeft,
@@ -47,6 +48,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import type {
   Assignment,
   AuditEvent,
+  AppNotification,
   Company,
   CompanyContact,
   Customer,
@@ -121,7 +123,8 @@ const initialState: OpsState = {
   orders: seedOrders,
   assignments: seedAssignments,
   payments: seedPayments,
-  auditEvents: seedAuditEvents
+  auditEvents: seedAuditEvents,
+  notifications: []
 };
 
 function normalizeState(state: OpsState): OpsState {
@@ -132,6 +135,7 @@ function normalizeState(state: OpsState): OpsState {
     customers: state.customers ?? seedCustomers,
     companies: state.companies ?? seedCompanies,
     companyContacts: state.companyContacts ?? seedCompanyContacts,
+    notifications: state.notifications ?? [],
     orders: state.orders.map((order) => ({
       ...order,
       customerKind: order.customerKind ?? (order.companyName ? "company" : "individual"),
@@ -308,6 +312,19 @@ function orderMargin(order: DispatchOrder) {
   return orderProfit(order) / order.amountDue;
 }
 
+function toAppNotification(row: unknown): AppNotification {
+  const item = row as Record<string, unknown>;
+  return {
+    id: String(item.id),
+    audience: String(item.audience) as AppNotification["audience"],
+    title: String(item.title),
+    body: String(item.body),
+    entityId: typeof item.entity_id === "string" ? item.entity_id : undefined,
+    createdAt: String(item.created_at),
+    read: Boolean(item.is_read)
+  };
+}
+
 export default function OpsApp() {
   const repository = useMemo(() => createOpsRepository(storageKey), []);
   const [tab, setTab] = useState<Tab>("Dashboard");
@@ -323,6 +340,7 @@ export default function OpsApp() {
   const [authDriverId, setAuthDriverId] = useState<string | undefined>();
   const [persistenceReady, setPersistenceReady] = useState(false);
   const [message, setMessage] = useState(supabaseConfigured ? "Đang kết nối Supabase..." : "Dữ liệu pilot lưu trên trình duyệt máy này.");
+  const visibleNotifications = (state.notifications ?? []).filter((item) => item.audience === currentRole || item.audience === "admin").slice(0, 5);
 
   useEffect(() => {
     let cancelled = false;
@@ -371,6 +389,28 @@ export default function OpsApp() {
   }, []);
 
   useEffect(() => {
+    if (!supabaseConfigured) return;
+    const supabase = createSupabaseBrowserClient();
+    supabase
+      .from("app_notifications" as never)
+      .select("*" as never)
+      .order("created_at" as never, { ascending: false } as never)
+      .limit(20 as never)
+      .then(({ data }) => {
+        if (data) setState((current) => ({ ...current, notifications: (data as unknown[]).map(toAppNotification) }));
+      });
+    const channel = supabase
+      .channel("app_notifications")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "app_notifications" }, (payload) => {
+        setState((current) => ({ ...current, notifications: [toAppNotification(payload.new), ...(current.notifications ?? [])].slice(0, 30) }));
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!persistenceReady) return;
     repository.save(state).catch((error: unknown) => {
       setMessage(`Không lưu được dữ liệu ${repository.mode}: ${error instanceof Error ? error.message : "unknown error"}`);
@@ -405,6 +445,24 @@ export default function OpsApp() {
       id: makeId("audit"),
       createdAt: new Date().toISOString()
     };
+  }
+
+  function notify(input: Omit<AppNotification, "id" | "createdAt">) {
+    const notification: AppNotification = { ...input, id: makeId("noti"), createdAt: new Date().toISOString() };
+    setState((current) => ({ ...current, notifications: [notification, ...(current.notifications ?? [])].slice(0, 30) }));
+    if (!supabaseConfigured) return;
+    createSupabaseBrowserClient()
+      .from("app_notifications" as never)
+      .upsert({
+        id: notification.id,
+        audience: notification.audience,
+        title: notification.title,
+        body: notification.body,
+        entity_id: notification.entityId ?? null,
+        is_read: notification.read ?? false,
+        created_at: notification.createdAt
+      } as never)
+      .then(() => undefined);
   }
 
   function createOrder(event: FormEvent<HTMLFormElement>) {
@@ -507,6 +565,7 @@ export default function OpsApp() {
     );
     setSelectedOrderId(order.id);
     setTab("Lệnh điều xe");
+    notify({ audience: "dispatcher", title: "Đề xuất điều xe mới", body: `${order.code} / ${order.customerName}`, entityId: order.id });
     event.currentTarget.reset();
   }
 
@@ -606,6 +665,7 @@ export default function OpsApp() {
       }),
       currentAssignment ? `Đã đổi xe/tài xế cho ${selectedOrder.code}.` : `Đã phân xe/tài xế cho ${selectedOrder.code}.`
     );
+    notify({ audience: "driver", title: "Bạn có chuyến mới", body: `${selectedOrder.code} / ${formatDateTime(selectedOrder.startAt)}`, entityId: selectedOrder.id });
   }
 
   function reviewDispatchProposal(orderId: string, decision: "approved" | "rejected", reason: string) {
@@ -666,6 +726,9 @@ export default function OpsApp() {
       }),
       `Đã cập nhật ${targetOrder.code}: ${dispatchLabels[nextStatus]}.`
     );
+    if (nextStatus === "completed") {
+      notify({ audience: "accountant", title: "Chuyến đã hoàn thành", body: `${targetOrder.code} sẵn sàng đối soát.`, entityId: orderId });
+    }
   }
 
   function updateDispatchStatus(nextStatus: DispatchStatus, reason: string) {
@@ -1100,6 +1163,19 @@ export default function OpsApp() {
                   <option key={role} value={role}>{roleLabels[role]}</option>
                 ))}
               </select>
+              <div className="relative">
+                <button className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700" type="button"><Bell size={16} /> {visibleNotifications.length}</button>
+                {visibleNotifications.length > 0 && (
+                  <div className="absolute right-0 z-20 mt-2 w-80 border border-line bg-white p-2 text-sm shadow-lg">
+                    {visibleNotifications.map((item) => (
+                      <div className="border-b border-line px-2 py-2 last:border-0" key={item.id}>
+                        <p className="font-semibold text-ink">{item.title}</p>
+                        <p className="text-xs text-slate-500">{item.body}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               <Link className="inline-flex h-9 items-center rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50" href="/auth">Auth</Link>
               <button className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50" onClick={resetPilot} type="button">
                 <RefreshCw size={16} /> Reset
