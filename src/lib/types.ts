@@ -118,6 +118,10 @@ export interface DispatchOrder extends TimeWindow {
   changedNearStart?: boolean;
   priority?: DispatchPriority;
   salesNote?: string;
+  actualDriverCost?: number;
+  actualVehicleCost?: number;
+  actualOtherCost?: number;
+  actualCostNote?: string;
 }
 
 export interface AuditEvent {

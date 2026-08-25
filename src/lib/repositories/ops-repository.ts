@@ -258,7 +258,11 @@ function toOrder(row: Record<string, unknown>): DispatchOrder {
     driverId: optionalText(row, "driver_id"),
     changedNearStart: Boolean(row.changed_near_start),
     priority: optionalText(row, "priority") as DispatchOrder["priority"],
-    salesNote: optionalText(row, "sales_note")
+    salesNote: optionalText(row, "sales_note"),
+    actualDriverCost: numberValue(row, "actual_driver_cost"),
+    actualVehicleCost: numberValue(row, "actual_vehicle_cost"),
+    actualOtherCost: numberValue(row, "actual_other_cost"),
+    actualCostNote: optionalText(row, "actual_cost_note")
   };
 }
 
@@ -297,7 +301,11 @@ function fromOrder(order: DispatchOrder) {
     driver_id: order.driverId ?? null,
     changed_near_start: order.changedNearStart ?? null,
     priority: order.priority ?? null,
-    sales_note: order.salesNote ?? null
+    sales_note: order.salesNote ?? null,
+    actual_driver_cost: order.actualDriverCost ?? null,
+    actual_vehicle_cost: order.actualVehicleCost ?? null,
+    actual_other_cost: order.actualOtherCost ?? null,
+    actual_cost_note: order.actualCostNote ?? null
   };
 }
 

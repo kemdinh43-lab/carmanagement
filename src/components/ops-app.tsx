@@ -294,6 +294,15 @@ function orderProfit(order: DispatchOrder) {
   return order.amountDue - orderCost(order);
 }
 
+function orderActualCost(order: DispatchOrder) {
+  return (order.actualDriverCost ?? 0) + (order.actualVehicleCost ?? 0) + (order.actualOtherCost ?? 0);
+}
+
+function orderActualProfit(order: DispatchOrder) {
+  const actualCost = orderActualCost(order);
+  return order.amountDue - (actualCost > 0 ? actualCost : orderCost(order));
+}
+
 function orderMargin(order: DispatchOrder) {
   if (order.amountDue <= 0) return 0;
   return orderProfit(order) / order.amountDue;
@@ -783,6 +792,40 @@ export default function OpsApp() {
     event.currentTarget.reset();
   }
 
+  function updateActualCosts(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedOrder) return;
+    if (!can(currentRole, "record_payment") && !can(currentRole, "update_dispatch_status")) {
+      setMessage(`${roleLabels[currentRole]} không có quyền cập nhật chi phí thực tế.`);
+      return;
+    }
+    const form = new FormData(event.currentTarget);
+    const actualDriverCost = Number(form.get("actualDriverCost") || 0);
+    const actualVehicleCost = Number(form.get("actualVehicleCost") || 0);
+    const actualOtherCost = Number(form.get("actualOtherCost") || 0);
+    if (actualDriverCost < 0 || actualVehicleCost < 0 || actualOtherCost < 0) {
+      setMessage("Chi phí thực tế không được âm.");
+      return;
+    }
+    mutate(
+      (current) => ({
+        ...current,
+        orders: current.orders.map((order) => order.id === selectedOrder.id ? {
+          ...order,
+          actualDriverCost,
+          actualVehicleCost,
+          actualOtherCost,
+          actualCostNote: String(form.get("actualCostNote") || "").trim() || undefined
+        } : order),
+        auditEvents: [
+          audit({ actor: roleLabels[currentRole], entityType: "dispatch_order", entityId: selectedOrder.id, action: "updated_actual_costs", reason: money(actualDriverCost + actualVehicleCost + actualOtherCost) }),
+          ...current.auditEvents
+        ]
+      }),
+      `Đã cập nhật chi phí thực tế cho ${selectedOrder.code}.`
+    );
+  }
+
   function recordPayment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedOrder) return;
@@ -1167,6 +1210,7 @@ export default function OpsApp() {
               payments={state.payments.filter((payment) => payment.orderId === selectedOrder.id)}
               selectedOrder={selectedOrder}
               recordPayment={recordPayment}
+              updateActualCosts={updateActualCosts}
               updateInvoiceStatus={updateInvoiceStatus}
               reconcileOrder={reconcileOrder}
             />
@@ -1688,6 +1732,8 @@ function OrderDetailPanel({
           <p className="mt-2 text-slate-600">Giá bán: {money(order.amountDue)}</p>
           <p className="mt-1 text-slate-600">Chi phí: {money(cost)}</p>
           <p className={`mt-1 font-semibold ${profit >= 0 ? "text-emerald-700" : "text-red-700"}`}>Lãi dự kiến: {money(profit)}</p>
+          <p className="mt-1 text-slate-600">Chi phí thực tế: {money(orderActualCost(order))}</p>
+          <p className={`mt-1 font-semibold ${orderActualProfit(order) >= 0 ? "text-emerald-700" : "text-red-700"}`}>Lãi thực tế: {money(orderActualProfit(order))}</p>
           <p className={`mt-1 font-semibold ${margin >= 0.15 ? "text-emerald-700" : "text-red-700"}`}>Biên: {Math.round(margin * 100)}%</p>
           {order.quoteNote && <p className="mt-2 text-xs text-slate-500">{order.quoteNote}</p>}
         </div>
@@ -2683,6 +2729,7 @@ function FinancePanel({
   payments,
   selectedOrder,
   recordPayment,
+  updateActualCosts,
   updateInvoiceStatus,
   reconcileOrder
 }: {
@@ -2690,6 +2737,7 @@ function FinancePanel({
   payments: Payment[];
   selectedOrder: DispatchOrder;
   recordPayment: (event: FormEvent<HTMLFormElement>) => void;
+  updateActualCosts: (event: FormEvent<HTMLFormElement>) => void;
   updateInvoiceStatus: (nextStatus: InvoiceStatus) => void;
   reconcileOrder: () => void;
 }) {
@@ -2698,6 +2746,7 @@ function FinancePanel({
   const canRecordPayment = can(currentRole, "record_payment");
   const canUpdateInvoice = can(currentRole, "update_invoice");
   const canCloseOrder = can(currentRole, "close_order");
+  const canUpdateActualCosts = can(currentRole, "record_payment") || can(currentRole, "update_dispatch_status");
 
   return (
     <section className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
@@ -2723,6 +2772,9 @@ function FinancePanel({
             <StatMini label="Phải thu" value={money(selectedOrder.amountDue)} />
             <StatMini label="Đã thu" value={money(paid)} />
             <StatMini label="Còn nợ" value={money(debt)} />
+            <StatMini label="Lãi dự kiến" value={money(orderProfit(selectedOrder))} />
+            <StatMini label="Lãi thực tế" value={money(orderActualProfit(selectedOrder))} />
+            <StatMini label="Chi phí thực tế" value={money(orderActualCost(selectedOrder))} />
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <Badge tone={selectedOrder.paymentStatus === "paid" ? "good" : selectedOrder.paymentStatus === "partial" ? "warn" : "danger"}>{paymentLabels[selectedOrder.paymentStatus]}</Badge>
@@ -2735,6 +2787,18 @@ function FinancePanel({
             <button className="h-10 rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canCloseOrder} onClick={reconcileOrder} type="button">Đóng lệnh</button>
           </div>
         </section>
+        <form className="border border-line bg-white p-4 shadow-sm" onSubmit={updateActualCosts}>
+          <h3 className="font-semibold text-ink">Chi phí thực tế sau chuyến</h3>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <Field label="Tài xế thực tế"><input className={inputClass()} defaultValue={selectedOrder.actualDriverCost ?? selectedOrder.driverCost ?? 0} min="0" name="actualDriverCost" type="number" /></Field>
+            <Field label="Xe/nhiên liệu thực tế"><input className={inputClass()} defaultValue={selectedOrder.actualVehicleCost ?? selectedOrder.vehicleCost ?? 0} min="0" name="actualVehicleCost" type="number" /></Field>
+            <Field label="Phụ phí thực tế"><input className={inputClass()} defaultValue={selectedOrder.actualOtherCost ?? selectedOrder.otherCost ?? 0} min="0" name="actualOtherCost" type="number" /></Field>
+            <div className="md:col-span-3">
+              <Field label="Ghi chú chi phí"><textarea className={textAreaClass()} defaultValue={selectedOrder.actualCostNote ?? ""} name="actualCostNote" placeholder="Cầu đường, gửi xe, phát sinh, tài xế ứng..." /></Field>
+            </div>
+          </div>
+          <button className="mt-4 h-10 w-full rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canUpdateActualCosts} type="submit">Lưu chi phí thực tế</button>
+        </form>
         <section className="border border-line bg-white p-4 shadow-sm">
           <h3 className="font-semibold text-ink">Payment list</h3>
           <div className="mt-3 space-y-2 text-sm">

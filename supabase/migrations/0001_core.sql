@@ -295,6 +295,10 @@ create table if not exists public.app_dispatch_orders (
   changed_near_start boolean,
   priority text,
   sales_note text,
+  actual_driver_cost numeric(14,2),
+  actual_vehicle_cost numeric(14,2),
+  actual_other_cost numeric(14,2),
+  actual_cost_note text,
   updated_at timestamptz not null default now(),
   check (end_at > start_at)
 );
