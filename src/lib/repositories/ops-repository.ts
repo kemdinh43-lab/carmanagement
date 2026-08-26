@@ -78,8 +78,9 @@ export class SupabaseOpsRepository implements OpsRepository {
     const [customers, companies, companyContacts, vehicles, drivers, orders, assignments, payments, auditEvents] = rows;
     const hasNoRelationalData = customers.length + companies.length + vehicles.length + drivers.length + orders.length === 0;
     if (hasNoRelationalData) {
-      await this.save(initialOpsState);
-      return initialOpsState;
+      const snapshotState = await loadSnapshotFallback().catch(() => initialOpsState);
+      await this.save(snapshotState);
+      return snapshotState;
     }
 
     return {
@@ -98,7 +99,6 @@ export class SupabaseOpsRepository implements OpsRepository {
   async save(state: OpsState) {
     const supabase = createSupabaseBrowserClient() as unknown as SupabaseTableClient;
     try {
-      await clearTables(supabase);
       await insertTable(supabase, "app_customers", state.customers.map(fromCustomer));
       await insertTable(supabase, "app_companies", state.companies.map(fromCompany));
       await insertTable(supabase, "app_company_contacts", state.companyContacts.map(fromCompanyContact));
@@ -151,23 +151,6 @@ async function insertTable(supabase: SupabaseTableClient, table: AppTable, rows:
   if (rows.length === 0) return;
   const { error } = await supabase.from(table).upsert(rows);
   if (error) throw new Error(`${table}: ${error.message}`);
-}
-
-async function clearTables(supabase: SupabaseTableClient) {
-  for (const table of [
-    "app_audit_events",
-    "app_payments",
-    "app_dispatch_assignments",
-    "app_dispatch_orders",
-    "app_company_contacts",
-    "app_companies",
-    "app_customers",
-    "app_drivers",
-    "app_vehicles"
-  ] as AppTable[]) {
-    const { error } = await supabase.from(table).delete().neq("id", "__never__");
-    if (error) throw new Error(`${table}: ${error.message}`);
-  }
 }
 
 function text(row: Record<string, unknown>, key: string) {
