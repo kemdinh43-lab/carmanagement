@@ -32,7 +32,7 @@ type SnapshotClient = {
 
 export interface OpsRepository {
   load(): Promise<OpsState>;
-  save(state: OpsState): Promise<void>;
+  save(state: OpsState, previousState?: OpsState): Promise<void>;
   readonly mode: "local" | "supabase";
 }
 
@@ -103,18 +103,17 @@ export class SupabaseOpsRepository implements OpsRepository {
     };
   }
 
-  async save(state: OpsState) {
+  async save(state: OpsState, previousState?: OpsState) {
     const supabase = createSupabaseBrowserClient() as unknown as SupabaseTableClient;
     try {
-      await replaceTable(supabase, "app_dispatch_assignments", state.assignments.map(fromAssignment));
-      await replaceTable(supabase, "app_payments", state.payments.map(fromPayment));
-      await replaceTable(supabase, "app_audit_events", state.auditEvents.map(fromAuditEvent));
-      await replaceTable(supabase, "app_dispatch_orders", state.orders.map(fromOrder));
-      await replaceTable(supabase, "app_company_contacts", state.companyContacts.map(fromCompanyContact));
-      await replaceTable(supabase, "app_drivers", state.drivers.map(fromDriver));
-      await replaceTable(supabase, "app_vehicles", state.vehicles.map(fromVehicle));
-      await replaceTable(supabase, "app_companies", state.companies.map(fromCompany));
-      await replaceTable(supabase, "app_customers", state.customers.map(fromCustomer));
+      const nextTables = snapshotTables(state);
+      const previousTables = previousState ? snapshotTables(previousState) : null;
+      const changedTables = new Set<AppTable>();
+      for (const [table, rows] of Object.entries(nextTables) as Array<[AppTable, Record<string, unknown>[]]>) {
+        const previousRows = previousTables?.[table];
+        if (!previousRows || !sameJson(previousRows, rows)) changedTables.add(table);
+      }
+      await replaceChangedTables(supabase, nextTables, expandChangedTables(changedTables));
     } catch (error) {
       if (!isMissingRelationalSchema(error)) {
         console.warn("Supabase relational save failed, falling back to snapshot.", error);
@@ -160,9 +159,57 @@ async function saveSnapshotState(state: OpsState) {
   if (error) throw new Error(`ops_snapshots: ${error.message}`);
 }
 
-async function replaceTable(supabase: SupabaseTableClient, table: AppTable, rows: Record<string, unknown>[]) {
+async function replaceChangedTables(supabase: SupabaseTableClient, tables: Record<AppTable, Record<string, unknown>[]>, changedTables: Set<AppTable>) {
+  const deleteOrder: AppTable[] = [
+    "app_dispatch_assignments",
+    "app_payments",
+    "app_audit_events",
+    "app_dispatch_orders",
+    "app_company_contacts",
+    "app_drivers",
+    "app_vehicles",
+    "app_companies",
+    "app_customers"
+  ];
+  const insertOrder: AppTable[] = [
+    "app_customers",
+    "app_companies",
+    "app_company_contacts",
+    "app_vehicles",
+    "app_drivers",
+    "app_dispatch_orders",
+    "app_dispatch_assignments",
+    "app_payments",
+    "app_audit_events"
+  ];
+
+  for (const table of deleteOrder) {
+    if (!changedTables.has(table)) continue;
+    await deleteTable(supabase, table);
+  }
+
+  for (const table of insertOrder) {
+    if (!changedTables.has(table)) continue;
+    await insertTable(supabase, table, tables[table]);
+  }
+}
+
+function expandChangedTables(changedTables: Set<AppTable>) {
+  const expanded = new Set(changedTables);
+  if (changedTables.has("app_companies")) expanded.add("app_company_contacts");
+  const dispatchGroup: AppTable[] = ["app_vehicles", "app_drivers", "app_dispatch_orders", "app_dispatch_assignments", "app_payments"];
+  if (dispatchGroup.some((table) => changedTables.has(table))) {
+    for (const table of dispatchGroup) expanded.add(table);
+  }
+  return expanded;
+}
+
+async function deleteTable(supabase: SupabaseTableClient, table: AppTable) {
   const { error: deleteError } = await supabase.from(table).delete().neq("id", "__never__");
   if (deleteError) throw new Error(`${table}: ${deleteError.message}`);
+}
+
+async function insertTable(supabase: SupabaseTableClient, table: AppTable, rows: Record<string, unknown>[]) {
   if (rows.length === 0) return;
   let payload = rows;
   for (let attempt = 0; attempt < 6; attempt += 1) {
@@ -177,6 +224,24 @@ async function replaceTable(supabase: SupabaseTableClient, table: AppTable, rows
     });
   }
   throw new Error(`${table}: failed to upsert after removing unsupported columns`);
+}
+
+function snapshotTables(state: OpsState) {
+  return {
+    app_customers: state.customers.map(fromCustomer),
+    app_companies: state.companies.map(fromCompany),
+    app_company_contacts: state.companyContacts.map(fromCompanyContact),
+    app_vehicles: state.vehicles.map(fromVehicle),
+    app_drivers: state.drivers.map(fromDriver),
+    app_dispatch_orders: state.orders.map(fromOrder),
+    app_dispatch_assignments: state.assignments.map(fromAssignment),
+    app_payments: state.payments.map(fromPayment),
+    app_audit_events: state.auditEvents.map(fromAuditEvent)
+  } satisfies Record<AppTable, Record<string, unknown>[]>;
+}
+
+function sameJson(a: unknown, b: unknown) {
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 function missingColumnFromError(message: string) {

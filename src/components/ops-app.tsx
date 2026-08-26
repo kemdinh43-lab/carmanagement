@@ -28,7 +28,7 @@ import {
   UsersRound
 } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   assignments as seedAssignments,
   auditEvents as seedAuditEvents,
@@ -42,6 +42,26 @@ import {
 } from "@/data/demo";
 import { hasSupabaseBrowserConfig } from "@/lib/config";
 import { calculatePaymentStatus, findAssignmentConflict, getOperationalAlerts, money } from "@/lib/domain";
+import {
+  assignVehicleDriver,
+  cancelOrder as cancelOrderCommand,
+  closeOrder,
+  createCompany as createCompanyCommand,
+  createCustomer as createCustomerCommand,
+  createDriver as createDriverCommand,
+  createVehicle as createVehicleCommand,
+  canRunCommand,
+  commandCatalog,
+  recordPayment as recordPaymentCommand,
+  reviewDispatchProposal as reviewDispatchProposalCommand,
+  submitDispatchProposal,
+  updateActualCosts as updateActualCostsCommand,
+  updateDispatchStatus as updateDispatchStatusCommand,
+  updateInvoiceStatus as updateInvoiceStatusCommand,
+  updateOrderDetails,
+  updateQuoteStatus as updateQuoteStatusCommand,
+  type OpsCommand
+} from "@/lib/commands/ops-commands";
 import { can, roleLabels, type AppRole } from "@/lib/permissions";
 import { createOpsRepository } from "@/lib/repositories/ops-repository";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -509,6 +529,7 @@ function toAppNotification(row: unknown): AppNotification {
 
 export default function OpsApp() {
   const repository = useMemo(() => createOpsRepository(storageKey), []);
+  const persistedStateRef = useRef<OpsState | null>(null);
   const [tab, setTab] = useState<Tab>("Dashboard");
   const [state, setState] = useState<OpsState>(initialState);
   const [selectedOrderId, setSelectedOrderId] = useState(seedOrders[2]?.id ?? seedOrders[0]?.id);
@@ -517,11 +538,14 @@ export default function OpsApp() {
   const [calendarMonth, setCalendarMonth] = useState(() => new Date(2026, 7, 1));
   const [calendarDay, setCalendarDay] = useState(() => new Date(2026, 7, 25));
   const [mobileDriverId, setMobileDriverId] = useState(seedDrivers[0]?.id ?? "");
-  const [currentRole, setCurrentRole] = useState<AppRole>("admin");
-  const [authLabel, setAuthLabel] = useState("Demo role");
+  const [roleState, setRoleState] = useState<AppRole | null>(supabaseConfigured ? null : "manager");
+  const [authLabel, setAuthLabel] = useState(supabaseConfigured ? "Đang kiểm tra đăng nhập..." : "Local demo");
+  const [authUserId, setAuthUserId] = useState<string | null>(null);
   const [authDriverId, setAuthDriverId] = useState<string | undefined>();
+  const [authReady, setAuthReady] = useState(!supabaseConfigured);
   const [persistenceReady, setPersistenceReady] = useState(false);
   const [message, setMessage] = useState(supabaseConfigured ? "Đang kết nối Supabase..." : "Dữ liệu pilot lưu trên trình duyệt máy này.");
+  const currentRole = roleState ?? "manager";
   const visibleNotifications = (state.notifications ?? []).filter((item) => item.audience === currentRole || item.audience === "admin").slice(0, 5);
 
   useEffect(() => {
@@ -532,6 +556,7 @@ export default function OpsApp() {
       .then((loadedState) => {
         if (cancelled) return;
         const normalized = normalizeState(loadedState);
+        persistedStateRef.current = normalized;
         setState(normalized);
         setSelectedOrderId(normalized.orders[2]?.id ?? normalized.orders[0]?.id ?? "");
         setMobileDriverId(normalized.drivers[0]?.id ?? "");
@@ -552,22 +577,55 @@ export default function OpsApp() {
   useEffect(() => {
     if (!supabaseConfigured) return;
     const supabase = createSupabaseBrowserClient();
-    supabase.auth.getUser().then(async ({ data }) => {
-      if (!data.user) return;
-      const { data: profile } = await supabase
-        .from("app_user_profiles" as never)
-        .select("role,full_name,driver_id" as never)
-        .eq("user_id" as never, data.user.id as never)
-        .maybeSingle();
-      const typedProfile = profile as { role?: AppRole; full_name?: string; driver_id?: string } | null;
-      if (typedProfile?.role) setCurrentRole(typedProfile.role);
-      if (typedProfile?.driver_id) {
-        setAuthDriverId(typedProfile.driver_id);
-        setMobileDriverId(typedProfile.driver_id);
-        setTab("Tài xế mobile");
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getUser();
+        if (cancelled) return;
+        if (!data.user) {
+          setRoleState(null);
+          setAuthUserId(null);
+          setAuthLabel("Chưa đăng nhập");
+          return;
+        }
+        setAuthUserId(data.user.id);
+        const { data: profile } = await supabase
+          .from("app_user_profiles" as never)
+          .select("role,full_name,driver_id" as never)
+          .eq("user_id" as never, data.user.id as never)
+          .maybeSingle();
+        const typedProfile = profile as { role?: AppRole; full_name?: string; driver_id?: string } | null;
+        const nextRole = typedProfile?.role ?? "sale";
+        if (!typedProfile) {
+          await supabase.from("app_user_profiles" as never).upsert({
+            user_id: data.user.id,
+            full_name: data.user.email || "",
+            phone: null,
+            role: nextRole,
+            driver_id: null
+          } as never);
+        }
+        setRoleState(nextRole);
+        if (typedProfile?.driver_id) {
+          setAuthDriverId(typedProfile.driver_id);
+          setMobileDriverId(typedProfile.driver_id);
+          setTab("Tài xế mobile");
+        }
+        setAuthLabel(typedProfile?.full_name || data.user.email || "Signed in");
+      } catch (error) {
+        if (cancelled) return;
+        setRoleState(null);
+        setAuthUserId(null);
+        setAuthLabel(error instanceof Error ? error.message : "Auth load failed");
+      } finally {
+        if (!cancelled) setAuthReady(true);
       }
-      setAuthLabel(typedProfile?.full_name || data.user.email || "Signed in");
-    });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -594,9 +652,15 @@ export default function OpsApp() {
 
   useEffect(() => {
     if (!persistenceReady) return;
-    repository.save(state).catch((error: unknown) => {
-      setMessage(`Không lưu được dữ liệu ${repository.mode}: ${error instanceof Error ? error.message : "unknown error"}`);
-    });
+    const previousState = persistedStateRef.current ?? undefined;
+    repository
+      .save(state, previousState)
+      .then(() => {
+        persistedStateRef.current = state;
+      })
+      .catch((error: unknown) => {
+        setMessage(`Không lưu được dữ liệu ${repository.mode}: ${error instanceof Error ? error.message : "unknown error"}`);
+      });
   }, [persistenceReady, repository, state]);
 
   const selectedOrder = state.orders.find((order) => order.id === selectedOrderId) ?? state.orders[0];
@@ -616,9 +680,49 @@ export default function OpsApp() {
     );
   }, [query, state.orders]);
 
-  function mutate(updater: (draft: OpsState) => OpsState, note: string) {
+  function runCommand(
+    command: OpsCommand,
+    updater: (draft: OpsState) => OpsState,
+    note: string,
+    serverRpc?: { name: string; args: Record<string, unknown> }
+  ) {
+    if (!canRunCommand(currentRole, command)) {
+      setMessage(`${roleLabels[currentRole]} không có quyền thực hiện lệnh này.`);
+      return;
+    }
+    if (process.env.NODE_ENV !== "production") console.debug(`[ops-command] ${command}`);
     setState((current) => updater(current));
     setMessage(note);
+    if (supabaseConfigured) {
+      const supabase = createSupabaseBrowserClient();
+      if (serverRpc) {
+        void supabase
+          .rpc(serverRpc.name as never, serverRpc.args as never)
+          .then(
+            () => undefined,
+            (error: unknown) => {
+              if (process.env.NODE_ENV !== "production") console.warn("[command-rpc]", error);
+            }
+          );
+      }
+      void supabase
+        .rpc(
+          "record_app_command_event" as never,
+          {
+            command_name: command,
+            actor_role: currentRole,
+            actor_user_id: authUserId,
+            rpc_name: commandCatalog[command].rpcName,
+            payload: { note }
+          } as never
+        )
+        .then(
+          () => undefined,
+          (error: unknown) => {
+            if (process.env.NODE_ENV !== "production") console.warn("[command-event]", error);
+          }
+        );
+    }
   }
 
   function audit(event: Omit<AuditEvent, "id" | "createdAt">): AuditEvent {
@@ -734,17 +838,7 @@ export default function OpsApp() {
       reconciliationStatus: "open"
     };
 
-    mutate(
-      (current) => ({
-        ...current,
-        orders: [order, ...current.orders],
-        auditEvents: [
-          audit({ actor: "Sale", entityType: "dispatch_order", entityId: order.id, action: "submitted_dispatch_proposal", reason: "Sale submitted proposal for dispatcher review" }),
-          ...current.auditEvents
-        ]
-      }),
-      `Đã gửi đề xuất điều xe ${order.code} vào hàng chờ điều hành xét duyệt.`
-    );
+    runCommand("order.submit_proposal", (current) => submitDispatchProposal(current, order, audit), `Đã gửi đề xuất điều xe ${order.code} vào hàng chờ điều hành xét duyệt.`);
     setSelectedOrderId(order.id);
     setTab("Lệnh điều xe");
     notify({ audience: "dispatcher", title: "Đề xuất điều xe mới", body: `${order.code} / ${order.customerName}`, entityId: order.id });
@@ -758,28 +852,7 @@ export default function OpsApp() {
       return;
     }
 
-    const now = new Date().toISOString();
-    mutate(
-      (current) => ({
-        ...current,
-        orders: current.orders.map((order) => {
-          if (order.id !== selectedOrder.id) return order;
-          return {
-            ...order,
-            quoteStatus: nextStatus,
-            quoteSentAt: nextStatus === "sent" ? now : order.quoteSentAt,
-            quoteApprovedAt: nextStatus === "approved" ? now : order.quoteApprovedAt,
-            orderStatus: nextStatus === "rejected" ? "cancelled" : order.orderStatus,
-            dispatchStatus: nextStatus === "rejected" ? "cancelled" : order.dispatchStatus
-          };
-        }),
-        auditEvents: [
-          audit({ actor: "Sale", entityType: "dispatch_order", entityId: selectedOrder.id, action: "updated_quote_status", reason: quoteLabels[nextStatus] }),
-          ...current.auditEvents
-        ]
-      }),
-      `Đã cập nhật báo giá ${selectedOrder.code}: ${quoteLabels[nextStatus]}.`
-    );
+    runCommand("order.update_quote", (current) => updateQuoteStatusCommand(current, selectedOrder.id, nextStatus, audit), `Đã cập nhật báo giá ${selectedOrder.code}: ${quoteLabels[nextStatus]}.`);
   }
 
   function assignOrder(event: FormEvent<HTMLFormElement>) {
@@ -828,24 +901,23 @@ export default function OpsApp() {
       replaceReason: currentAssignment ? reason : undefined
     };
 
-    mutate(
-      (current) => ({
-        ...current,
-        assignments: [
-          assignment,
-          ...current.assignments.map((item) =>
-            item.id === currentAssignment?.id ? { ...item, status: "replaced" as const, replaceReason: reason } : item
-          )
-        ],
-        orders: current.orders.map((order) =>
-          order.id === selectedOrder.id ? { ...order, vehicleId, driverId, dispatchStatus: "assigned", changedNearStart: currentAssignment ? true : order.changedNearStart } : order
-        ),
-        auditEvents: [
-          audit({ actor: "Dispatcher", entityType: "assignment", entityId: assignment.id, action: currentAssignment ? "replaced_assignment" : "assigned_vehicle_driver", reason }),
-          ...current.auditEvents
-        ]
-      }),
-      currentAssignment ? `Đã đổi xe/tài xế cho ${selectedOrder.code}.` : `Đã phân xe/tài xế cho ${selectedOrder.code}.`
+    runCommand(
+      "dispatch.assign_vehicle_driver",
+      (current) => assignVehicleDriver(current, selectedOrder.id, assignment, currentAssignment?.id, reason, audit, false),
+      currentAssignment ? `Đã đổi xe/tài xế cho ${selectedOrder.code}.` : `Đã phân xe/tài xế cho ${selectedOrder.code}.`,
+      {
+        name: "assign_vehicle_driver",
+        args: {
+          p_order_id: selectedOrder.id,
+          p_assignment_id: assignment.id,
+          p_vehicle_id: vehicleId,
+          p_driver_id: driverId,
+          p_start_at: selectedOrder.startAt,
+          p_end_at: selectedOrder.endAt,
+          p_replace_assignment_id: currentAssignment?.id ?? null,
+          p_replace_reason: currentAssignment ? reason : null
+        }
+      }
     );
     notify({ audience: "driver", title: "Bạn có chuyến mới", body: `${selectedOrder.code} / ${formatDateTime(selectedOrder.startAt)}`, entityId: selectedOrder.id });
   }
@@ -864,29 +936,18 @@ export default function OpsApp() {
       return;
     }
 
-    mutate(
-      (current) => ({
-        ...current,
-        orders: current.orders.map((order) => {
-          if (order.id !== orderId) return order;
-          return {
-            ...order,
-            orderStatus: decision === "approved" ? "confirmed" : "cancelled",
-            dispatchStatus: decision === "approved" ? "waiting_assignment" : "cancelled"
-          };
-        }),
-        auditEvents: [
-          audit({
-            actor: "Dispatcher",
-            entityType: "dispatch_order",
-            entityId: orderId,
-            action: decision === "approved" ? "approved_dispatch_proposal" : "rejected_dispatch_proposal",
-            reason: cleanReason || "Dispatcher approved for assignment"
-          }),
-          ...current.auditEvents
-        ]
-      }),
-      decision === "approved" ? `Đã duyệt ${targetOrder.code}. Có thể phân xe/tài xế.` : `Đã từ chối đề xuất ${targetOrder.code}.`
+    runCommand(
+      "dispatch.review_proposal",
+      (current) => reviewDispatchProposalCommand(current, orderId, decision, cleanReason || "Dispatcher approved for assignment", audit, false),
+      decision === "approved" ? `Đã duyệt ${targetOrder.code}. Có thể phân xe/tài xế.` : `Đã từ chối đề xuất ${targetOrder.code}.`,
+      {
+        name: "review_dispatch_proposal",
+        args: {
+          p_order_id: orderId,
+          p_decision: decision,
+          p_reason: cleanReason || "Dispatcher approved for assignment"
+        }
+      }
     );
   }
 
@@ -897,17 +958,7 @@ export default function OpsApp() {
       setMessage(`${roleLabels[currentRole]} không có quyền cập nhật trạng thái điều hành.`);
       return;
     }
-    mutate(
-      (current) => ({
-        ...current,
-        orders: current.orders.map((order) => (order.id === orderId ? { ...order, dispatchStatus: nextStatus } : order)),
-        auditEvents: [
-          audit({ actor, entityType: "dispatch_order", entityId: orderId, action: `status_${nextStatus}`, reason }),
-          ...current.auditEvents
-        ]
-      }),
-      `Đã cập nhật ${targetOrder.code}: ${dispatchLabels[nextStatus]}.`
-    );
+    runCommand("dispatch.update_status", (current) => updateDispatchStatusCommand(current, orderId, nextStatus, reason, actor, audit), `Đã cập nhật ${targetOrder.code}: ${dispatchLabels[nextStatus]}.`);
     if (nextStatus === "completed") {
       notify({ audience: "accountant", title: "Chuyến đã hoàn thành", body: `${targetOrder.code} sẵn sàng đối soát.`, entityId: orderId });
     }
@@ -965,40 +1016,33 @@ export default function OpsApp() {
     }
 
     const reason = String(form.get("editReason") || "Update order").trim();
-    mutate(
-      (current) => ({
-        ...current,
-        orders: current.orders.map((order) =>
-          order.id === selectedOrder.id
-            ? {
-                ...order,
-                customerName: String(form.get("customerName") || "").trim(),
-                contactName: String(form.get("contactName") || "").trim() || undefined,
-                contactPhone: String(form.get("contactPhone") || "").trim(),
-                pickup: String(form.get("pickup") || "").trim(),
-                dropoff: String(form.get("dropoff") || "").trim(),
-                serviceLabel: String(form.get("serviceLabel") || "").trim(),
-                startAt: nextStartAt,
-                endAt: nextEndAt,
-                amountDue,
-                driverCost,
-                vehicleCost,
-                otherCost,
-                quoteNote: String(form.get("quoteNote") || "").trim() || undefined,
-                priority: String(form.get("priority") || "normal") as DispatchPriority,
-                salesNote: String(form.get("salesNote") || "").trim() || undefined,
-                changedNearStart: order.startAt !== nextStartAt || order.endAt !== nextEndAt ? true : order.changedNearStart
-              }
-            : order
+    runCommand(
+      "order.update_details",
+      (current) =>
+        updateOrderDetails(
+          current,
+          selectedOrder.id,
+          {
+            customerName: String(form.get("customerName") || "").trim(),
+            contactName: String(form.get("contactName") || "").trim() || undefined,
+            contactPhone: String(form.get("contactPhone") || "").trim(),
+            pickup: String(form.get("pickup") || "").trim(),
+            dropoff: String(form.get("dropoff") || "").trim(),
+            serviceLabel: String(form.get("serviceLabel") || "").trim(),
+            startAt: nextStartAt,
+            endAt: nextEndAt,
+            amountDue,
+            driverCost,
+            vehicleCost,
+            otherCost,
+            quoteNote: String(form.get("quoteNote") || "").trim() || undefined,
+            priority: String(form.get("priority") || "normal") as DispatchPriority,
+            salesNote: String(form.get("salesNote") || "").trim() || undefined
+          },
+          activeAssignment?.id,
+          reason,
+          audit
         ),
-        assignments: current.assignments.map((assignment) =>
-          assignment.id === activeAssignment?.id ? { ...assignment, startAt: nextStartAt, endAt: nextEndAt, replaceReason: reason } : assignment
-        ),
-        auditEvents: [
-          audit({ actor: roleLabels[currentRole], entityType: "dispatch_order", entityId: selectedOrder.id, action: "updated_order", reason }),
-          ...current.auditEvents
-        ]
-      }),
       `Đã cập nhật lệnh ${selectedOrder.code}.`
     );
   }
@@ -1018,22 +1062,7 @@ export default function OpsApp() {
       return;
     }
 
-    mutate(
-      (current) => ({
-        ...current,
-        orders: current.orders.map((order) =>
-          order.id === selectedOrder.id ? { ...order, orderStatus: "cancelled", dispatchStatus: "cancelled" } : order
-        ),
-        assignments: current.assignments.map((assignment) =>
-          assignment.dispatchOrderId === selectedOrder.id && assignment.status === "active" ? { ...assignment, status: "cancelled" as const, replaceReason: reason } : assignment
-        ),
-        auditEvents: [
-          audit({ actor: roleLabels[currentRole], entityType: "dispatch_order", entityId: selectedOrder.id, action: "cancelled_order", reason }),
-          ...current.auditEvents
-        ]
-      }),
-      `Đã hủy lệnh ${selectedOrder.code}.`
-    );
+    runCommand("order.cancel", (current) => cancelOrderCommand(current, selectedOrder.id, reason, roleLabels[currentRole], audit), `Đã hủy lệnh ${selectedOrder.code}.`);
     event.currentTarget.reset();
   }
 
@@ -1052,23 +1081,7 @@ export default function OpsApp() {
       setMessage("Chi phí thực tế không được âm.");
       return;
     }
-    mutate(
-      (current) => ({
-        ...current,
-        orders: current.orders.map((order) => order.id === selectedOrder.id ? {
-          ...order,
-          actualDriverCost,
-          actualVehicleCost,
-          actualOtherCost,
-          actualCostNote: String(form.get("actualCostNote") || "").trim() || undefined
-        } : order),
-        auditEvents: [
-          audit({ actor: roleLabels[currentRole], entityType: "dispatch_order", entityId: selectedOrder.id, action: "updated_actual_costs", reason: money(actualDriverCost + actualVehicleCost + actualOtherCost) }),
-          ...current.auditEvents
-        ]
-      }),
-      `Đã cập nhật chi phí thực tế cho ${selectedOrder.code}.`
-    );
+    runCommand("finance.update_actual_costs", (current) => updateActualCostsCommand(current, selectedOrder.id, { actualDriverCost, actualVehicleCost, actualOtherCost, actualCostNote: String(form.get("actualCostNote") || "").trim() || undefined }, audit), `Đã cập nhật chi phí thực tế cho ${selectedOrder.code}.`);
   }
 
   function recordPayment(event: FormEvent<HTMLFormElement>) {
@@ -1097,18 +1110,7 @@ export default function OpsApp() {
     const orderPayments = nextPayments.filter((item) => item.orderId === selectedOrder.id);
     const paymentStatus = calculatePaymentStatus(selectedOrder.amountDue, orderPayments);
 
-    mutate(
-      (current) => ({
-        ...current,
-        payments: nextPayments,
-        orders: current.orders.map((order) => (order.id === selectedOrder.id ? { ...order, paymentStatus } : order)),
-        auditEvents: [
-          audit({ actor: "Accountant", entityType: "payment", entityId: payment.id, action: "recorded_payment", reason: money(amount) }),
-          ...current.auditEvents
-        ]
-      }),
-      `Đã ghi nhận ${money(amount)} cho ${selectedOrder.code}.`
-    );
+    runCommand("finance.record_payment", (current) => recordPaymentCommand(current, payment, selectedOrder.id, paymentStatus, audit), `Đã ghi nhận ${money(amount)} cho ${selectedOrder.code}.`);
     event.currentTarget.reset();
   }
 
@@ -1118,17 +1120,7 @@ export default function OpsApp() {
       setMessage(`${roleLabels[currentRole]} không có quyền cập nhật hóa đơn.`);
       return;
     }
-    mutate(
-      (current) => ({
-        ...current,
-        orders: current.orders.map((order) => (order.id === selectedOrder.id ? { ...order, invoiceStatus: nextStatus } : order)),
-        auditEvents: [
-          audit({ actor: "Accountant", entityType: "invoice", entityId: selectedOrder.id, action: `invoice_${nextStatus}` }),
-          ...current.auditEvents
-        ]
-      }),
-      `Đã cập nhật hóa đơn ${selectedOrder.code}: ${invoiceLabels[nextStatus]}.`
-    );
+    runCommand("finance.update_invoice", (current) => updateInvoiceStatusCommand(current, selectedOrder.id, nextStatus, audit), `Đã cập nhật hóa đơn ${selectedOrder.code}: ${invoiceLabels[nextStatus]}.`);
   }
 
   function reconcileOrder() {
@@ -1145,17 +1137,7 @@ export default function OpsApp() {
       setMessage("Lệnh còn công nợ. Cần thanh toán đủ hoặc thêm luồng close_with_debt có duyệt.");
       return;
     }
-    mutate(
-      (current) => ({
-        ...current,
-        orders: current.orders.map((order) => (order.id === selectedOrder.id ? { ...order, reconciliationStatus: "closed" } : order)),
-        auditEvents: [
-          audit({ actor: "Accountant", entityType: "reconciliation", entityId: selectedOrder.id, action: "closed_order" }),
-          ...current.auditEvents
-        ]
-      }),
-      `Đã đối soát và đóng ${selectedOrder.code}.`
-    );
+    runCommand("finance.close_order", (current) => closeOrder(current, selectedOrder.id, audit), `Đã đối soát và đóng ${selectedOrder.code}.`);
   }
 
   function createVehicle(event: FormEvent<HTMLFormElement>) {
@@ -1173,17 +1155,7 @@ export default function OpsApp() {
       status: String(form.get("status") || "active") as Vehicle["status"]
     };
 
-    mutate(
-      (current) => ({
-        ...current,
-        vehicles: [vehicle, ...current.vehicles],
-        auditEvents: [
-          audit({ actor: "Admin", entityType: "vehicle", entityId: vehicle.id, action: "created_vehicle", reason: vehicle.plateNo }),
-          ...current.auditEvents
-        ]
-      }),
-      `Đã thêm xe ${vehicle.plateNo}.`
-    );
+    runCommand("master.create_vehicle", (current) => createVehicleCommand(current, vehicle, audit), `Đã thêm xe ${vehicle.plateNo}.`);
     event.currentTarget.reset();
   }
 
@@ -1201,17 +1173,7 @@ export default function OpsApp() {
       status: String(form.get("status") || "active") as Driver["status"]
     };
 
-    mutate(
-      (current) => ({
-        ...current,
-        drivers: [driver, ...current.drivers],
-        auditEvents: [
-          audit({ actor: "Admin", entityType: "driver", entityId: driver.id, action: "created_driver", reason: driver.fullName }),
-          ...current.auditEvents
-        ]
-      }),
-      `Đã thêm tài xế ${driver.fullName}.`
-    );
+    runCommand("master.create_driver", (current) => createDriverCommand(current, driver, audit), `Đã thêm tài xế ${driver.fullName}.`);
     event.currentTarget.reset();
   }
 
@@ -1236,17 +1198,7 @@ export default function OpsApp() {
       status: "active"
     };
 
-    mutate(
-      (current) => ({
-        ...current,
-        customers: [customer, ...current.customers],
-        auditEvents: [
-          audit({ actor: "Sale", entityType: "customer", entityId: customer.id, action: "created_customer", reason: customer.phone }),
-          ...current.auditEvents
-        ]
-      }),
-      `Đã thêm khách cá nhân ${customer.fullName}.`
-    );
+    runCommand("customer.create", (current) => createCustomerCommand(current, customer, audit), `Đã thêm khách cá nhân ${customer.fullName}.`);
     event.currentTarget.reset();
   }
 
@@ -1281,19 +1233,7 @@ export default function OpsApp() {
       isPrimary: true
     };
 
-    mutate(
-      (current) => ({
-        ...current,
-        companies: [company, ...current.companies],
-        companyContacts: [contact, ...current.companyContacts],
-        auditEvents: [
-          audit({ actor: "Sale", entityType: "company", entityId: company.id, action: "created_company", reason: company.taxCode }),
-          audit({ actor: "Sale", entityType: "company_contact", entityId: contact.id, action: "created_company_contact", reason: contact.phone }),
-          ...current.auditEvents
-        ]
-      }),
-      `Đã thêm doanh nghiệp ${company.legalName}.`
-    );
+    runCommand("company.create", (current) => createCompanyCommand(current, company, contact, audit), `Đã thêm doanh nghiệp ${company.legalName}.`);
     event.currentTarget.reset();
   }
 
@@ -1301,6 +1241,28 @@ export default function OpsApp() {
     setState(initialState);
     setSelectedOrderId(seedOrders[2]?.id ?? seedOrders[0]?.id);
     setMessage(repository.mode === "supabase" ? "Đã reset dữ liệu Supabase về seed ban đầu." : "Đã reset dữ liệu pilot về seed ban đầu.");
+  }
+
+  if (supabaseConfigured && (!persistenceReady || !authReady)) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-panel p-6">
+        <div className="border border-line bg-white px-5 py-4 text-sm text-slate-600 shadow-sm">Đang tải dữ liệu và xác thực...</div>
+      </main>
+    );
+  }
+
+  if (supabaseConfigured && authReady && !roleState) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-panel p-6">
+        <div className="w-full max-w-md border border-line bg-white p-5 shadow-sm">
+          <h1 className="text-xl font-semibold text-ink">Cần đăng nhập</h1>
+          <p className="mt-2 text-sm text-slate-600">Bạn chưa có phiên đăng nhập hợp lệ. Vui lòng qua màn hình Auth để tiếp tục.</p>
+          <Link className="mt-4 inline-flex h-10 items-center justify-center rounded-md bg-brand px-4 text-sm font-semibold text-white" href="/auth">
+            Mở Auth
+          </Link>
+        </div>
+      </main>
+    );
   }
 
   return (
@@ -1340,11 +1302,7 @@ export default function OpsApp() {
               <Badge tone={supabaseConfigured ? "good" : "info"}>{supabaseConfigured ? "Supabase config ready" : "Local demo mode"}</Badge>
               <Badge tone="info">{authLabel}</Badge>
               <Badge tone="good">Audit on</Badge>
-              <select className={`${inputClass()} w-36`} onChange={(event) => setCurrentRole(event.target.value as AppRole)} value={currentRole}>
-                {(Object.keys(roleLabels) as AppRole[]).map((role) => (
-                  <option key={role} value={role}>{roleLabels[role]}</option>
-                ))}
-              </select>
+              <Badge tone="info">{roleLabels[currentRole]}</Badge>
               <div className="relative">
                 <button className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700" type="button"><Bell size={16} /> {visibleNotifications.length}</button>
                 {visibleNotifications.length > 0 && (
