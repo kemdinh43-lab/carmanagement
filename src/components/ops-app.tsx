@@ -28,7 +28,8 @@ import {
   UsersRound
 } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import type * as Leaflet from "leaflet";
 import {
   assignments as seedAssignments,
   auditEvents as seedAuditEvents,
@@ -214,24 +215,7 @@ function resolveStaticLocation(value: string, kind: StaticPinKind): StaticPinPoi
 function buildStaticPinPoints(order: DispatchOrder) {
   const pickup = resolveStaticLocation(order.pickup, "pickup");
   const dropoff = resolveStaticLocation(order.dropoff, "dropoff");
-  const minLat = Math.min(pickup.lat, dropoff.lat);
-  const maxLat = Math.max(pickup.lat, dropoff.lat);
-  const minLng = Math.min(pickup.lng, dropoff.lng);
-  const maxLng = Math.max(pickup.lng, dropoff.lng);
-  const latPad = Math.max((maxLat - minLat) * 0.2, 0.015);
-  const lngPad = Math.max((maxLng - minLng) * 0.2, 0.02);
-  const bounds = {
-    minLat: minLat - latPad,
-    maxLat: maxLat + latPad,
-    minLng: minLng - lngPad,
-    maxLng: maxLng + lngPad
-  };
-
-  return [pickup, dropoff].map((point) => {
-    const x = ((point.lng - bounds.minLng) / Math.max(bounds.maxLng - bounds.minLng, 0.0001)) * 100;
-    const y = (1 - (point.lat - bounds.minLat) / Math.max(bounds.maxLat - bounds.minLat, 0.0001)) * 100;
-    return { ...point, x: Math.min(90, Math.max(10, x)), y: Math.min(88, Math.max(12, y)) };
-  });
+  return [pickup, dropoff];
 }
 
 function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
@@ -244,6 +228,34 @@ function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: num
     Math.sin(deltaLat / 2) ** 2 +
     Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) ** 2;
   return 2 * earth * Math.asin(Math.sqrt(h));
+}
+
+function createPinIcon(leaflet: typeof import("leaflet"), kind: StaticPinKind, active: boolean) {
+  const isPickup = kind === "pickup";
+  const fill = isPickup ? "#0f766e" : "#f97316";
+  const border = active ? "#ffffff" : "rgba(255,255,255,0.92)";
+  return leaflet.divIcon({
+    className: "",
+    html: `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:4px;transform:translateY(-2px);">
+        <div style="
+          width:42px;height:42px;border-radius:9999px;background:${fill};
+          border:3px solid ${border};box-shadow:0 10px 24px rgba(15,23,42,.28);
+          display:grid;place-items:center;color:white;font-weight:700;font-size:12px;
+        ">
+          ${isPickup ? "P" : "D"}
+        </div>
+        <div style="
+          background:rgba(255,255,255,.96);border:1px solid rgba(148,163,184,.4);
+          border-radius:9999px;padding:2px 8px;font-size:11px;font-weight:700;
+          color:${fill};box-shadow:0 4px 10px rgba(15,23,42,.1);
+        ">${isPickup ? "Pickup" : "Dropoff"}</div>
+      </div>
+    `,
+    iconSize: [42, 54],
+    iconAnchor: [21, 52],
+    popupAnchor: [0, -50]
+  });
 }
 
 function Badge({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "good" | "warn" | "danger" | "info" }) {
@@ -319,7 +331,93 @@ function StaticPinMap({ compact = false, order }: { compact?: boolean; order: Di
   const [activeKind, setActiveKind] = useState<StaticPinKind>("pickup");
   const activePoint = points.find((point) => point.kind === activeKind) ?? points[0];
   const distanceKm = Math.round(haversineKm(points[0], points[1]) * 10) / 10;
-  const mapId = `static-map-${order.id}`;
+  const mapNodeRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<Leaflet.Map | null>(null);
+  const layerRef = useRef<Leaflet.LayerGroup | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      const leaflet = await import("leaflet");
+      if (cancelled || !mapNodeRef.current || mapRef.current) return;
+
+      const map = leaflet.map(mapNodeRef.current, {
+        scrollWheelZoom: false,
+        zoomControl: true
+      });
+      leaflet
+        .tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors'
+        })
+        .addTo(map);
+      layerRef.current = leaflet.layerGroup().addTo(map);
+      mapRef.current = map;
+    })();
+
+    return () => {
+      cancelled = true;
+      mapRef.current?.remove();
+      mapRef.current = null;
+      layerRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const layer = layerRef.current;
+    if (!map || !layer) return;
+
+    let cancelled = false;
+
+    (async () => {
+      const leaflet = await import("leaflet");
+      if (cancelled) return;
+
+      layer.clearLayers();
+
+      const route = leaflet.polyline(points.map((point) => [point.lat, point.lng] as [number, number]), {
+        color: "#0f766e",
+        weight: 4,
+        opacity: 0.75
+      }).addTo(layer);
+
+      const markerList = points.map((point) => {
+        const marker = leaflet.marker([point.lat, point.lng], {
+          icon: createPinIcon(leaflet, point.kind, activeKind === point.kind)
+        })
+          .addTo(layer)
+          .bindPopup(`
+            <div style="min-width:220px;line-height:1.45">
+              <div style="font-size:11px;font-weight:700;letter-spacing:.04em;color:#64748b;text-transform:uppercase">${point.kind === "pickup" ? "Điểm đón" : "Điểm trả"}</div>
+              <div style="font-size:14px;font-weight:700;color:#0f172a;margin-top:2px">${point.label}</div>
+              <div style="font-size:13px;color:#475569;margin-top:2px">${point.address}</div>
+              <div style="font-size:12px;color:#64748b;margin-top:2px">${point.note}</div>
+              <div style="margin-top:8px;font-size:12px;color:#475569">
+                <div><strong>Khách:</strong> ${order.contactName || order.customerName}</div>
+                <div><strong>SĐT:</strong> ${order.contactPhone}</div>
+                <div><strong>Giờ:</strong> ${formatDateTime(order.startAt)} - ${formatDateTime(order.endAt)}</div>
+                <div><strong>Ghi chú:</strong> ${order.salesNote || order.quoteNote || "Không có"}</div>
+              </div>
+            </div>
+          `);
+        marker.on("click", () => setActiveKind(point.kind));
+        return marker;
+      });
+
+      if (markerList.length === 2) {
+        map.fitBounds(route.getBounds(), { padding: [36, 36], maxZoom: 14 });
+      } else {
+        map.setView([points[0].lat, points[0].lng], 12);
+      }
+
+      markerList.find((marker, index) => points[index]?.kind === activeKind)?.openPopup();
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeKind, order.contactName, order.contactPhone, order.customerName, order.quoteNote, order.salesNote, order.startAt, order.endAt, points]);
 
   return (
     <section className="border border-line bg-panel p-3">
@@ -332,51 +430,14 @@ function StaticPinMap({ compact = false, order }: { compact?: boolean; order: Di
       </div>
 
       <div className={`relative mt-3 overflow-hidden rounded-lg border border-line bg-slate-100 ${compact ? "h-56" : "h-72"}`}>
-        <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(15,118,110,0.10)_0%,rgba(255,255,255,0.86)_38%,rgba(14,165,233,0.12)_100%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.75),transparent_34%),radial-gradient(circle_at_80%_18%,rgba(255,255,255,0.55),transparent_28%)]" />
-        <svg aria-hidden="true" className="absolute inset-0 h-full w-full" preserveAspectRatio="none" viewBox="0 0 100 100">
-          <defs>
-            <linearGradient id={mapId} x1="0%" x2="100%" y1="0%" y2="100%">
-              <stop offset="0%" stopColor="#0f766e" stopOpacity="0.9" />
-              <stop offset="100%" stopColor="#0891b2" stopOpacity="0.9" />
-            </linearGradient>
-          </defs>
-          <path d="M8 20 C 22 12, 34 10, 50 16 S 80 22, 92 14" fill="none" stroke="rgba(148,163,184,0.35)" strokeWidth="2" />
-          <path d="M10 72 C 24 66, 38 64, 52 68 S 76 74, 90 66" fill="none" stroke="rgba(148,163,184,0.28)" strokeWidth="2" />
-          <path d="M18 10 C 20 28, 22 46, 24 88" fill="none" stroke="rgba(148,163,184,0.22)" strokeWidth="1.5" strokeDasharray="3 4" />
-          <line x1={points[0].x} x2={points[1].x} y1={points[0].y} y2={points[1].y} stroke={`url(#${mapId})`} strokeWidth="2.5" />
-          <circle cx={points[0].x} cy={points[0].y} fill="rgba(15,118,110,0.18)" r="10" />
-          <circle cx={points[1].x} cy={points[1].y} fill="rgba(249,115,22,0.18)" r="10" />
-        </svg>
+        <div ref={mapNodeRef} className="h-full w-full" />
 
-        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.12)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.12)_1px,transparent_1px)] bg-[size:24px_24px] opacity-60" />
-
-        {points.map((point) => {
-          const active = point.kind === activeKind;
-          const isPickup = point.kind === "pickup";
-
-          return (
-            <button
-              className={`absolute z-20 flex -translate-x-1/2 -translate-y-full flex-col items-center gap-1 rounded-md px-1 py-1 text-[11px] font-semibold transition ${active ? "scale-110" : "scale-100"}`}
-              key={point.kind}
-              onClick={() => setActiveKind(point.kind)}
-              style={{ left: `${point.x}%`, top: `${point.y}%` }}
-              type="button"
-            >
-              <span className={`grid size-8 place-items-center rounded-full border-2 ${isPickup ? "border-brand bg-brand text-white" : "border-orange-500 bg-orange-500 text-white"} shadow-lg`}>
-                {isPickup ? <MapPin size={16} /> : <Navigation size={16} />}
-              </span>
-              <span className={`rounded-full px-2 py-0.5 shadow-sm ${isPickup ? "bg-teal-50 text-brand" : "bg-orange-50 text-orange-700"}`}>{isPickup ? "Pickup" : "Dropoff"}</span>
-            </button>
-          );
-        })}
-
-        <div className="absolute left-3 right-3 top-3 z-10 flex items-center justify-between gap-2 text-xs text-slate-600">
-          <span className="rounded-full border border-line bg-white/90 px-2 py-1 shadow-sm">Static pinning</span>
+        <div className="absolute left-3 right-3 top-3 z-[500] flex items-center justify-between gap-2 text-xs text-slate-600 pointer-events-none">
+          <span className="rounded-full border border-line bg-white/90 px-2 py-1 shadow-sm">Real map</span>
           <span className="rounded-full border border-line bg-white/90 px-2 py-1 shadow-sm">{order.serviceLabel}</span>
         </div>
 
-        <div className="absolute bottom-3 left-3 z-20 max-w-[min(19rem,calc(100%-1.5rem))] rounded-lg border border-line bg-white p-3 shadow-lg">
+        <div className="absolute bottom-3 left-3 z-[500] max-w-[min(19rem,calc(100%-1.5rem))] rounded-lg border border-line bg-white p-3 shadow-lg">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{activePoint.kind === "pickup" ? "Điểm đón" : "Điểm trả"}</p>
           <p className="mt-1 text-sm font-semibold text-ink">{activePoint.label}</p>
           <p className="mt-1 text-sm text-slate-600">{activePoint.address}</p>
@@ -389,7 +450,7 @@ function StaticPinMap({ compact = false, order }: { compact?: boolean; order: Di
           </div>
         </div>
 
-        <div className="absolute bottom-3 right-3 z-20 rounded-full border border-line bg-white/90 px-2 py-1 text-[11px] font-semibold text-slate-600 shadow-sm">
+        <div className="absolute bottom-3 right-3 z-[500] rounded-full border border-line bg-white/90 px-2 py-1 text-[11px] font-semibold text-slate-600 shadow-sm pointer-events-none">
           {points.length === 2 ? "2 ghim cố định" : "Định vị tĩnh"}
         </div>
       </div>
