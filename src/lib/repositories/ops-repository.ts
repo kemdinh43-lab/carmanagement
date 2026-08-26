@@ -149,8 +149,24 @@ async function saveSnapshotFallback(state: OpsState) {
 
 async function insertTable(supabase: SupabaseTableClient, table: AppTable, rows: Record<string, unknown>[]) {
   if (rows.length === 0) return;
-  const { error } = await supabase.from(table).upsert(rows);
-  if (error) throw new Error(`${table}: ${error.message}`);
+  let payload = rows;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const { error } = await supabase.from(table).upsert(payload);
+    if (!error) return;
+    const missingColumn = missingColumnFromError(error.message);
+    if (!missingColumn) throw new Error(`${table}: ${error.message}`);
+    payload = payload.map((row) => {
+      const next = { ...row };
+      delete next[missingColumn];
+      return next;
+    });
+  }
+  throw new Error(`${table}: failed to upsert after removing unsupported columns`);
+}
+
+function missingColumnFromError(message: string) {
+  const match = message.match(/Could not find the '([^']+)' column of '([^']+)' in the schema cache/);
+  return match?.[1] ?? null;
 }
 
 function text(row: Record<string, unknown>, key: string) {

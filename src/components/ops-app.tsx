@@ -28,8 +28,7 @@ import {
   UsersRound
 } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import type * as Leaflet from "leaflet";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   assignments as seedAssignments,
   auditEvents as seedAuditEvents,
@@ -230,34 +229,6 @@ function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: num
   return 2 * earth * Math.asin(Math.sqrt(h));
 }
 
-function createPinIcon(leaflet: typeof import("leaflet"), kind: StaticPinKind, active: boolean) {
-  const isPickup = kind === "pickup";
-  const fill = isPickup ? "#0f766e" : "#f97316";
-  const border = active ? "#ffffff" : "rgba(255,255,255,0.92)";
-  return leaflet.divIcon({
-    className: "",
-    html: `
-      <div style="display:flex;flex-direction:column;align-items:center;gap:4px;transform:translateY(-2px);">
-        <div style="
-          width:42px;height:42px;border-radius:9999px;background:${fill};
-          border:3px solid ${border};box-shadow:0 10px 24px rgba(15,23,42,.28);
-          display:grid;place-items:center;color:white;font-weight:700;font-size:12px;
-        ">
-          ${isPickup ? "P" : "D"}
-        </div>
-        <div style="
-          background:rgba(255,255,255,.96);border:1px solid rgba(148,163,184,.4);
-          border-radius:9999px;padding:2px 8px;font-size:11px;font-weight:700;
-          color:${fill};box-shadow:0 4px 10px rgba(15,23,42,.1);
-        ">${isPickup ? "Pickup" : "Dropoff"}</div>
-      </div>
-    `,
-    iconSize: [42, 54],
-    iconAnchor: [21, 52],
-    popupAnchor: [0, -50]
-  });
-}
-
 function Badge({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "good" | "warn" | "danger" | "info" }) {
   const toneClass = {
     neutral: "border-slate-200 bg-white text-slate-700",
@@ -328,136 +299,97 @@ function orderStatusTone(status: DispatchOrder["orderStatus"]): "neutral" | "inf
 
 function StaticPinMap({ compact = false, order }: { compact?: boolean; order: DispatchOrder }) {
   const points = useMemo(() => buildStaticPinPoints(order), [order]);
-  const [activeKind, setActiveKind] = useState<StaticPinKind>("pickup");
-  const activePoint = points.find((point) => point.kind === activeKind) ?? points[0];
-  const distanceKm = Math.round(haversineKm(points[0], points[1]) * 10) / 10;
-  const mapNodeRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<Leaflet.Map | null>(null);
-  const layerRef = useRef<Leaflet.LayerGroup | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      const leaflet = await import("leaflet");
-      if (cancelled || !mapNodeRef.current || mapRef.current) return;
-
-      const map = leaflet.map(mapNodeRef.current, {
-        scrollWheelZoom: false,
-        zoomControl: true
-      });
-      leaflet
-        .tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors'
-        })
-        .addTo(map);
-      layerRef.current = leaflet.layerGroup().addTo(map);
-      mapRef.current = map;
-    })();
-
-    return () => {
-      cancelled = true;
-      mapRef.current?.remove();
-      mapRef.current = null;
-      layerRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    const layer = layerRef.current;
-    if (!map || !layer) return;
-
-    let cancelled = false;
-
-    (async () => {
-      const leaflet = await import("leaflet");
-      if (cancelled) return;
-
-      layer.clearLayers();
-
-      const route = leaflet.polyline(points.map((point) => [point.lat, point.lng] as [number, number]), {
-        color: "#0f766e",
-        weight: 4,
-        opacity: 0.75
-      }).addTo(layer);
-
-      const markerList = points.map((point) => {
-        const marker = leaflet.marker([point.lat, point.lng], {
-          icon: createPinIcon(leaflet, point.kind, activeKind === point.kind)
-        })
-          .addTo(layer)
-          .bindPopup(`
-            <div style="min-width:220px;line-height:1.45">
-              <div style="font-size:11px;font-weight:700;letter-spacing:.04em;color:#64748b;text-transform:uppercase">${point.kind === "pickup" ? "Điểm đón" : "Điểm trả"}</div>
-              <div style="font-size:14px;font-weight:700;color:#0f172a;margin-top:2px">${point.label}</div>
-              <div style="font-size:13px;color:#475569;margin-top:2px">${point.address}</div>
-              <div style="font-size:12px;color:#64748b;margin-top:2px">${point.note}</div>
-              <div style="margin-top:8px;font-size:12px;color:#475569">
-                <div><strong>Khách:</strong> ${order.contactName || order.customerName}</div>
-                <div><strong>SĐT:</strong> ${order.contactPhone}</div>
-                <div><strong>Giờ:</strong> ${formatDateTime(order.startAt)} - ${formatDateTime(order.endAt)}</div>
-                <div><strong>Ghi chú:</strong> ${order.salesNote || order.quoteNote || "Không có"}</div>
-              </div>
-            </div>
-          `);
-        marker.on("click", () => setActiveKind(point.kind));
-        return marker;
-      });
-
-      if (markerList.length === 2) {
-        map.fitBounds(route.getBounds(), { padding: [36, 36], maxZoom: 14 });
-      } else {
-        map.setView([points[0].lat, points[0].lng], 12);
-      }
-
-      markerList.find((marker, index) => points[index]?.kind === activeKind)?.openPopup();
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeKind, order.contactName, order.contactPhone, order.customerName, order.quoteNote, order.salesNote, order.startAt, order.endAt, points]);
+  const routeUrl = useMemo(
+    () =>
+      `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(order.pickup)}&destination=${encodeURIComponent(order.dropoff)}&travelmode=driving`,
+    [order.dropoff, order.pickup]
+  );
+  const pickupUrl = useMemo(() => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.pickup)}`, [order.pickup]);
+  const dropoffUrl = useMemo(() => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.dropoff)}`, [order.dropoff]);
+  const estimatedDistance = Math.round(haversineKm(points[0], points[1]) * 10) / 10;
 
   return (
-    <section className="border border-line bg-panel p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <section className="border border-line bg-white p-3 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2">
         <div>
-          <p className="text-sm font-semibold text-ink">Ghim điểm đón / trả cố định</p>
-          <p className="text-xs text-slate-500">Bấm vào ghim để xem popup thông tin khách</p>
+          <p className="text-sm font-semibold text-ink">Thông tin chuyến</p>
+          <p className="text-xs text-slate-500">Mở tuyến đường trên Google Maps, không dùng bản đồ nhúng</p>
         </div>
-        <Badge tone="info">{distanceKm} km gợi ý</Badge>
+        <Badge tone="info">{estimatedDistance} km gợi ý</Badge>
       </div>
 
-      <div className={`relative mt-3 overflow-hidden rounded-lg border border-line bg-slate-100 ${compact ? "h-56" : "h-72"}`}>
-        <div ref={mapNodeRef} className="h-full w-full" />
-
-        <div className="absolute left-3 right-3 top-3 z-[500] flex items-center justify-between gap-2 text-xs text-slate-600 pointer-events-none">
-          <span className="rounded-full border border-line bg-white/90 px-2 py-1 shadow-sm">Real map</span>
-          <span className="rounded-full border border-line bg-white/90 px-2 py-1 shadow-sm">{order.serviceLabel}</span>
-        </div>
-
-        <div className="absolute bottom-3 left-3 z-[500] max-w-[min(19rem,calc(100%-1.5rem))] rounded-lg border border-line bg-white p-3 shadow-lg">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{activePoint.kind === "pickup" ? "Điểm đón" : "Điểm trả"}</p>
-          <p className="mt-1 text-sm font-semibold text-ink">{activePoint.label}</p>
-          <p className="mt-1 text-sm text-slate-600">{activePoint.address}</p>
-          <p className="mt-1 text-xs text-slate-500">{activePoint.note}</p>
-          <div className="mt-2 space-y-1 text-xs text-slate-600">
-            <p><span className="font-semibold text-slate-700">Khách:</span> {order.contactName || order.customerName}</p>
-            <p><span className="font-semibold text-slate-700">SĐT:</span> {order.contactPhone}</p>
-            <p><span className="font-semibold text-slate-700">Giờ:</span> {formatDateTime(order.startAt)} - {formatDateTime(order.endAt)}</p>
-            <p><span className="font-semibold text-slate-700">Ghi chú:</span> {order.salesNote || order.quoteNote || "Không có"}</p>
+      <div className={`mt-3 grid gap-3 ${compact ? "md:grid-cols-1" : "md:grid-cols-[1.2fr_0.8fr]"}`}>
+        <div className="rounded-lg border border-line bg-panel p-3">
+          <div className="space-y-2">
+            <div className="flex items-start gap-2">
+              <span className="mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
+                <MapPin size={14} />
+              </span>
+              <div>
+                <p className="text-xs font-semibold uppercase text-slate-500">Điểm đón</p>
+                <p className="font-semibold text-ink">{points[0].label}</p>
+                <p className="text-sm text-slate-600">{points[0].address}</p>
+                <p className="text-xs text-slate-500">{points[0].note}</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-orange-50 text-orange-600">
+                <Navigation size={14} />
+              </span>
+              <div>
+                <p className="text-xs font-semibold uppercase text-slate-500">Điểm trả</p>
+                <p className="font-semibold text-ink">{points[1].label}</p>
+                <p className="text-sm text-slate-600">{points[1].address}</p>
+                <p className="text-xs text-slate-500">{points[1].note}</p>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="absolute bottom-3 right-3 z-[500] rounded-full border border-line bg-white/90 px-2 py-1 text-[11px] font-semibold text-slate-600 shadow-sm pointer-events-none">
-          {points.length === 2 ? "2 ghim cố định" : "Định vị tĩnh"}
+        <div className="rounded-lg border border-line bg-white p-3">
+          <div className="space-y-2 text-sm">
+            <p className="flex items-center gap-2 text-slate-700">
+              <UserRound size={14} className="shrink-0 text-brand" />
+              <span className="min-w-0">
+                <span className="font-semibold">Khách:</span> {order.contactName || order.customerName}
+              </span>
+            </p>
+            <p className="flex items-center gap-2 text-slate-700">
+              <PhoneCall size={14} className="shrink-0 text-brand" />
+              <a className="font-semibold text-brand hover:underline" href={`tel:${order.contactPhone}`}>
+                {order.contactPhone}
+              </a>
+            </p>
+            <p className="flex items-center gap-2 text-slate-700">
+              <Clock3 size={14} className="shrink-0 text-brand" />
+              <span>{formatDateTime(order.startAt)} - {formatDateTime(order.endAt)}</span>
+            </p>
+            <p className="flex items-center gap-2 text-slate-700">
+              <Route size={14} className="shrink-0 text-brand" />
+              <span className="truncate">{order.serviceLabel}</span>
+            </p>
+            <p className="text-xs text-slate-500">{order.salesNote || order.quoteNote || "Không có ghi chú"}</p>
+          </div>
+
+          <div className="mt-3 grid gap-2">
+            <a
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-brand/90"
+              href={routeUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              <Route size={16} /> Mở tuyến đường Google Maps
+            </a>
+            <div className="grid grid-cols-2 gap-2">
+              <a className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50" href={pickupUrl} rel="noreferrer" target="_blank">
+                <MapPin size={16} /> Xem điểm đón
+              </a>
+              <a className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50" href={dropoffUrl} rel="noreferrer" target="_blank">
+                <Navigation size={16} /> Xem điểm trả
+              </a>
+            </div>
+          </div>
         </div>
-      </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-        <span className="inline-flex items-center gap-1 rounded-full border border-line bg-white px-2 py-1"><span className="size-2 rounded-full bg-brand" />Pickup</span>
-        <span className="inline-flex items-center gap-1 rounded-full border border-line bg-white px-2 py-1"><span className="size-2 rounded-full bg-orange-500" />Dropoff</span>
-        <span className="rounded-full border border-line bg-white px-2 py-1">Tổng quan nhanh cho điều hành và tài xế</span>
       </div>
     </section>
   );
