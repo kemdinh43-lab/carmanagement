@@ -71,7 +71,7 @@ export class SupabaseOpsRepository implements OpsRepository {
         selectTable(supabase, "app_audit_events")
       ]);
     } catch (error) {
-      if (isMissingRelationalTables(error)) return loadSnapshotFallback();
+      if (isMissingRelationalSchema(error)) return loadSnapshotFallback();
       throw error;
     }
 
@@ -109,7 +109,7 @@ export class SupabaseOpsRepository implements OpsRepository {
       await insertTable(supabase, "app_payments", state.payments.map(fromPayment));
       await insertTable(supabase, "app_audit_events", state.auditEvents.map(fromAuditEvent));
     } catch (error) {
-      if (!isMissingRelationalTables(error)) throw error;
+      if (!isMissingRelationalSchema(error)) throw error;
       await saveSnapshotFallback(state);
     }
   }
@@ -126,8 +126,8 @@ async function selectTable(supabase: SupabaseTableClient, table: AppTable) {
   return data ?? [];
 }
 
-function isMissingRelationalTables(error: unknown) {
-  return error instanceof Error && error.message.includes("Could not find the table");
+function isMissingRelationalSchema(error: unknown) {
+  return error instanceof Error && (error.message.includes("Could not find the table") || error.message.includes("Could not find the") || error.message.includes("schema cache"));
 }
 
 async function loadSnapshotFallback() {
