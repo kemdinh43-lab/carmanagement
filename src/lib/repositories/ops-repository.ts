@@ -57,6 +57,13 @@ export class SupabaseOpsRepository implements OpsRepository {
 
   async load() {
     const supabase = createSupabaseBrowserClient() as unknown as SupabaseTableClient;
+    try {
+      const snapshotState = await loadSnapshotState();
+      if (snapshotState) return snapshotState;
+    } catch (error) {
+      if (!isMissingRelationalSchema(error)) throw error;
+    }
+
     let rows: Awaited<ReturnType<typeof selectTable>>[];
     try {
       rows = await Promise.all([
@@ -99,19 +106,21 @@ export class SupabaseOpsRepository implements OpsRepository {
   async save(state: OpsState) {
     const supabase = createSupabaseBrowserClient() as unknown as SupabaseTableClient;
     try {
-      await insertTable(supabase, "app_customers", state.customers.map(fromCustomer));
-      await insertTable(supabase, "app_companies", state.companies.map(fromCompany));
-      await insertTable(supabase, "app_company_contacts", state.companyContacts.map(fromCompanyContact));
-      await insertTable(supabase, "app_vehicles", state.vehicles.map(fromVehicle));
-      await insertTable(supabase, "app_drivers", state.drivers.map(fromDriver));
-      await insertTable(supabase, "app_dispatch_orders", state.orders.map(fromOrder));
-      await insertTable(supabase, "app_dispatch_assignments", state.assignments.map(fromAssignment));
-      await insertTable(supabase, "app_payments", state.payments.map(fromPayment));
-      await insertTable(supabase, "app_audit_events", state.auditEvents.map(fromAuditEvent));
+      await replaceTable(supabase, "app_dispatch_assignments", state.assignments.map(fromAssignment));
+      await replaceTable(supabase, "app_payments", state.payments.map(fromPayment));
+      await replaceTable(supabase, "app_audit_events", state.auditEvents.map(fromAuditEvent));
+      await replaceTable(supabase, "app_dispatch_orders", state.orders.map(fromOrder));
+      await replaceTable(supabase, "app_company_contacts", state.companyContacts.map(fromCompanyContact));
+      await replaceTable(supabase, "app_drivers", state.drivers.map(fromDriver));
+      await replaceTable(supabase, "app_vehicles", state.vehicles.map(fromVehicle));
+      await replaceTable(supabase, "app_companies", state.companies.map(fromCompany));
+      await replaceTable(supabase, "app_customers", state.customers.map(fromCustomer));
     } catch (error) {
-      if (!isMissingRelationalSchema(error)) throw error;
-      await saveSnapshotFallback(state);
+      if (!isMissingRelationalSchema(error)) {
+        console.warn("Supabase relational save failed, falling back to snapshot.", error);
+      }
     }
+    await saveSnapshotState(state);
   }
 }
 
@@ -131,23 +140,29 @@ function isMissingRelationalSchema(error: unknown) {
 }
 
 async function loadSnapshotFallback() {
+  const snapshot = await loadSnapshotState();
+  if (snapshot) return snapshot;
+  await saveSnapshotState(initialOpsState);
+  return initialOpsState;
+}
+
+async function loadSnapshotState() {
   const supabase = createSupabaseBrowserClient() as unknown as SnapshotClient;
   const { data, error } = await supabase.from("ops_snapshots").select("state").eq("id", "default").maybeSingle();
   if (error) throw new Error(`ops_snapshots: ${error.message}`);
-  if (!data?.state) {
-    await saveSnapshotFallback(initialOpsState);
-    return initialOpsState;
-  }
+  if (!data?.state) return null;
   return data.state as unknown as OpsState;
 }
 
-async function saveSnapshotFallback(state: OpsState) {
+async function saveSnapshotState(state: OpsState) {
   const supabase = createSupabaseBrowserClient() as unknown as SnapshotClient;
   const { error } = await supabase.from("ops_snapshots").upsert({ id: "default", state });
   if (error) throw new Error(`ops_snapshots: ${error.message}`);
 }
 
-async function insertTable(supabase: SupabaseTableClient, table: AppTable, rows: Record<string, unknown>[]) {
+async function replaceTable(supabase: SupabaseTableClient, table: AppTable, rows: Record<string, unknown>[]) {
+  const { error: deleteError } = await supabase.from(table).delete().neq("id", "__never__");
+  if (deleteError) throw new Error(`${table}: ${deleteError.message}`);
   if (rows.length === 0) return;
   let payload = rows;
   for (let attempt = 0; attempt < 6; attempt += 1) {
