@@ -145,6 +145,107 @@ function normalizeState(state: OpsState): OpsState {
   };
 }
 
+type StaticPinKind = "pickup" | "dropoff";
+
+type StaticPinPoint = {
+  kind: StaticPinKind;
+  label: string;
+  address: string;
+  note: string;
+  lat: number;
+  lng: number;
+};
+
+const staticLocationRules: Array<{ aliases: string[]; label: string; note: string; lat: number; lng: number }> = [
+  { aliases: ["da nang airport", "sân bay da nang", "sân bay đà nẵng", "airport"], label: "Da Nang Airport", note: "Sân bay / điểm đón nhanh", lat: 16.0439, lng: 108.1992 },
+  { aliases: ["four seasons nam hai", "nam hai"], label: "Four Seasons Nam Hai", note: "Khu resort ven biển", lat: 15.9114, lng: 108.3459 },
+  { aliases: ["hyatt regency", "hyatt"], label: "Hyatt Regency Da Nang", note: "Khách sạn / điểm đón doanh nghiệp", lat: 16.0118, lng: 108.2663 },
+  { aliases: ["ba na hills", "ba na"], label: "Ba Na Hills", note: "Tuyến tham quan / ngoại thành", lat: 15.9951, lng: 107.9964 },
+  { aliases: ["intercontinental", "intercontinental da nang"], label: "InterContinental Da Nang", note: "Resort / tuyến khách cao cấp", lat: 16.0908, lng: 108.2519 },
+  { aliases: ["hoi an ancient town", "hoi an"], label: "Hoi An Ancient Town", note: "Phố cổ / điểm trả khách", lat: 15.8801, lng: 108.3386 },
+  { aliases: ["da nang", "danang"], label: "Da Nang", note: "Khu trung tâm thành phố", lat: 16.0544, lng: 108.2022 },
+  { aliases: ["hue"], label: "Hue", note: "Liên tỉnh / tuyến dài", lat: 16.4637, lng: 107.5909 },
+  { aliases: ["quy nhon"], label: "Quy Nhon", note: "Liên tỉnh / tuyến dài", lat: 13.7829, lng: 109.2194 }
+];
+
+function normalizeLocationText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hashString(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) hash = (hash << 5) - hash + value.charCodeAt(index);
+  return Math.abs(hash);
+}
+
+function baseLocationForText(value: string) {
+  const normalized = normalizeLocationText(value);
+  const match = staticLocationRules.find((rule) => rule.aliases.some((alias) => normalized.includes(alias)));
+  if (match) return { lat: match.lat, lng: match.lng };
+  if (normalized.includes("hue")) return { lat: 16.4637, lng: 107.5909 };
+  if (normalized.includes("quy nhon")) return { lat: 13.7829, lng: 109.2194 };
+  if (normalized.includes("hoi an")) return { lat: 15.8801, lng: 108.3386 };
+  return { lat: 16.0544, lng: 108.2022 };
+}
+
+function resolveStaticLocation(value: string, kind: StaticPinKind): StaticPinPoint {
+  const normalized = normalizeLocationText(value);
+  const match = staticLocationRules.find((rule) => rule.aliases.some((alias) => normalized.includes(alias)));
+  const base = match ?? { label: value || (kind === "pickup" ? "Điểm đón" : "Điểm trả"), note: kind === "pickup" ? "Điểm đón cố định" : "Điểm trả cố định", ...baseLocationForText(value) };
+  const seed = hashString(`${kind}:${normalized}`);
+  const latOffset = ((seed % 1000) / 1000 - 0.5) * 0.14;
+  const lngOffset = (((seed / 1000) % 1000) / 1000 - 0.5) * 0.18;
+
+  return {
+    kind,
+    label: base.label,
+    address: value,
+    note: base.note,
+    lat: base.lat + latOffset,
+    lng: base.lng + lngOffset
+  };
+}
+
+function buildStaticPinPoints(order: DispatchOrder) {
+  const pickup = resolveStaticLocation(order.pickup, "pickup");
+  const dropoff = resolveStaticLocation(order.dropoff, "dropoff");
+  const minLat = Math.min(pickup.lat, dropoff.lat);
+  const maxLat = Math.max(pickup.lat, dropoff.lat);
+  const minLng = Math.min(pickup.lng, dropoff.lng);
+  const maxLng = Math.max(pickup.lng, dropoff.lng);
+  const latPad = Math.max((maxLat - minLat) * 0.2, 0.015);
+  const lngPad = Math.max((maxLng - minLng) * 0.2, 0.02);
+  const bounds = {
+    minLat: minLat - latPad,
+    maxLat: maxLat + latPad,
+    minLng: minLng - lngPad,
+    maxLng: maxLng + lngPad
+  };
+
+  return [pickup, dropoff].map((point) => {
+    const x = ((point.lng - bounds.minLng) / Math.max(bounds.maxLng - bounds.minLng, 0.0001)) * 100;
+    const y = (1 - (point.lat - bounds.minLat) / Math.max(bounds.maxLat - bounds.minLat, 0.0001)) * 100;
+    return { ...point, x: Math.min(90, Math.max(10, x)), y: Math.min(88, Math.max(12, y)) };
+  });
+}
+
+function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const earth = 6371;
+  const lat1 = (a.lat * Math.PI) / 180;
+  const lat2 = (b.lat * Math.PI) / 180;
+  const deltaLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const deltaLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const h =
+    Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) ** 2;
+  return 2 * earth * Math.asin(Math.sqrt(h));
+}
+
 function Badge({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "good" | "warn" | "danger" | "info" }) {
   const toneClass = {
     neutral: "border-slate-200 bg-white text-slate-700",
@@ -211,6 +312,94 @@ function orderStatusTone(status: DispatchOrder["orderStatus"]): "neutral" | "inf
   if (status === "pending_dispatch_review") return "warn";
   if (status === "cancelled") return "danger";
   return "neutral";
+}
+
+function StaticPinMap({ compact = false, order }: { compact?: boolean; order: DispatchOrder }) {
+  const points = useMemo(() => buildStaticPinPoints(order), [order]);
+  const [activeKind, setActiveKind] = useState<StaticPinKind>("pickup");
+  const activePoint = points.find((point) => point.kind === activeKind) ?? points[0];
+  const distanceKm = Math.round(haversineKm(points[0], points[1]) * 10) / 10;
+  const mapId = `static-map-${order.id}`;
+
+  return (
+    <section className="border border-line bg-panel p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-ink">Ghim điểm đón / trả cố định</p>
+          <p className="text-xs text-slate-500">Bấm vào ghim để xem popup thông tin khách</p>
+        </div>
+        <Badge tone="info">{distanceKm} km gợi ý</Badge>
+      </div>
+
+      <div className={`relative mt-3 overflow-hidden rounded-lg border border-line bg-slate-100 ${compact ? "h-56" : "h-72"}`}>
+        <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(15,118,110,0.10)_0%,rgba(255,255,255,0.86)_38%,rgba(14,165,233,0.12)_100%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.75),transparent_34%),radial-gradient(circle_at_80%_18%,rgba(255,255,255,0.55),transparent_28%)]" />
+        <svg aria-hidden="true" className="absolute inset-0 h-full w-full" preserveAspectRatio="none" viewBox="0 0 100 100">
+          <defs>
+            <linearGradient id={mapId} x1="0%" x2="100%" y1="0%" y2="100%">
+              <stop offset="0%" stopColor="#0f766e" stopOpacity="0.9" />
+              <stop offset="100%" stopColor="#0891b2" stopOpacity="0.9" />
+            </linearGradient>
+          </defs>
+          <path d="M8 20 C 22 12, 34 10, 50 16 S 80 22, 92 14" fill="none" stroke="rgba(148,163,184,0.35)" strokeWidth="2" />
+          <path d="M10 72 C 24 66, 38 64, 52 68 S 76 74, 90 66" fill="none" stroke="rgba(148,163,184,0.28)" strokeWidth="2" />
+          <path d="M18 10 C 20 28, 22 46, 24 88" fill="none" stroke="rgba(148,163,184,0.22)" strokeWidth="1.5" strokeDasharray="3 4" />
+          <line x1={points[0].x} x2={points[1].x} y1={points[0].y} y2={points[1].y} stroke={`url(#${mapId})`} strokeWidth="2.5" />
+          <circle cx={points[0].x} cy={points[0].y} fill="rgba(15,118,110,0.18)" r="10" />
+          <circle cx={points[1].x} cy={points[1].y} fill="rgba(249,115,22,0.18)" r="10" />
+        </svg>
+
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.12)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.12)_1px,transparent_1px)] bg-[size:24px_24px] opacity-60" />
+
+        {points.map((point) => {
+          const active = point.kind === activeKind;
+          const isPickup = point.kind === "pickup";
+
+          return (
+            <button
+              className={`absolute z-20 flex -translate-x-1/2 -translate-y-full flex-col items-center gap-1 rounded-md px-1 py-1 text-[11px] font-semibold transition ${active ? "scale-110" : "scale-100"}`}
+              key={point.kind}
+              onClick={() => setActiveKind(point.kind)}
+              style={{ left: `${point.x}%`, top: `${point.y}%` }}
+              type="button"
+            >
+              <span className={`grid size-8 place-items-center rounded-full border-2 ${isPickup ? "border-brand bg-brand text-white" : "border-orange-500 bg-orange-500 text-white"} shadow-lg`}>
+                {isPickup ? <MapPin size={16} /> : <Navigation size={16} />}
+              </span>
+              <span className={`rounded-full px-2 py-0.5 shadow-sm ${isPickup ? "bg-teal-50 text-brand" : "bg-orange-50 text-orange-700"}`}>{isPickup ? "Pickup" : "Dropoff"}</span>
+            </button>
+          );
+        })}
+
+        <div className="absolute left-3 right-3 top-3 z-10 flex items-center justify-between gap-2 text-xs text-slate-600">
+          <span className="rounded-full border border-line bg-white/90 px-2 py-1 shadow-sm">Static pinning</span>
+          <span className="rounded-full border border-line bg-white/90 px-2 py-1 shadow-sm">{order.serviceLabel}</span>
+        </div>
+
+        <div className="absolute bottom-3 left-3 z-20 max-w-[min(19rem,calc(100%-1.5rem))] rounded-lg border border-line bg-white p-3 shadow-lg">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{activePoint.kind === "pickup" ? "Điểm đón" : "Điểm trả"}</p>
+          <p className="mt-1 text-sm font-semibold text-ink">{activePoint.label}</p>
+          <p className="mt-1 text-sm text-slate-600">{activePoint.address}</p>
+          <p className="mt-1 text-xs text-slate-500">{activePoint.note}</p>
+          <div className="mt-2 space-y-1 text-xs text-slate-600">
+            <p><span className="font-semibold text-slate-700">Khách:</span> {order.contactName || order.customerName}</p>
+            <p><span className="font-semibold text-slate-700">SĐT:</span> {order.contactPhone}</p>
+            <p><span className="font-semibold text-slate-700">Giờ:</span> {formatDateTime(order.startAt)} - {formatDateTime(order.endAt)}</p>
+            <p><span className="font-semibold text-slate-700">Ghi chú:</span> {order.salesNote || order.quoteNote || "Không có"}</p>
+          </div>
+        </div>
+
+        <div className="absolute bottom-3 right-3 z-20 rounded-full border border-line bg-white/90 px-2 py-1 text-[11px] font-semibold text-slate-600 shadow-sm">
+          {points.length === 2 ? "2 ghim cố định" : "Định vị tĩnh"}
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+        <span className="inline-flex items-center gap-1 rounded-full border border-line bg-white px-2 py-1"><span className="size-2 rounded-full bg-brand" />Pickup</span>
+        <span className="inline-flex items-center gap-1 rounded-full border border-line bg-white px-2 py-1"><span className="size-2 rounded-full bg-orange-500" />Dropoff</span>
+        <span className="rounded-full border border-line bg-white px-2 py-1">Tổng quan nhanh cho điều hành và tài xế</span>
+      </div>
+    </section>
+  );
 }
 
 function makeId(prefix: string) {
@@ -1826,6 +2015,9 @@ function OrderDetailPanel({
           </div>
         </div>
       </div>
+      <div className="mt-4">
+        <StaticPinMap order={order} />
+      </div>
       {updateOrder && cancelOrder && (
         <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_360px]">
           <form className="border border-line bg-panel p-4" onSubmit={updateOrder}>
@@ -2612,6 +2804,10 @@ function DriverMobilePanel({
           <StatMini label="Hoàn thành" value={String(completedCount)} />
           <StatMini label="Sắp tới" value={nextOrder ? timeOnly(nextOrder.startAt) : "-"} />
         </div>
+        {(() => {
+          const selectedTrip = driverOrders.find((order) => order.id === selectedOrderId) ?? nextOrder ?? driverOrders[0];
+          return selectedTrip ? <div className="mt-4"><StaticPinMap compact order={selectedTrip} /></div> : null;
+        })()}
       </div>
 
       <div className="space-y-3">
