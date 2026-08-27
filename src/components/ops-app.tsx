@@ -135,6 +135,19 @@ const invoiceLabels: Record<InvoiceStatus, string> = {
 const tabs = ["Dashboard", "Lệnh điều xe", "Điều hành", "Tài xế mobile", "Users", "Khách hàng", "Tài chính", "Master data", "Audit"] as const;
 type Tab = (typeof tabs)[number];
 
+function canViewTab(tab: Tab, role: AppRole) {
+  if (tab === "Dashboard") return true;
+  if (tab === "Lệnh điều xe") return role !== "driver";
+  if (tab === "Điều hành") return can(role, "assign_vehicle");
+  if (tab === "Tài xế mobile") return true;
+  if (tab === "Users") return role === "admin";
+  if (tab === "Khách hàng") return can(role, "create_order");
+  if (tab === "Tài chính") return can(role, "record_payment") || can(role, "update_invoice") || can(role, "close_order");
+  if (tab === "Master data") return can(role, "manage_master_data");
+  if (tab === "Audit") return can(role, "view_audit");
+  return false;
+}
+
 const initialState: OpsState = {
   vehicles: seedVehicles,
   drivers: seedDrivers,
@@ -650,6 +663,8 @@ export default function OpsApp() {
   const [persistenceReady, setPersistenceReady] = useState(false);
   const [message, setMessage] = useState(supabaseConfigured ? "Đang kết nối Supabase..." : "Dữ liệu pilot lưu trên trình duyệt máy này.");
   const currentRole = roleState ?? "manager";
+  const visibleTabs = useMemo(() => tabs.filter((item) => canViewTab(item, currentRole)), [currentRole]);
+  const activeTab = visibleTabs.includes(tab) ? tab : "Dashboard";
   const visibleNotifications = (state.notifications ?? []).filter((item) => item.audience === currentRole || item.audience === "admin").slice(0, 5);
 
   useEffect(() => {
@@ -1632,9 +1647,9 @@ export default function OpsApp() {
           </div>
         </div>
         <nav className="mt-8 space-y-1 text-sm">
-          {tabs.map((item) => (
+          {visibleTabs.map((item) => (
             <button
-              className={`flex h-10 w-full items-center rounded-md px-3 text-left font-medium ${tab === item ? "bg-teal-50 text-brand" : "text-slate-600 hover:bg-slate-50"}`}
+              className={`flex h-10 w-full items-center rounded-md px-3 text-left font-medium ${activeTab === item ? "bg-teal-50 text-brand" : "text-slate-600 hover:bg-slate-50"}`}
               key={item}
               onClick={() => setTab(item)}
               type="button"
@@ -1650,7 +1665,7 @@ export default function OpsApp() {
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-sm text-slate-500">Pilot vận hành local - {vietnamDateTimeLabel()}</p>
-              <h2 className="text-2xl font-semibold text-ink">{tab}</h2>
+              <h2 className="text-2xl font-semibold text-ink">{activeTab}</h2>
             </div>
             <div className="flex flex-wrap gap-2">
               <Badge tone={supabaseConfigured ? "good" : "info"}>{supabaseConfigured ? "Supabase config ready" : "Local demo mode"}</Badge>
@@ -1680,9 +1695,9 @@ export default function OpsApp() {
         </header>
         <div className="border-b border-line bg-white px-3 py-3 lg:hidden">
           <div className="flex gap-2 overflow-x-auto pb-1">
-            {tabs.map((item) => (
+            {visibleTabs.map((item) => (
               <button
-                className={`shrink-0 rounded-full border px-3 py-2 text-sm font-medium ${tab === item ? "border-teal-600 bg-teal-50 text-brand" : "border-line bg-white text-slate-600"}`}
+                className={`shrink-0 rounded-full border px-3 py-2 text-sm font-medium ${activeTab === item ? "border-teal-600 bg-teal-50 text-brand" : "border-line bg-white text-slate-600"}`}
                 key={item}
                 onClick={() => setTab(item)}
                 type="button"
@@ -1701,7 +1716,7 @@ export default function OpsApp() {
             <StatCard label="Doanh thu booked" value={money(revenue)} icon={Banknote} detail={`Đã thu ${money(collected)} hợp lệ.`} />
           </section>
 
-          {tab === "Dashboard" && (
+          {activeTab === "Dashboard" && (
             <DashboardPanel
               alerts={alerts}
               calendarMonth={calendarMonth}
@@ -1718,7 +1733,7 @@ export default function OpsApp() {
               setTab={setTab}
             />
           )}
-          {tab === "Lệnh điều xe" && (
+          {activeTab === "Lệnh điều xe" && (
             <OrdersPanel
               companies={state.companies}
               companyContacts={state.companyContacts}
@@ -1743,7 +1758,7 @@ export default function OpsApp() {
               updateQuoteStatus={updateQuoteStatus}
             />
           )}
-          {tab === "Khách hàng" && (
+          {activeTab === "Khách hàng" && (
             <CustomersPanel
               companies={state.companies}
               companyContacts={state.companyContacts}
@@ -1754,7 +1769,7 @@ export default function OpsApp() {
               orders={state.orders}
             />
           )}
-          {tab === "Điều hành" && selectedOrder && (
+          {activeTab === "Điều hành" && selectedOrder && (
             <DispatchPanel
               assignments={state.assignments}
               calendarMonth={calendarMonth}
@@ -1776,7 +1791,7 @@ export default function OpsApp() {
               vehicles={state.vehicles}
             />
           )}
-          {tab === "Tài xế mobile" && (
+          {activeTab === "Tài xế mobile" && (
             <DriverMobilePanel
               currentRole={currentRole}
               drivers={state.drivers}
@@ -1790,9 +1805,9 @@ export default function OpsApp() {
               vehicles={state.vehicles}
             />
           )}
-          {tab === "Users" && <AdminUsersPanel currentRole={currentRole} />}
-          {tab === "Master data" && <MasterDataPanel createDriver={createDriver} createVehicle={createVehicle} currentRole={currentRole} drivers={state.drivers} vehicles={state.vehicles} />}
-          {tab === "Tài chính" && selectedOrder && (
+          {activeTab === "Users" && <AdminUsersPanel currentRole={currentRole} />}
+          {activeTab === "Master data" && <MasterDataPanel createDriver={createDriver} createVehicle={createVehicle} currentRole={currentRole} drivers={state.drivers} vehicles={state.vehicles} />}
+          {activeTab === "Tài chính" && selectedOrder && (
             <FinancePanel
               currentRole={currentRole}
               payments={state.payments.filter((payment) => payment.orderId === selectedOrder.id)}
@@ -1803,15 +1818,15 @@ export default function OpsApp() {
               reconcileOrder={reconcileOrder}
             />
           )}
-          {tab === "Audit" && (can(currentRole, "view_audit") ? <AuditPanel events={state.auditEvents} /> : <AccessDenied role={currentRole} />)}
+          {activeTab === "Audit" && (can(currentRole, "view_audit") ? <AuditPanel events={state.auditEvents} /> : <AccessDenied role={currentRole} />)}
         </div>
         <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white/95 backdrop-blur lg:hidden">
           <div className="flex gap-2 overflow-x-auto px-3 py-2">
-            {tabs.map((item) => {
+            {visibleTabs.map((item) => {
               const Icon = tabIcon(item);
               return (
                 <button
-                  className={`flex shrink-0 flex-col items-center gap-1 rounded-xl border px-3 py-2 text-[11px] font-medium ${tab === item ? "border-teal-600 bg-teal-50 text-brand" : "border-line bg-white text-slate-600"}`}
+                  className={`flex shrink-0 flex-col items-center gap-1 rounded-xl border px-3 py-2 text-[11px] font-medium ${activeTab === item ? "border-teal-600 bg-teal-50 text-brand" : "border-line bg-white text-slate-600"}`}
                   key={item}
                   onClick={() => setTab(item)}
                   type="button"
