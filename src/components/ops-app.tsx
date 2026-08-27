@@ -133,14 +133,14 @@ const invoiceLabels: Record<InvoiceStatus, string> = {
   voided: "HĐ hủy"
 };
 
-const tabs = ["Dashboard", "Lệnh điều xe", "Điều hành", "Tài xế mobile", "Users", "Khách hàng", "Tài chính", "Master data", "Audit"] as const;
+const tabs = ["Dashboard", "Lệnh điều xe", "Điều hành", "Màn làm việc", "Users", "Khách hàng", "Tài chính", "Master data", "Audit"] as const;
 type Tab = (typeof tabs)[number];
 
 function canViewTab(tab: Tab, role: AppRole) {
-  if (tab === "Dashboard") return true;
+  if (tab === "Dashboard") return role !== "driver";
   if (tab === "Lệnh điều xe") return role !== "driver";
   if (tab === "Điều hành") return can(role, "assign_vehicle");
-  if (tab === "Tài xế mobile") return true;
+  if (tab === "Màn làm việc") return true;
   if (tab === "Users") return role === "admin";
   if (tab === "Khách hàng") return can(role, "create_order");
   if (tab === "Tài chính") return can(role, "record_payment") || can(role, "update_invoice") || can(role, "close_order");
@@ -345,7 +345,7 @@ function tabIcon(tab: Tab) {
   if (tab === "Dashboard") return CalendarClock;
   if (tab === "Lệnh điều xe") return ClipboardList;
   if (tab === "Điều hành") return Route;
-  if (tab === "Tài xế mobile") return Smartphone;
+  if (tab === "Màn làm việc") return Smartphone;
   if (tab === "Users") return UsersRound;
   if (tab === "Khách hàng") return UserRound;
   if (tab === "Tài chính") return Banknote;
@@ -712,7 +712,7 @@ export default function OpsApp() {
   const [now, setNow] = useState(() => new Date());
   const currentRole = roleState ?? "manager";
   const visibleTabs = useMemo(() => tabs.filter((item) => canViewTab(item, currentRole)), [currentRole]);
-  const activeTab = visibleTabs.includes(tab) ? tab : "Dashboard";
+  const activeTab = visibleTabs.includes(tab) ? tab : visibleTabs[0] ?? "Dashboard";
   const visibleNotifications = (state.notifications ?? []).filter((item) => item.audience === currentRole || item.audience === "admin").slice(0, 5);
 
   useEffect(() => {
@@ -797,7 +797,7 @@ export default function OpsApp() {
         if (typedProfile?.driver_id) {
           setAuthDriverId(typedProfile.driver_id);
           setMobileDriverId(typedProfile.driver_id);
-          setTab("Tài xế mobile");
+          setTab("Màn làm việc");
         }
         setAuthLabel(typedProfile?.full_name || data.user.email || "Signed in");
         startupTiming("profile_load", profileStartedAt, { role: nextRole });
@@ -863,7 +863,7 @@ export default function OpsApp() {
   }, [authUserId]);
 
   useEffect(() => {
-    if (!supabaseConfigured) return;
+    if (!supabaseConfigured || !authReady || !roleState) return;
     const supabase = createSupabaseBrowserClient();
     const notificationStartedAt = performance.now();
     supabase
@@ -884,7 +884,7 @@ export default function OpsApp() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [authReady, roleState]);
 
   useEffect(() => {
     if (!supabaseConfigured || !persistenceReady) return;
@@ -2132,7 +2132,7 @@ export default function OpsApp() {
               vehicles={state.vehicles}
             />
           )}
-          {activeTab === "Tài xế mobile" && (
+          {activeTab === "Màn làm việc" && (
             <DriverMobilePanel
               currentRole={currentRole}
               drivers={state.drivers}
