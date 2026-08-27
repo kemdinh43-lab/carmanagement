@@ -5,6 +5,18 @@ import { RefreshCw, Save, ShieldCheck, UserPlus, UsersRound } from "lucide-react
 import { roleLabels, type AppRole } from "@/lib/permissions";
 import type { Driver } from "@/lib/types";
 
+const vietnamTimeZone = "Asia/Ho_Chi_Minh";
+
+function formatVietnamDateTime(value: string) {
+  return new Date(value).toLocaleString("vi-VN", {
+    timeZone: vietnamTimeZone,
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
 type AdminUser = {
   id: string;
   email: string;
@@ -254,7 +266,7 @@ function UserRow({
       <div className="xl:col-span-6 flex flex-wrap items-center justify-between gap-3">
         <div className="text-xs text-slate-500">
           <p>{user.confirmedAt ? "Đã xác thực email" : "Chưa xác thực email"}</p>
-          <p>Cập nhật: {new Date(user.updatedAt).toLocaleString("vi-VN")}</p>
+          <p>Cập nhật: {formatVietnamDateTime(user.updatedAt)}</p>
         </div>
         <button className="inline-flex h-10 items-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={saving} type="submit">
           <Save size={16} /> {saving ? "Đang lưu..." : "Lưu user"}

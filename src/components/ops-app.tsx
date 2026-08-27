@@ -490,6 +490,14 @@ function vietnamDateTimeLabel(value = new Date()) {
   return `${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute}`;
 }
 
+function vietnamMonthLabel(value = new Date()) {
+  return new Intl.DateTimeFormat("vi-VN", {
+    timeZone: vietnamTimeZone,
+    month: "long",
+    year: "numeric"
+  }).format(value);
+}
+
 function vietnamDateTimeLocalValue(value = new Date()) {
   const parts = vietnamDateParts(value);
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
@@ -1981,7 +1989,7 @@ function VehicleCalendar({
             <ChevronLeft size={18} />
           </button>
           <div className="min-w-40 text-center text-sm font-semibold text-ink">
-            {monthDate.toLocaleDateString("vi-VN", { month: "long", year: "numeric" })}
+            {vietnamMonthLabel(monthDate)}
           </div>
           <button className="grid size-9 place-items-center rounded-md border border-line bg-white hover:bg-slate-50" onClick={() => moveMonth(1)} type="button">
             <ChevronRight size={18} />
