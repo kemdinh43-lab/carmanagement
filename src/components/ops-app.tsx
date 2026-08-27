@@ -644,6 +644,12 @@ function toAppNotification(row: unknown): AppNotification {
   };
 }
 
+function startupTiming(label: string, startedAt: number, detail?: Record<string, unknown>) {
+  if (typeof window === "undefined") return;
+  const elapsedMs = Math.round(performance.now() - startedAt);
+  console.info(`[startup] ${label}`, { elapsedMs, ...detail });
+}
+
 export default function OpsApp() {
   const repository = useMemo(() => createOpsRepository(storageKey), []);
   const persistedStateRef = useRef<OpsState | null>(null);
@@ -668,35 +674,47 @@ export default function OpsApp() {
   const visibleNotifications = (state.notifications ?? []).filter((item) => item.audience === currentRole || item.audience === "admin").slice(0, 5);
 
   useEffect(() => {
+    if (supabaseConfigured && (!authReady || !roleState)) return;
     let cancelled = false;
+    const loadStartedAt = performance.now();
 
     repository
       .load()
       .then((loadedState) => {
         if (cancelled) return;
+        const normalizeStartedAt = performance.now();
         const normalized = normalizeState(loadedState);
+        startupTiming("normalize_state", normalizeStartedAt, {
+          assignments: normalized.assignments.length,
+          auditEvents: normalized.auditEvents.length,
+          orders: normalized.orders.length,
+          payments: normalized.payments.length
+        });
         persistedStateRef.current = normalized;
         setState(normalized);
         setSelectedOrderId(normalized.orders[2]?.id ?? normalized.orders[0]?.id ?? "");
         setMobileDriverId(normalized.drivers[0]?.id ?? "");
         setPersistenceReady(true);
+        startupTiming("repository_load", loadStartedAt, { mode: repository.mode });
         setMessage(repository.mode === "supabase" ? "Đã kết nối Supabase và tải dữ liệu." : "Dữ liệu pilot lưu trên trình duyệt máy này.");
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        setPersistenceReady(false);
+        setPersistenceReady(true);
+        startupTiming("repository_load_failed", loadStartedAt, { mode: repository.mode });
         setMessage(`Không tải được dữ liệu ${repository.mode}: ${error instanceof Error ? error.message : "unknown error"}`);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [repository]);
+  }, [authReady, repository, roleState]);
 
   useEffect(() => {
     if (!supabaseConfigured) return;
     const supabase = createSupabaseBrowserClient();
     let cancelled = false;
+    const authStartedAt = performance.now();
 
     (async () => {
       try {
@@ -706,9 +724,12 @@ export default function OpsApp() {
           setRoleState(null);
           setAuthUserId(null);
           setAuthLabel("Chưa đăng nhập");
+          startupTiming("auth_get_user", authStartedAt, { signedIn: false });
           return;
         }
         setAuthUserId(data.user.id);
+        startupTiming("auth_get_user", authStartedAt, { signedIn: true });
+        const profileStartedAt = performance.now();
         const { data: profile } = await supabase
           .from("app_user_profiles" as never)
           .select("role,full_name,driver_id" as never)
@@ -732,13 +753,17 @@ export default function OpsApp() {
           setTab("Tài xế mobile");
         }
         setAuthLabel(typedProfile?.full_name || data.user.email || "Signed in");
+        startupTiming("profile_load", profileStartedAt, { role: nextRole });
       } catch (error) {
         if (cancelled) return;
         setRoleState(null);
         setAuthUserId(null);
         setAuthLabel(error instanceof Error ? error.message : "Auth load failed");
       } finally {
-        if (!cancelled) setAuthReady(true);
+        if (!cancelled) {
+          setAuthReady(true);
+          startupTiming("auth_total", authStartedAt);
+        }
       }
     })();
 
@@ -793,6 +818,7 @@ export default function OpsApp() {
   useEffect(() => {
     if (!supabaseConfigured) return;
     const supabase = createSupabaseBrowserClient();
+    const notificationStartedAt = performance.now();
     supabase
       .from("app_notifications" as never)
       .select("*" as never)
@@ -800,6 +826,7 @@ export default function OpsApp() {
       .limit(20 as never)
       .then(({ data }) => {
         if (data) setState((current) => ({ ...current, notifications: (data as unknown[]).map(toAppNotification) }));
+        startupTiming("notifications_load", notificationStartedAt, { rows: (data as unknown[] | null)?.length ?? 0 });
       });
     const channel = supabase
       .channel("app_notifications")
@@ -878,12 +905,17 @@ export default function OpsApp() {
       }, 150);
     };
 
-    const channels = reloadTables.map((table) =>
-      supabase
+    const subscribeStartedAt = performance.now();
+    const channels = reloadTables.map((table) => {
+      const tableStartedAt = performance.now();
+      return supabase
         .channel(`ops-sync-${table}`)
         .on("postgres_changes", { event: "*", schema: "public", table }, scheduleReload)
-        .subscribe()
-    );
+        .subscribe((status) => {
+          if (status === "SUBSCRIBED") startupTiming(`realtime_${table}`, tableStartedAt);
+        });
+    });
+    startupTiming("realtime_subscribe_started", subscribeStartedAt, { tables: reloadTables.length });
 
     return () => {
       cancelled = true;
@@ -1612,10 +1644,10 @@ export default function OpsApp() {
     setMessage(repository.mode === "supabase" ? "Đã reset dữ liệu Supabase về seed ban đầu." : "Đã reset dữ liệu pilot về seed ban đầu.");
   }
 
-  if (supabaseConfigured && (!persistenceReady || !authReady)) {
+  if (supabaseConfigured && !authReady) {
     return (
       <main className="grid min-h-screen place-items-center bg-panel p-6">
-        <div className="border border-line bg-white px-5 py-4 text-sm text-slate-600 shadow-sm">Đang tải dữ liệu và xác thực...</div>
+        <div className="border border-line bg-white px-5 py-4 text-sm text-slate-600 shadow-sm">Đang kiểm tra đăng nhập...</div>
       </main>
     );
   }
@@ -1630,6 +1662,14 @@ export default function OpsApp() {
             Mở Auth
           </Link>
         </div>
+      </main>
+    );
+  }
+
+  if (supabaseConfigured && !persistenceReady) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-panel p-6">
+        <div className="border border-line bg-white px-5 py-4 text-sm text-slate-600 shadow-sm">Đang tải dữ liệu vận hành...</div>
       </main>
     );
   }

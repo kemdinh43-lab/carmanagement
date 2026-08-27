@@ -57,6 +57,7 @@ export class SupabaseOpsRepository implements OpsRepository {
 
   async load() {
     const supabase = createSupabaseBrowserClient() as unknown as SupabaseTableClient;
+    const startedAt = performance.now();
     let rows: Awaited<ReturnType<typeof selectTable>>[];
     try {
       rows = await Promise.all([
@@ -70,8 +71,14 @@ export class SupabaseOpsRepository implements OpsRepository {
         selectTable(supabase, "app_payments"),
         selectTable(supabase, "app_audit_events")
       ]);
+      repositoryTiming("relational_tables_loaded", startedAt);
     } catch (error) {
-      if (isMissingRelationalSchema(error)) return loadSnapshotFallback();
+      if (isMissingRelationalSchema(error)) {
+        const snapshotStartedAt = performance.now();
+        const snapshot = await loadSnapshotFallback();
+        repositoryTiming("snapshot_fallback_loaded", snapshotStartedAt);
+        return snapshot;
+      }
       throw error;
     }
 
@@ -88,7 +95,9 @@ export class SupabaseOpsRepository implements OpsRepository {
         auditEvents.length >
       0;
     if (!hasRelationalData) {
+      const snapshotStartedAt = performance.now();
       const snapshotState = await loadSnapshotFallback().catch(() => initialOpsState);
+      repositoryTiming("empty_relational_snapshot_loaded", snapshotStartedAt);
       await this.save(snapshotState);
       return snapshotState;
     }
@@ -132,9 +141,17 @@ export function createOpsRepository(key: string): OpsRepository {
 }
 
 async function selectTable(supabase: SupabaseTableClient, table: AppTable) {
+  const startedAt = performance.now();
   const { data, error } = await supabase.from(table).select("*");
   if (error) throw new Error(`${table}: ${error.message}`);
+  repositoryTiming(`select_${table}`, startedAt, { rows: data?.length ?? 0 });
   return data ?? [];
+}
+
+function repositoryTiming(label: string, startedAt: number, detail?: Record<string, unknown>) {
+  if (typeof window === "undefined") return;
+  const elapsedMs = Math.round(performance.now() - startedAt);
+  console.info(`[startup] ${label}`, { elapsedMs, ...detail });
 }
 
 function isMissingRelationalSchema(error: unknown) {
