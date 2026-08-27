@@ -503,6 +503,19 @@ function vietnamDateTimeLabel(value = new Date()) {
   return `${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute}`;
 }
 
+function vietnamDateTimeLiveLabel(value = new Date()) {
+  return new Intl.DateTimeFormat("vi-VN", {
+    timeZone: vietnamTimeZone,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).format(value);
+}
+
 function vietnamMonthLabel(value = new Date()) {
   return new Intl.DateTimeFormat("vi-VN", {
     timeZone: vietnamTimeZone,
@@ -668,10 +681,16 @@ export default function OpsApp() {
   const [authReady, setAuthReady] = useState(!supabaseConfigured);
   const [persistenceReady, setPersistenceReady] = useState(false);
   const [message, setMessage] = useState(supabaseConfigured ? "Đang kết nối Supabase..." : "Dữ liệu pilot lưu trên trình duyệt máy này.");
+  const [now, setNow] = useState(() => new Date());
   const currentRole = roleState ?? "manager";
   const visibleTabs = useMemo(() => tabs.filter((item) => canViewTab(item, currentRole)), [currentRole]);
   const activeTab = visibleTabs.includes(tab) ? tab : "Dashboard";
   const visibleNotifications = (state.notifications ?? []).filter((item) => item.audience === currentRole || item.audience === "admin").slice(0, 5);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (supabaseConfigured && (!authReady || !roleState)) return;
@@ -1704,7 +1723,7 @@ export default function OpsApp() {
         <header className="border-b border-line bg-white px-5 py-4 lg:px-8">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <p className="text-sm text-slate-500">Pilot vận hành local - {vietnamDateTimeLabel()}</p>
+              <p className="text-sm text-slate-500">Pilot vận hành local - {vietnamDateTimeLiveLabel(now)}</p>
               <h2 className="text-2xl font-semibold text-ink">{activeTab}</h2>
             </div>
             <div className="flex flex-wrap gap-2">
