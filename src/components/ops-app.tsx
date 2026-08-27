@@ -2716,7 +2716,41 @@ function OrdersPanel({
             <input className={`${inputClass()} pl-9`} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm số lệnh, khách, SĐT..." value={query} />
           </div>
         </div>
-        <div className="overflow-x-auto">
+        <div className="space-y-3 p-3 md:hidden">
+          {filteredOrders.map((order) => (
+            <button
+              className={`w-full rounded-lg border px-3 py-3 text-left shadow-sm ${selectedOrderId === order.id ? "border-teal-600 bg-teal-50/70" : "border-line bg-white"}`}
+              key={order.id}
+              onClick={() => setSelectedOrderId(order.id)}
+              type="button"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-ink">{order.code}</p>
+                  <p className="mt-1 text-xs text-slate-500">{order.salesOwner} / {order.source}</p>
+                </div>
+                <Badge tone={orderStatusTone(order.orderStatus)}>{orderStatusLabels[order.orderStatus]}</Badge>
+              </div>
+              <div className="mt-3 space-y-1 text-sm">
+                <p className="font-medium text-slate-800">{order.customerName}</p>
+                <p className="text-slate-600">{order.pickup} → {order.dropoff}</p>
+                <p className="text-xs text-slate-500">{formatDateTime(order.startAt)} - {formatDateTime(order.endAt)}</p>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Badge tone={order.customerKind === "company" ? "info" : "neutral"}>{order.customerKind === "company" ? "Doanh nghiệp" : "Cá nhân"}</Badge>
+                <Badge tone={quoteTone(order.quoteStatus)}>{quoteLabels[order.quoteStatus ?? "draft"]}</Badge>
+                <Badge tone={statusTone(order)}>{dispatchLabels[order.dispatchStatus]}</Badge>
+                <Badge tone={order.paymentStatus === "paid" ? "good" : order.paymentStatus === "partial" ? "warn" : "danger"}>{paymentLabels[order.paymentStatus]}</Badge>
+              </div>
+              <div className="mt-3 flex items-center justify-between gap-2 text-sm">
+                <span className="font-semibold text-ink">{money(order.amountDue)}</span>
+                <span className={`font-semibold ${orderProfit(order) >= 0 ? "text-emerald-700" : "text-red-700"}`}>{money(orderProfit(order))}</span>
+              </div>
+            </button>
+          ))}
+          {filteredOrders.length === 0 && <p className="px-1 py-3 text-sm text-slate-500">Không có lệnh phù hợp bộ lọc.</p>}
+        </div>
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[1160px] border-collapse text-sm">
             <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
               <tr>
