@@ -57,13 +57,6 @@ export class SupabaseOpsRepository implements OpsRepository {
 
   async load() {
     const supabase = createSupabaseBrowserClient() as unknown as SupabaseTableClient;
-    try {
-      const snapshotState = await loadSnapshotState();
-      if (snapshotState) return snapshotState;
-    } catch (error) {
-      if (!isMissingRelationalSchema(error)) throw error;
-    }
-
     let rows: Awaited<ReturnType<typeof selectTable>>[];
     try {
       rows = await Promise.all([
@@ -83,8 +76,18 @@ export class SupabaseOpsRepository implements OpsRepository {
     }
 
     const [customers, companies, companyContacts, vehicles, drivers, orders, assignments, payments, auditEvents] = rows;
-    const hasNoRelationalData = customers.length + companies.length + vehicles.length + drivers.length + orders.length === 0;
-    if (hasNoRelationalData) {
+    const hasRelationalData =
+      customers.length +
+        companies.length +
+        companyContacts.length +
+        vehicles.length +
+        drivers.length +
+        orders.length +
+        assignments.length +
+        payments.length +
+        auditEvents.length >
+      0;
+    if (!hasRelationalData) {
       const snapshotState = await loadSnapshotFallback().catch(() => initialOpsState);
       await this.save(snapshotState);
       return snapshotState;

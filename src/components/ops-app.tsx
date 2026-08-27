@@ -65,6 +65,7 @@ import {
 import { can, roleLabels, type AppRole } from "@/lib/permissions";
 import { createOpsRepository } from "@/lib/repositories/ops-repository";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { AdminUsersPanel } from "@/components/admin-users-panel";
 import type {
   Assignment,
   AuditEvent,
@@ -131,7 +132,7 @@ const invoiceLabels: Record<InvoiceStatus, string> = {
   voided: "HĐ hủy"
 };
 
-const tabs = ["Dashboard", "Lệnh điều xe", "Điều hành", "Tài xế mobile", "Khách hàng", "Tài chính", "Master data", "Audit"] as const;
+const tabs = ["Dashboard", "Lệnh điều xe", "Điều hành", "Tài xế mobile", "Users", "Khách hàng", "Tài chính", "Master data", "Audit"] as const;
 type Tab = (typeof tabs)[number];
 
 const initialState: OpsState = {
@@ -163,6 +164,10 @@ function normalizeState(state: OpsState): OpsState {
       contactName: order.contactName ?? (order.companyName ? order.customerName : undefined)
     }))
   };
+}
+
+function sameOpsState(a: OpsState, b: OpsState) {
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 type StaticPinKind = "pickup" | "dropoff";
@@ -514,6 +519,22 @@ function orderMargin(order: DispatchOrder) {
   return orderProfit(order) / order.amountDue;
 }
 
+function driverActionLabel(order: DispatchOrder) {
+  if (order.dispatchStatus === "assigned" || order.dispatchStatus === "waiting_assignment") return "Nhận chuyến";
+  if (order.dispatchStatus === "driver_accepted") return "Bắt đầu chạy";
+  if (order.dispatchStatus === "in_progress") return "Hoàn thành";
+  if (order.dispatchStatus === "completed") return "Đã hoàn thành";
+  return "Đã hủy";
+}
+
+function driverActionDetail(order: DispatchOrder) {
+  if (order.dispatchStatus === "assigned" || order.dispatchStatus === "waiting_assignment") return "Tài xế cần xác nhận chuyến trước giờ chạy.";
+  if (order.dispatchStatus === "driver_accepted") return "Chuyến đã được nhận, chuẩn bị xuất phát.";
+  if (order.dispatchStatus === "in_progress") return "Xe đang chạy, khi xong thì chốt chuyến.";
+  if (order.dispatchStatus === "completed") return "Chuyến đã xong.";
+  return "Chuyến này đã bị hủy.";
+}
+
 function toAppNotification(row: unknown): AppNotification {
   const item = row as Record<string, unknown>;
   return {
@@ -649,6 +670,86 @@ export default function OpsApp() {
       supabase.removeChannel(channel);
     };
   }, []);
+
+  useEffect(() => {
+    if (!supabaseConfigured || !persistenceReady) return;
+    const supabase = createSupabaseBrowserClient();
+    let cancelled = false;
+    let inFlight = false;
+    let pendingReload = false;
+    let timeout: number | null = null;
+
+    const reloadTables = [
+      "app_customers",
+      "app_companies",
+      "app_company_contacts",
+      "app_vehicles",
+      "app_drivers",
+      "app_dispatch_orders",
+      "app_dispatch_assignments",
+      "app_payments",
+      "app_audit_events"
+    ] as const;
+
+    const runReload = async () => {
+      if (inFlight) {
+        pendingReload = true;
+        return;
+      }
+      inFlight = true;
+      try {
+        do {
+          pendingReload = false;
+          const loadedState = await repository.load();
+          if (cancelled) return;
+          let nextState: OpsState | null = null;
+          setState((current) => {
+            const merged = normalizeState({
+              ...loadedState,
+              notifications: current.notifications ?? []
+            });
+            nextState = merged;
+            return sameOpsState(current, merged) ? current : merged;
+          });
+          const syncedState = nextState ?? normalizeState({
+            ...loadedState,
+            notifications: persistedStateRef.current?.notifications ?? []
+          });
+          persistedStateRef.current = syncedState;
+          setSelectedOrderId((current) => (syncedState.orders.some((order) => order.id === current) ? current : syncedState.orders[0]?.id ?? ""));
+          setMobileDriverId((current) => (syncedState.drivers.some((driver) => driver.id === current) ? current : syncedState.drivers[0]?.id ?? ""));
+        } while (pendingReload && !cancelled);
+      } catch (error) {
+        if (!cancelled) {
+          setMessage(`Không đồng bộ được dữ liệu ${repository.mode}: ${error instanceof Error ? error.message : "unknown error"}`);
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const scheduleReload = () => {
+      if (cancelled) return;
+      if (timeout) window.clearTimeout(timeout);
+      timeout = window.setTimeout(() => {
+        timeout = null;
+        void runReload();
+      }, 150);
+    };
+
+    const channels = reloadTables.map((table) =>
+      supabase
+        .channel(`ops-sync-${table}`)
+        .on("postgres_changes", { event: "*", schema: "public", table }, scheduleReload)
+        .subscribe()
+    );
+
+    return () => {
+      cancelled = true;
+      if (timeout) window.clearTimeout(timeout);
+      for (const channel of channels) void supabase.removeChannel(channel);
+    };
+  }, [persistenceReady, repository]);
 
   useEffect(() => {
     if (!persistenceReady) return;
@@ -1437,7 +1538,10 @@ export default function OpsApp() {
               alerts={alerts}
               calendarMonth={calendarMonth}
               drivers={state.drivers}
+              currentRole={currentRole}
+              notifications={visibleNotifications}
               orders={state.orders}
+              reviewDispatchProposal={reviewDispatchProposal}
               vehicles={state.vehicles}
               calendarDay={calendarDay}
               setCalendarMonth={setCalendarMonth}
@@ -1518,6 +1622,7 @@ export default function OpsApp() {
               vehicles={state.vehicles}
             />
           )}
+          {tab === "Users" && <AdminUsersPanel currentRole={currentRole} />}
           {tab === "Master data" && <MasterDataPanel createDriver={createDriver} createVehicle={createVehicle} currentRole={currentRole} drivers={state.drivers} vehicles={state.vehicles} />}
           {tab === "Tài chính" && selectedOrder && (
             <FinancePanel
@@ -2120,7 +2225,10 @@ function DashboardPanel({
   calendarDay,
   calendarMonth,
   drivers,
+  currentRole,
+  notifications,
   orders,
+  reviewDispatchProposal,
   setCalendarDay,
   setCalendarMonth,
   setSelectedOrderId,
@@ -2131,15 +2239,35 @@ function DashboardPanel({
   calendarDay: Date;
   calendarMonth: Date;
   drivers: Driver[];
+  currentRole: AppRole;
+  notifications: AppNotification[];
   orders: DispatchOrder[];
+  reviewDispatchProposal: (orderId: string, decision: "approved" | "rejected", reason: string) => void;
   setCalendarDay: (date: Date) => void;
   setCalendarMonth: (date: Date) => void;
   setSelectedOrderId: (id: string) => void;
   setTab: (tab: Tab) => void;
   vehicles: Vehicle[];
 }) {
+  const pendingReviewOrders = orders.filter((order) => order.orderStatus === "pending_dispatch_review");
   return (
     <section className="space-y-4">
+      <DispatchReviewQueue
+        canReview={can(currentRole, "assign_vehicle")}
+        orders={pendingReviewOrders}
+        reviewDispatchProposal={reviewDispatchProposal}
+        selectedOrderId=""
+        onReviewed={(orderId, decision) => {
+          if (decision === "approved") {
+            setSelectedOrderId(orderId);
+            setTab("Điều hành");
+          }
+        }}
+        setSelectedOrderId={(id) => {
+          setSelectedOrderId(id);
+          setTab("Điều hành");
+        }}
+      />
       <VehicleCalendar
         monthDate={calendarMonth}
         compact
@@ -2201,6 +2329,29 @@ function DashboardPanel({
           </div>
         </div>
       </div>
+
+      <section className="border border-line bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-2 border-b border-line pb-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h3 className="font-semibold text-ink">Realtime thông báo</h3>
+            <p className="text-sm text-slate-500">Thông báo sale, điều hành, tài xế và kế toán xuất hiện ngay tại dashboard.</p>
+          </div>
+          <Badge tone={notifications.length > 0 ? "info" : "good"}>{notifications.length} gần nhất</Badge>
+        </div>
+        <div className="mt-4 grid gap-3 xl:grid-cols-2">
+          {notifications.length === 0 && <p className="text-sm text-slate-500">Chưa có thông báo mới.</p>}
+          {notifications.map((notification) => (
+            <article className="border border-line bg-panel p-3" key={notification.id}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-semibold text-ink">{notification.title}</p>
+                <Badge tone={notification.audience === "driver" ? "info" : notification.audience === "accountant" ? "warn" : "neutral"}>{notification.audience}</Badge>
+              </div>
+              <p className="mt-1 text-sm text-slate-600">{notification.body}</p>
+              <p className="mt-2 text-xs text-slate-500">{formatDateTime(notification.createdAt)}</p>
+            </article>
+          ))}
+        </div>
+      </section>
     </section>
   );
 }
@@ -2509,6 +2660,11 @@ function DispatchPanel({
         orders={pendingReviewOrders}
         reviewDispatchProposal={reviewDispatchProposal}
         selectedOrderId={selectedOrder.id}
+        onReviewed={(orderId, decision) => {
+          if (decision === "approved") {
+            setSelectedOrderId(orderId);
+          }
+        }}
         setSelectedOrderId={setSelectedOrderId}
       />
       <VehicleCalendar monthDate={calendarMonth} orders={orders} selectedOrderId={selectedOrder.id} setCalendarDay={setCalendarDay} setMonthDate={setCalendarMonth} setSelectedOrderId={setSelectedOrderId} vehicles={vehicles} />
@@ -2593,12 +2749,14 @@ function DispatchPanel({
 
 function DispatchReviewQueue({
   canReview,
+  onReviewed,
   orders,
   reviewDispatchProposal,
   selectedOrderId,
   setSelectedOrderId
 }: {
   canReview: boolean;
+  onReviewed?: (orderId: string, decision: "approved" | "rejected") => void;
   orders: DispatchOrder[];
   reviewDispatchProposal: (orderId: string, decision: "approved" | "rejected", reason: string) => void;
   selectedOrderId?: string;
@@ -2656,7 +2814,10 @@ function DispatchReviewQueue({
                 <button
                   className="h-10 rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                   disabled={!canReview}
-                  onClick={() => reviewDispatchProposal(order.id, "approved", rejectReasons[order.id] ?? "")}
+                  onClick={() => {
+                    reviewDispatchProposal(order.id, "approved", rejectReasons[order.id] ?? "");
+                    onReviewed?.(order.id, "approved");
+                  }}
                   type="button"
                 >
                   Duyệt
@@ -2664,7 +2825,10 @@ function DispatchReviewQueue({
                 <button
                   className="h-10 rounded-md border border-rose-200 bg-rose-50 px-3 text-sm font-semibold text-rose-800 hover:bg-rose-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
                   disabled={!canReview}
-                  onClick={() => reviewDispatchProposal(order.id, "rejected", rejectReasons[order.id] ?? "")}
+                  onClick={() => {
+                    reviewDispatchProposal(order.id, "rejected", rejectReasons[order.id] ?? "");
+                    onReviewed?.(order.id, "rejected");
+                  }}
                   type="button"
                 >
                   Từ chối
@@ -2820,9 +2984,15 @@ function DriverMobilePanel({
     .filter((order) => order.driverId === selectedDriver?.id && order.dispatchStatus !== "cancelled")
     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
   const todayDriverOrders = driverOrders.filter((order) => orderDateKey(order) === "2026-08-25");
-  const nextOrder = driverOrders.find((order) => !["completed", "cancelled"].includes(order.dispatchStatus));
+  const activeOrder = driverOrders.find((order) => order.dispatchStatus === "in_progress") ?? driverOrders.find((order) => order.dispatchStatus === "driver_accepted");
+  const nextOrder = driverOrders.find((order) => !["completed", "cancelled", "in_progress", "driver_accepted"].includes(order.dispatchStatus));
   const completedCount = driverOrders.filter((order) => order.dispatchStatus === "completed").length;
+  const awaitingCount = driverOrders.filter((order) => ["assigned", "waiting_assignment"].includes(order.dispatchStatus)).length;
   const canUpdate = can(currentRole, "update_dispatch_status");
+  const selectedTrip = driverOrders.find((order) => order.id === selectedOrderId) ?? activeOrder ?? nextOrder ?? driverOrders[0];
+  const activeTrips = driverOrders.filter((order) => ["driver_accepted", "in_progress"].includes(order.dispatchStatus));
+  const upcomingTrips = driverOrders.filter((order) => ["assigned", "waiting_assignment"].includes(order.dispatchStatus));
+  const finishedTrips = driverOrders.filter((order) => order.dispatchStatus === "completed");
 
   return (
     <section className="mx-auto max-w-[520px] space-y-4">
@@ -2851,95 +3021,100 @@ function DriverMobilePanel({
         </div>
         <div className="mt-4 grid grid-cols-3 gap-2">
           <StatMini label="Hôm nay" value={String(todayDriverOrders.length)} />
-          <StatMini label="Hoàn thành" value={String(completedCount)} />
-          <StatMini label="Sắp tới" value={nextOrder ? timeOnly(nextOrder.startAt) : "-"} />
+          <StatMini label="Đang chạy" value={String(activeTrips.length)} />
+          <StatMini label="Chờ nhận" value={String(awaitingCount)} />
         </div>
-        {(() => {
-          const selectedTrip = driverOrders.find((order) => order.id === selectedOrderId) ?? nextOrder ?? driverOrders[0];
-          return selectedTrip ? <div className="mt-4"><StaticPinMap compact order={selectedTrip} /></div> : null;
-        })()}
+        {selectedTrip ? <div className="mt-4"><StaticPinMap compact order={selectedTrip} /></div> : null}
       </div>
+
+      {activeOrder && (
+        <section className="border border-line bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm text-slate-500">Hành động tiếp theo</p>
+              <h3 className="font-semibold text-ink">{driverActionLabel(activeOrder)}</h3>
+            </div>
+            <Badge tone={statusTone(activeOrder)}>{dispatchLabels[activeOrder.dispatchStatus]}</Badge>
+          </div>
+          <p className="mt-2 text-sm text-slate-600">{activeOrder.code} / {driverActionDetail(activeOrder)}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <a className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50" href={`tel:${activeOrder.contactPhone}`}>
+              <PhoneCall size={16} /> Gọi khách
+            </a>
+            <a className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50" href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(activeOrder.pickup)}&destination=${encodeURIComponent(activeOrder.dropoff)}&travelmode=driving`} rel="noreferrer" target="_blank">
+              <Route size={16} /> Mở tuyến
+            </a>
+          </div>
+        </section>
+      )}
 
       <div className="space-y-3">
         {driverOrders.length === 0 && (
           <div className="border border-line bg-white p-4 text-sm text-slate-500 shadow-sm">Chưa có chuyến được phân cho tài xế này.</div>
         )}
-        {driverOrders.map((order) => {
-          const vehicle = vehicles.find((item) => item.id === order.vehicleId);
-          const isSelected = selectedOrderId === order.id;
-          const pickupMap = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.pickup)}`;
-          const dropoffMap = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.dropoff)}`;
-
-          return (
-            <article className={`border bg-white p-4 shadow-sm ${isSelected ? "border-brand" : "border-line"}`} key={order.id}>
-              <button className="block w-full text-left" onClick={() => setSelectedOrderId(order.id)} type="button">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-semibold uppercase text-slate-500">{order.code}</p>
-                    <h3 className="mt-1 text-lg font-semibold text-ink">{timeOnly(order.startAt)} - {order.serviceLabel}</h3>
+        {upcomingTrips.length > 0 && (
+          <section className="border border-line bg-white p-4 shadow-sm">
+            <h4 className="font-semibold text-ink">Sắp tới</h4>
+            <div className="mt-3 space-y-3">
+              {upcomingTrips.map((order) => {
+                const vehicle = vehicles.find((item) => item.id === order.vehicleId);
+                return (
+                  <button className="w-full rounded-md border border-line bg-panel p-3 text-left" key={order.id} onClick={() => setSelectedOrderId(order.id)} type="button">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase text-slate-500">{order.code}</p>
+                        <p className="mt-1 font-semibold text-ink">{timeOnly(order.startAt)} - {order.serviceLabel}</p>
+                      </div>
+                      <Badge tone={statusTone(order)}>{dispatchLabels[order.dispatchStatus]}</Badge>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-600">{order.pickup} → {order.dropoff}</p>
+                    <p className="mt-1 text-xs text-slate-500">{vehicle?.plateNo ?? "Chưa xe"} / {timeOnly(order.startAt)} - {timeOnly(order.endAt)}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        )}
+        {activeTrips.length > 0 && (
+          <section className="border border-line bg-white p-4 shadow-sm">
+            <h4 className="font-semibold text-ink">Đang chạy / đã nhận</h4>
+            <div className="mt-3 space-y-3">
+              {activeTrips.map((order) => {
+                const vehicle = vehicles.find((item) => item.id === order.vehicleId);
+                return (
+                  <button className="w-full rounded-md border border-brand bg-teal-50 p-3 text-left" key={order.id} onClick={() => setSelectedOrderId(order.id)} type="button">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase text-slate-500">{order.code}</p>
+                        <p className="mt-1 font-semibold text-ink">{driverActionLabel(order)}</p>
+                      </div>
+                      <Badge tone="good">{dispatchLabels[order.dispatchStatus]}</Badge>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-700">{order.contactName || order.customerName} / {order.contactPhone}</p>
+                    <p className="mt-1 text-sm text-slate-600">{order.pickup} → {order.dropoff}</p>
+                    <p className="mt-1 text-xs text-slate-500">{vehicle?.plateNo ?? "Chưa xe"} / {timeOnly(order.startAt)} - {timeOnly(order.endAt)}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        )}
+        {finishedTrips.length > 0 && (
+          <section className="border border-line bg-white p-4 shadow-sm">
+            <h4 className="font-semibold text-ink">Đã hoàn thành</h4>
+            <div className="mt-3 space-y-2">
+              {finishedTrips.slice(0, 3).map((order) => (
+                <button className="w-full rounded-md border border-line bg-white p-3 text-left" key={order.id} onClick={() => setSelectedOrderId(order.id)} type="button">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-semibold text-ink">{order.code}</p>
+                    <Badge tone="good">Hoàn thành</Badge>
                   </div>
-                  <Badge tone={statusTone(order)}>{dispatchLabels[order.dispatchStatus]}</Badge>
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                  <div className="border border-line bg-panel p-3">
-                    <p className="text-xs text-slate-500">Khách</p>
-                    <p className="mt-1 font-semibold text-ink">{order.contactName || order.customerName}</p>
-                    <p className="mt-1 text-slate-600">{order.contactPhone}</p>
-                  </div>
-                  <div className="border border-line bg-panel p-3">
-                    <p className="text-xs text-slate-500">Xe</p>
-                    <p className="mt-1 font-semibold text-ink">{vehicle?.plateNo ?? "Chưa xe"}</p>
-                    <p className="mt-1 text-slate-600">{vehicle ? `${vehicle.type} / ${vehicle.seats} chỗ` : "-"}</p>
-                  </div>
-                </div>
-                <div className="mt-3 space-y-2 text-sm">
-                  <p className="flex gap-2 text-slate-700"><MapPin className="mt-0.5 shrink-0 text-brand" size={16} /> <span><span className="font-semibold">Đón:</span> {order.pickup}</span></p>
-                  <p className="flex gap-2 text-slate-700"><Navigation className="mt-0.5 shrink-0 text-brand" size={16} /> <span><span className="font-semibold">Trả:</span> {order.dropoff}</span></p>
-                  <p className="flex gap-2 text-slate-700"><Clock3 className="mt-0.5 shrink-0 text-brand" size={16} /> <span>{formatDateTime(order.startAt)} - {formatDateTime(order.endAt)}</span></p>
-                </div>
-              </button>
-
-              <div className="mt-4 grid grid-cols-3 gap-2">
-                <a className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50" href={`tel:${order.contactPhone}`}>
-                  <PhoneCall size={16} /> Gọi
-                </a>
-                <a className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50" href={pickupMap} rel="noreferrer" target="_blank">
-                  <MapPin size={16} /> Đón
-                </a>
-                <a className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50" href={dropoffMap} rel="noreferrer" target="_blank">
-                  <Navigation size={16} /> Trả
-                </a>
-              </div>
-
-              <div className="mt-3 grid grid-cols-3 gap-2">
-                <button
-                  className="h-11 rounded-md border border-line bg-white px-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                  disabled={!canUpdate || !["assigned", "waiting_assignment"].includes(order.dispatchStatus)}
-                  onClick={() => updateOrderDispatchStatus(order.id, "driver_accepted", "Driver accepted trip", "Driver")}
-                  type="button"
-                >
-                  Nhận chuyến
+                  <p className="mt-1 text-sm text-slate-600">{order.pickup} → {order.dropoff}</p>
                 </button>
-                <button
-                  className="h-11 rounded-md border border-line bg-white px-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                  disabled={!canUpdate || !["driver_accepted", "assigned"].includes(order.dispatchStatus)}
-                  onClick={() => updateOrderDispatchStatus(order.id, "in_progress", "Driver started trip", "Driver")}
-                  type="button"
-                >
-                  Bắt đầu
-                </button>
-                <button
-                  className="h-11 rounded-md bg-brand px-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                  disabled={!canUpdate || order.dispatchStatus !== "in_progress"}
-                  onClick={() => updateOrderDispatchStatus(order.id, "completed", "Driver completed trip", "Driver")}
-                  type="button"
-                >
-                  Hoàn thành
-                </button>
-              </div>
-            </article>
-          );
-        })}
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     </section>
   );
