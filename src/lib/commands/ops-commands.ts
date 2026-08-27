@@ -152,12 +152,13 @@ export function updateDispatchStatus(
   nextStatus: DispatchStatus,
   reason: string,
   actor: string,
-  audit: AuditFactory
+  audit: AuditFactory,
+  includeAudit = true
 ): OpsState {
   return {
     ...state,
     orders: state.orders.map((order) => (order.id === orderId ? { ...order, dispatchStatus: nextStatus } : order)),
-    auditEvents: [audit({ actor, entityType: "dispatch_order", entityId: orderId, action: `status_${nextStatus}`, reason }), ...state.auditEvents]
+    auditEvents: includeAudit ? [audit({ actor, entityType: "dispatch_order", entityId: orderId, action: `status_${nextStatus}`, reason }), ...state.auditEvents] : state.auditEvents
   };
 }
 
@@ -183,7 +184,8 @@ export function updateOrderDetails(
   },
   activeAssignmentId: string | undefined,
   replacementReason: string,
-  audit: AuditFactory
+  audit: AuditFactory,
+  includeAudit = true
 ): OpsState {
   return {
     ...state,
@@ -199,18 +201,18 @@ export function updateOrderDetails(
     assignments: state.assignments.map((assignment) =>
       assignment.id === activeAssignmentId ? { ...assignment, startAt: patch.startAt, endAt: patch.endAt, replaceReason: replacementReason } : assignment
     ),
-    auditEvents: [audit({ actor: "Dispatcher", entityType: "dispatch_order", entityId: orderId, action: "updated_order", reason: replacementReason }), ...state.auditEvents]
+    auditEvents: includeAudit ? [audit({ actor: "Dispatcher", entityType: "dispatch_order", entityId: orderId, action: "updated_order", reason: replacementReason }), ...state.auditEvents] : state.auditEvents
   };
 }
 
-export function cancelOrder(state: OpsState, orderId: string, reason: string, actor: string, audit: AuditFactory): OpsState {
+export function cancelOrder(state: OpsState, orderId: string, reason: string, actor: string, audit: AuditFactory, includeAudit = true): OpsState {
   return {
     ...state,
     orders: state.orders.map((order) => (order.id === orderId ? { ...order, orderStatus: "cancelled", dispatchStatus: "cancelled" } : order)),
     assignments: state.assignments.map((assignment) =>
       assignment.dispatchOrderId === orderId && assignment.status === "active" ? { ...assignment, status: "cancelled" as const, replaceReason: reason } : assignment
     ),
-    auditEvents: [audit({ actor, entityType: "dispatch_order", entityId: orderId, action: "cancelled_order", reason }), ...state.auditEvents]
+    auditEvents: includeAudit ? [audit({ actor, entityType: "dispatch_order", entityId: orderId, action: "cancelled_order", reason }), ...state.auditEvents] : state.auditEvents
   };
 }
 
@@ -218,40 +220,50 @@ export function updateActualCosts(
   state: OpsState,
   orderId: string,
   patch: { actualDriverCost: number; actualVehicleCost: number; actualOtherCost: number; actualCostNote?: string },
-  audit: AuditFactory
+  audit: AuditFactory,
+  includeAudit = true
 ): OpsState {
   return {
     ...state,
     orders: state.orders.map((order) => (order.id === orderId ? { ...order, ...patch } : order)),
-    auditEvents: [
-      audit({ actor: "Accountant", entityType: "dispatch_order", entityId: orderId, action: "updated_actual_costs", reason: `${patch.actualDriverCost + patch.actualVehicleCost + patch.actualOtherCost}` }),
-      ...state.auditEvents
-    ]
+    auditEvents: includeAudit
+      ? [
+          audit({ actor: "Accountant", entityType: "dispatch_order", entityId: orderId, action: "updated_actual_costs", reason: `${patch.actualDriverCost + patch.actualVehicleCost + patch.actualOtherCost}` }),
+          ...state.auditEvents
+        ]
+      : state.auditEvents
   };
 }
 
-export function recordPayment(state: OpsState, payment: Payment, orderId: string, paymentStatus: DispatchOrder["paymentStatus"], audit: AuditFactory): OpsState {
+export function recordPayment(
+  state: OpsState,
+  payment: Payment,
+  orderId: string,
+  paymentStatus: DispatchOrder["paymentStatus"],
+  audit: AuditFactory,
+  includeAudit = true
+): OpsState {
   return {
     ...state,
     payments: [payment, ...state.payments],
     orders: state.orders.map((order) => (order.id === orderId ? { ...order, paymentStatus } : order)),
-    auditEvents: [audit({ actor: "Accountant", entityType: "payment", entityId: payment.id, action: "recorded_payment", reason: String(payment.amount) }), ...state.auditEvents]
+    auditEvents: includeAudit ? [audit({ actor: "Accountant", entityType: "payment", entityId: payment.id, action: "recorded_payment", reason: String(payment.amount) }), ...state.auditEvents] : state.auditEvents
   };
 }
 
-export function updateInvoiceStatus(state: OpsState, orderId: string, nextStatus: InvoiceStatus, audit: AuditFactory): OpsState {
+export function updateInvoiceStatus(state: OpsState, orderId: string, nextStatus: InvoiceStatus, audit: AuditFactory, includeAudit = true): OpsState {
   return {
     ...state,
     orders: state.orders.map((order) => (order.id === orderId ? { ...order, invoiceStatus: nextStatus } : order)),
-    auditEvents: [audit({ actor: "Accountant", entityType: "invoice", entityId: orderId, action: `invoice_${nextStatus}` }), ...state.auditEvents]
+    auditEvents: includeAudit ? [audit({ actor: "Accountant", entityType: "invoice", entityId: orderId, action: `invoice_${nextStatus}` }), ...state.auditEvents] : state.auditEvents
   };
 }
 
-export function closeOrder(state: OpsState, orderId: string, audit: AuditFactory): OpsState {
+export function closeOrder(state: OpsState, orderId: string, audit: AuditFactory, includeAudit = true): OpsState {
   return {
     ...state,
     orders: state.orders.map((order) => (order.id === orderId ? { ...order, reconciliationStatus: "closed" } : order)),
-    auditEvents: [audit({ actor: "Accountant", entityType: "reconciliation", entityId: orderId, action: "closed_order" }), ...state.auditEvents]
+    auditEvents: includeAudit ? [audit({ actor: "Accountant", entityType: "reconciliation", entityId: orderId, action: "closed_order" }), ...state.auditEvents] : state.auditEvents
   };
 }
 

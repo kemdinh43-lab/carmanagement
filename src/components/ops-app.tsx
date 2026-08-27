@@ -958,7 +958,20 @@ export default function OpsApp() {
       setMessage(`${roleLabels[currentRole]} không có quyền cập nhật trạng thái điều hành.`);
       return;
     }
-    runCommand("dispatch.update_status", (current) => updateDispatchStatusCommand(current, orderId, nextStatus, reason, actor, audit), `Đã cập nhật ${targetOrder.code}: ${dispatchLabels[nextStatus]}.`);
+    runCommand(
+      "dispatch.update_status",
+      (current) => updateDispatchStatusCommand(current, orderId, nextStatus, reason, actor, audit, false),
+      `Đã cập nhật ${targetOrder.code}: ${dispatchLabels[nextStatus]}.`,
+      {
+        name: "update_dispatch_status",
+        args: {
+          p_order_id: orderId,
+          p_next_status: nextStatus,
+          p_reason: reason,
+          p_actor: actor
+        }
+      }
+    );
     if (nextStatus === "completed") {
       notify({ audience: "accountant", title: "Chuyến đã hoàn thành", body: `${targetOrder.code} sẵn sàng đối soát.`, entityId: orderId });
     }
@@ -1041,9 +1054,33 @@ export default function OpsApp() {
           },
           activeAssignment?.id,
           reason,
-          audit
+          audit,
+          false
         ),
-      `Đã cập nhật lệnh ${selectedOrder.code}.`
+      `Đã cập nhật lệnh ${selectedOrder.code}.`,
+      {
+        name: "update_dispatch_order",
+        args: {
+          p_order_id: selectedOrder.id,
+          p_customer_name: String(form.get("customerName") || "").trim(),
+          p_contact_name: String(form.get("contactName") || "").trim() || null,
+          p_contact_phone: String(form.get("contactPhone") || "").trim(),
+          p_pickup: String(form.get("pickup") || "").trim(),
+          p_dropoff: String(form.get("dropoff") || "").trim(),
+          p_service_label: String(form.get("serviceLabel") || "").trim(),
+          p_start_at: nextStartAt,
+          p_end_at: nextEndAt,
+          p_amount_due: amountDue,
+          p_driver_cost: driverCost,
+          p_vehicle_cost: vehicleCost,
+          p_other_cost: otherCost,
+          p_quote_note: String(form.get("quoteNote") || "").trim() || null,
+          p_priority: String(form.get("priority") || "normal"),
+          p_sales_note: String(form.get("salesNote") || "").trim() || null,
+          p_active_assignment_id: activeAssignment?.id ?? null,
+          p_replacement_reason: reason
+        }
+      }
     );
   }
 
@@ -1062,7 +1099,18 @@ export default function OpsApp() {
       return;
     }
 
-    runCommand("order.cancel", (current) => cancelOrderCommand(current, selectedOrder.id, reason, roleLabels[currentRole], audit), `Đã hủy lệnh ${selectedOrder.code}.`);
+    runCommand(
+      "order.cancel",
+      (current) => cancelOrderCommand(current, selectedOrder.id, reason, roleLabels[currentRole], audit, false),
+      `Đã hủy lệnh ${selectedOrder.code}.`,
+      {
+        name: "cancel_dispatch_order",
+        args: {
+          p_order_id: selectedOrder.id,
+          p_reason: reason
+        }
+      }
+    );
     event.currentTarget.reset();
   }
 
@@ -1081,7 +1129,21 @@ export default function OpsApp() {
       setMessage("Chi phí thực tế không được âm.");
       return;
     }
-    runCommand("finance.update_actual_costs", (current) => updateActualCostsCommand(current, selectedOrder.id, { actualDriverCost, actualVehicleCost, actualOtherCost, actualCostNote: String(form.get("actualCostNote") || "").trim() || undefined }, audit), `Đã cập nhật chi phí thực tế cho ${selectedOrder.code}.`);
+    runCommand(
+      "finance.update_actual_costs",
+      (current) => updateActualCostsCommand(current, selectedOrder.id, { actualDriverCost, actualVehicleCost, actualOtherCost, actualCostNote: String(form.get("actualCostNote") || "").trim() || undefined }, audit, false),
+      `Đã cập nhật chi phí thực tế cho ${selectedOrder.code}.`,
+      {
+        name: "update_actual_costs",
+        args: {
+          p_order_id: selectedOrder.id,
+          p_actual_driver_cost: actualDriverCost,
+          p_actual_vehicle_cost: actualVehicleCost,
+          p_actual_other_cost: actualOtherCost,
+          p_actual_cost_note: String(form.get("actualCostNote") || "").trim() || null
+        }
+      }
+    );
   }
 
   function recordPayment(event: FormEvent<HTMLFormElement>) {
@@ -1110,7 +1172,23 @@ export default function OpsApp() {
     const orderPayments = nextPayments.filter((item) => item.orderId === selectedOrder.id);
     const paymentStatus = calculatePaymentStatus(selectedOrder.amountDue, orderPayments);
 
-    runCommand("finance.record_payment", (current) => recordPaymentCommand(current, payment, selectedOrder.id, paymentStatus, audit), `Đã ghi nhận ${money(amount)} cho ${selectedOrder.code}.`);
+    runCommand(
+      "finance.record_payment",
+      (current) => recordPaymentCommand(current, payment, selectedOrder.id, paymentStatus, audit, false),
+      `Đã ghi nhận ${money(amount)} cho ${selectedOrder.code}.`,
+      {
+        name: "record_payment",
+        args: {
+          p_payment_id: payment.id,
+          p_order_id: selectedOrder.id,
+          p_amount: amount,
+          p_method: payment.method,
+          p_reference: payment.reference ?? null,
+          p_paid_at: payment.paidAt,
+          p_payment_status: paymentStatus
+        }
+      }
+    );
     event.currentTarget.reset();
   }
 
@@ -1120,7 +1198,18 @@ export default function OpsApp() {
       setMessage(`${roleLabels[currentRole]} không có quyền cập nhật hóa đơn.`);
       return;
     }
-    runCommand("finance.update_invoice", (current) => updateInvoiceStatusCommand(current, selectedOrder.id, nextStatus, audit), `Đã cập nhật hóa đơn ${selectedOrder.code}: ${invoiceLabels[nextStatus]}.`);
+    runCommand(
+      "finance.update_invoice",
+      (current) => updateInvoiceStatusCommand(current, selectedOrder.id, nextStatus, audit, false),
+      `Đã cập nhật hóa đơn ${selectedOrder.code}: ${invoiceLabels[nextStatus]}.`,
+      {
+        name: "update_invoice_status",
+        args: {
+          p_order_id: selectedOrder.id,
+          p_invoice_status: nextStatus
+        }
+      }
+    );
   }
 
   function reconcileOrder() {
@@ -1137,7 +1226,17 @@ export default function OpsApp() {
       setMessage("Lệnh còn công nợ. Cần thanh toán đủ hoặc thêm luồng close_with_debt có duyệt.");
       return;
     }
-    runCommand("finance.close_order", (current) => closeOrder(current, selectedOrder.id, audit), `Đã đối soát và đóng ${selectedOrder.code}.`);
+    runCommand(
+      "finance.close_order",
+      (current) => closeOrder(current, selectedOrder.id, audit, false),
+      `Đã đối soát và đóng ${selectedOrder.code}.`,
+      {
+        name: "close_dispatch_order",
+        args: {
+          p_order_id: selectedOrder.id
+        }
+      }
+    );
   }
 
   function createVehicle(event: FormEvent<HTMLFormElement>) {
