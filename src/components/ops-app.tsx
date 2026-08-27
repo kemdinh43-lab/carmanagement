@@ -307,6 +307,18 @@ function statusTone(order: DispatchOrder) {
   return "info";
 }
 
+function allowedDispatchNextStatuses(currentStatus: DispatchStatus): DispatchStatus[] {
+  if (currentStatus === "waiting_assignment") return ["assigned", "cancelled"];
+  if (currentStatus === "assigned") return ["driver_accepted", "cancelled"];
+  if (currentStatus === "driver_accepted") return ["in_progress", "cancelled"];
+  if (currentStatus === "in_progress") return ["completed", "cancelled"];
+  return [];
+}
+
+function canMoveDispatchStatus(currentStatus: DispatchStatus, nextStatus: DispatchStatus) {
+  return allowedDispatchNextStatuses(currentStatus).includes(nextStatus);
+}
+
 function quoteTone(status?: QuoteStatus): "neutral" | "info" | "good" | "warn" | "danger" {
   if (status === "approved") return "good";
   if (status === "sent") return "info";
@@ -577,6 +589,13 @@ function driverActionDetail(order: DispatchOrder) {
   if (order.dispatchStatus === "in_progress") return "Xe đang chạy, khi xong thì chốt chuyến.";
   if (order.dispatchStatus === "completed") return "Chuyến đã xong.";
   return "Chuyến này đã bị hủy.";
+}
+
+function driverNextDispatchStatus(order: DispatchOrder): DispatchStatus | null {
+  if (order.dispatchStatus === "assigned") return "driver_accepted";
+  if (order.dispatchStatus === "driver_accepted") return "in_progress";
+  if (order.dispatchStatus === "in_progress") return "completed";
+  return null;
 }
 
 function toAppNotification(row: unknown): AppNotification {
@@ -1109,6 +1128,18 @@ export default function OpsApp() {
       }
     );
     notify({ audience: "driver", title: "Bạn có chuyến mới", body: `${selectedOrder.code} / ${formatDateTime(selectedOrder.startAt)}`, entityId: selectedOrder.id });
+    notify({
+      audience: "dispatcher",
+      title: currentAssignment ? "Đã đổi phân xe" : "Đã phân xe/tài xế",
+      body: `${selectedOrder.code} / ${vehicleId} / ${driverId}`,
+      entityId: selectedOrder.id
+    });
+    notify({
+      audience: "sale",
+      title: "Đề xuất đã được triển khai",
+      body: `${selectedOrder.code} đã có xe và tài xế.`,
+      entityId: selectedOrder.id
+    });
   }
 
   function reviewDispatchProposal(orderId: string, decision: "approved" | "rejected", reason: string) {
@@ -1138,6 +1169,12 @@ export default function OpsApp() {
         }
       }
     );
+    notify({
+      audience: "sale",
+      title: decision === "approved" ? "Đề xuất đã duyệt" : "Đề xuất bị từ chối",
+      body: decision === "approved" ? `${targetOrder.code} chuyển sang chờ phân xe/tài xế.` : `${targetOrder.code} / ${cleanReason}`,
+      entityId: orderId
+    });
   }
 
   function updateOrderDispatchStatus(orderId: string, nextStatus: DispatchStatus, reason: string, actor = "Dispatcher") {
@@ -1145,6 +1182,10 @@ export default function OpsApp() {
     if (!targetOrder) return;
     if (!can(currentRole, "update_dispatch_status")) {
       setMessage(`${roleLabels[currentRole]} không có quyền cập nhật trạng thái điều hành.`);
+      return;
+    }
+    if (!canMoveDispatchStatus(targetOrder.dispatchStatus, nextStatus)) {
+      setMessage(`Không thể chuyển ${targetOrder.code} từ ${dispatchLabels[targetOrder.dispatchStatus]} sang ${dispatchLabels[nextStatus]}.`);
       return;
     }
     runCommand(
@@ -1163,6 +1204,11 @@ export default function OpsApp() {
     );
     if (nextStatus === "completed") {
       notify({ audience: "accountant", title: "Chuyến đã hoàn thành", body: `${targetOrder.code} sẵn sàng đối soát.`, entityId: orderId });
+      notify({ audience: "dispatcher", title: "Chuyến hoàn thành", body: `${targetOrder.code} đã xong chuyến.`, entityId: orderId });
+    } else if (nextStatus === "driver_accepted") {
+      notify({ audience: "dispatcher", title: "Tài xế đã nhận chuyến", body: `${targetOrder.code} chờ xuất phát.`, entityId: orderId });
+    } else if (nextStatus === "in_progress") {
+      notify({ audience: "dispatcher", title: "Chuyến đang chạy", body: `${targetOrder.code} đang trên đường.`, entityId: orderId });
     }
   }
 
@@ -2741,6 +2787,10 @@ function DispatchPanel({
   const canUpdateDispatchStatus = can(currentRole, "update_dispatch_status");
   const pendingReviewOrders = orders.filter((order) => order.orderStatus === "pending_dispatch_review");
   const canAssignSelectedOrder = canAssignVehicle && selectedOrder.orderStatus === "confirmed";
+  const canMarkDriverAccepted = canUpdateDispatchStatus && canMoveDispatchStatus(selectedOrder.dispatchStatus, "driver_accepted");
+  const canMarkInProgress = canUpdateDispatchStatus && canMoveDispatchStatus(selectedOrder.dispatchStatus, "in_progress");
+  const canMarkCompleted = canUpdateDispatchStatus && canMoveDispatchStatus(selectedOrder.dispatchStatus, "completed");
+  const canMarkCancelled = canUpdateDispatchStatus && canMoveDispatchStatus(selectedOrder.dispatchStatus, "cancelled");
 
   return (
     <section className="space-y-4">
@@ -2785,10 +2835,10 @@ function DispatchPanel({
           </div>
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" disabled={!canUpdateDispatchStatus} onClick={() => updateDispatchStatus("driver_accepted", "Driver confirmed by dispatcher")} type="button">Tài xế nhận</button>
-          <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" disabled={!canUpdateDispatchStatus} onClick={() => updateDispatchStatus("in_progress", "Trip started")} type="button">Bắt đầu chạy</button>
-          <button className="h-10 rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canUpdateDispatchStatus} onClick={() => updateDispatchStatus("completed", "Trip completed")} type="button">Hoàn thành</button>
-          <button className="h-10 rounded-md border border-rose-200 bg-rose-50 px-3 text-sm font-medium text-rose-800 hover:bg-rose-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400" disabled={!canUpdateDispatchStatus} onClick={() => updateDispatchStatus("cancelled", "Cancelled with required reason")} type="button">Hủy lệnh</button>
+          <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" disabled={!canMarkDriverAccepted} onClick={() => updateDispatchStatus("driver_accepted", "Driver confirmed by dispatcher")} type="button">Tài xế nhận</button>
+          <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" disabled={!canMarkInProgress} onClick={() => updateDispatchStatus("in_progress", "Trip started")} type="button">Bắt đầu chạy</button>
+          <button className="h-10 rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canMarkCompleted} onClick={() => updateDispatchStatus("completed", "Trip completed")} type="button">Hoàn thành</button>
+          <button className="h-10 rounded-md border border-rose-200 bg-rose-50 px-3 text-sm font-medium text-rose-800 hover:bg-rose-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400" disabled={!canMarkCancelled} onClick={() => updateDispatchStatus("cancelled", "Cancelled with required reason")} type="button">Hủy lệnh</button>
         </div>
       </div>
 
@@ -3080,6 +3130,7 @@ function DriverMobilePanel({
   const awaitingCount = driverOrders.filter((order) => ["assigned", "waiting_assignment"].includes(order.dispatchStatus)).length;
   const canUpdate = can(currentRole, "update_dispatch_status");
   const selectedTrip = driverOrders.find((order) => order.id === selectedOrderId) ?? activeOrder ?? nextOrder ?? driverOrders[0];
+  const nextDriverStatus = selectedTrip ? driverNextDispatchStatus(selectedTrip) : null;
   const activeTrips = driverOrders.filter((order) => ["driver_accepted", "in_progress"].includes(order.dispatchStatus));
   const upcomingTrips = driverOrders.filter((order) => ["assigned", "waiting_assignment"].includes(order.dispatchStatus));
   const finishedTrips = driverOrders.filter((order) => order.dispatchStatus === "completed");
@@ -3115,6 +3166,28 @@ function DriverMobilePanel({
           <StatMini label="Chờ nhận" value={String(awaitingCount)} />
         </div>
         {selectedTrip ? <div className="mt-4"><StaticPinMap compact order={selectedTrip} /></div> : null}
+        {selectedTrip && (
+          <div className="mt-4 rounded-md border border-line bg-panel p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-ink">{selectedTrip.code}</p>
+                <p className="text-xs text-slate-500">{driverActionDetail(selectedTrip)}</p>
+              </div>
+              <Badge tone={statusTone(selectedTrip)}>{dispatchLabels[selectedTrip.dispatchStatus]}</Badge>
+            </div>
+            <button
+              className="mt-3 h-10 w-full rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+              disabled={!canUpdate || !nextDriverStatus}
+              onClick={() => {
+                if (!nextDriverStatus) return;
+                updateOrderDispatchStatus(selectedTrip.id, nextDriverStatus, driverActionLabel(selectedTrip), "Driver");
+              }}
+              type="button"
+            >
+              {nextDriverStatus ? driverActionLabel(selectedTrip) : "Không còn thao tác"}
+            </button>
+          </div>
+        )}
       </div>
 
       {activeOrder && (
