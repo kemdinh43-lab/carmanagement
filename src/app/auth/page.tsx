@@ -119,7 +119,7 @@ export default function AuthPage() {
 
     if (mode === "signin") {
       setMessage("Đăng nhập thành công, đang mở dashboard...");
-      router.replace("/");
+      window.location.replace("/");
       return;
     }
 
