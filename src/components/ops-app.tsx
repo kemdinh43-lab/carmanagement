@@ -305,6 +305,33 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+function SectionDetails({
+  badge,
+  children,
+  defaultOpen = true,
+  description,
+  title
+}: {
+  badge?: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+  description?: string;
+  title: string;
+}) {
+  return (
+    <details className="rounded-lg border border-line bg-white p-3 shadow-sm" open={defaultOpen}>
+      <summary className="flex cursor-pointer list-none items-start justify-between gap-3">
+        <div>
+          <p className="font-semibold text-ink">{title}</p>
+          {description && <p className="mt-1 text-xs text-slate-500">{description}</p>}
+        </div>
+        {badge && <Badge tone="info">{badge}</Badge>}
+      </summary>
+      <div className="mt-3">{children}</div>
+    </details>
+  );
+}
+
 function inputClass() {
   return "h-10 w-full rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-teal-100";
 }
@@ -2919,6 +2946,8 @@ function OrdersPanel({
   vehicles: Vehicle[];
 }) {
   const canCreateOrder = can(currentRole, "create_order");
+  const canOperate = can(currentRole, "assign_vehicle");
+  const canFinance = can(currentRole, "record_payment") || can(currentRole, "update_invoice") || can(currentRole, "close_order");
   const quoteStats = filteredOrders.reduce(
     (acc, order) => {
       const status = order.quoteStatus ?? "draft";
@@ -2958,17 +2987,18 @@ function OrdersPanel({
           </div>
         </div>
         <input name="customerKind" type="hidden" value={customerKind} />
-        <div className="mt-4 grid gap-4 xl:grid-cols-[1.1fr_1fr_0.9fr]">
-          <div className="space-y-3 border border-line bg-panel p-3">
-            <p className="text-sm font-semibold text-ink">Quản lý lệnh</p>
+        <div className="mt-4 space-y-4">
+          <SectionDetails
+            badge={customerKind === "company" ? "Doanh nghiệp" : "Cá nhân"}
+            description="Sale chỉ cần nhập phần tạo đề xuất. Vận hành và tài chính sẽ bổ sung sau."
+            title="1. Thông tin lệnh & khách hàng"
+          >
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
               <Field label="Ngày lệnh"><input className={inputClass()} name="orderDate" placeholder="2026-08-25" /></Field>
               <Field label="Người tạo nguồn"><input className={inputClass()} name="sourceOwnerName" /></Field>
               <Field label="Xuất hóa đơn"><select className={inputClass()} name="invoiceRequired"><option value="no">Không</option><option value="yes">Có</option></select></Field>
-              <Field label="Hình thức xe"><select className={inputClass()} name="vehicleOwnership"><option value="company">Công ty</option><option value="rented">Thuê ngoài</option></select></Field>
-            </div>
-            <p className="text-sm font-semibold text-ink">Khách hàng</p>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+              <Field label="Sale"><select className={inputClass()} name="salesOwner"><option>Sale A</option><option>Sale B</option><option>Sale C</option></select></Field>
+              <Field label="Nguồn"><select className={inputClass()} name="source"><option>Manual</option><option>Website</option><option>Google Ads</option><option>Referral</option><option>Old customer</option></select></Field>
               {customerKind === "individual" ? (
                 <>
                   <Field label="Chọn khách có sẵn">
@@ -2980,6 +3010,7 @@ function OrdersPanel({
                     </select>
                   </Field>
                   <Field label="Tên khách mới"><input className={inputClass()} name="customerName" /></Field>
+                  <Field label="SĐT khách mới"><input className={inputClass()} name="contactPhone" /></Field>
                   <Field label="CCCD khách mới"><input className={inputClass()} name="customerCccd" /></Field>
                   <Field label="Địa chỉ khách mới"><input className={inputClass()} name="customerAddress" /></Field>
                   <Field label="TK ngân hàng khách"><input className={inputClass()} name="customerBankAccount" /></Field>
@@ -3013,63 +3044,90 @@ function OrdersPanel({
                   <Field label="Ngân hàng công ty"><input className={inputClass()} name="companyBankName" /></Field>
                 </>
               )}
-              <Field label={customerKind === "company" ? "SĐT contact mới" : "SĐT khách mới"}><input className={inputClass()} name="contactPhone" /></Field>
-              <Field label="Sale"><select className={inputClass()} name="salesOwner"><option>Sale A</option><option>Sale B</option><option>Sale C</option></select></Field>
-              <Field label="Nguồn"><select className={inputClass()} name="source"><option>Manual</option><option>Website</option><option>Google Ads</option><option>Referral</option><option>Old customer</option></select></Field>
             </div>
-          </div>
+          </SectionDetails>
 
-          <div className="space-y-3 border border-line bg-panel p-3">
-            <p className="text-sm font-semibold text-ink">Hành trình</p>
+          <SectionDetails
+            badge="Sale"
+            description="Chỉ cần đủ để mô tả chuyến và gửi đề xuất."
+            title="2. Hành trình & giá bán"
+          >
             <div className="grid gap-3 md:grid-cols-2">
               <Field label="Mã dịch vụ"><input className={inputClass()} name="serviceCode" /></Field>
               <Field label="Dịch vụ"><input className={inputClass()} defaultValue="Private transfer" name="serviceLabel" required /></Field>
               <Field label="Diễn giải"><input className={inputClass()} name="serviceClarification" /></Field>
               <Field label="Đơn vị tính"><input className={inputClass()} name="unit" /></Field>
-                  <Field label="Ưu tiên"><select className={inputClass()} name="priority"><option value="normal">Thường</option><option value="high">Cao</option><option value="urgent">Gấp</option></select></Field>
               <Field label="Điểm đón"><input className={inputClass()} name="pickup" required /></Field>
               <Field label="Điểm trả"><input className={inputClass()} name="dropoff" required /></Field>
               <Field label="Bắt đầu"><input className={inputClass()} defaultValue={defaultOrderTimes.startAt} name="startAt" required type="datetime-local" /></Field>
               <Field label="Kết thúc"><input className={inputClass()} defaultValue={defaultOrderTimes.endAt} name="endAt" required type="datetime-local" /></Field>
-            </div>
-          </div>
-
-          <div className="space-y-3 border border-line bg-panel p-3">
-            <p className="text-sm font-semibold text-ink">Thông tin xe & nhà cung cấp</p>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-              <Field label="Biển số xe"><input className={inputClass()} name="vehiclePlateNo" /></Field>
-              <Field label="Họ tên tài xế"><input className={inputClass()} name="driverFullName" /></Field>
-              <Field label="CCCD tài xế"><input className={inputClass()} name="driverCccd" /></Field>
-              <Field label="SĐT tài xế"><input className={inputClass()} name="driverPhone" /></Field>
-              <Field label="Chủ xe / NCC"><input className={inputClass()} name="supplierOwnerName" /></Field>
-              <Field label="CCCD / MST NCC"><input className={inputClass()} name="supplierCccd" /></Field>
-              <Field label="Xuất HĐ đầu vào"><select className={inputClass()} name="supplierInvoiceRequired"><option value="no">Không</option><option value="yes">Có</option></select></Field>
-              <Field label="Tên đơn vị thuê ngoài"><input className={inputClass()} name="supplierCompanyName" /></Field>
-              <Field label="MST NCC"><input className={inputClass()} name="supplierTaxCode" /></Field>
-              <Field label="Địa chỉ NCC"><input className={inputClass()} name="supplierAddress" /></Field>
-              <Field label="SĐT NCC"><input className={inputClass()} name="supplierPhone" /></Field>
-              <Field label="Tổng tiền mua gồm VAT"><input className={inputClass()} defaultValue={0} min="0" name="supplierTotalWithVat" type="number" /></Field>
-              <Field label="TK NCC"><input className={inputClass()} name="supplierBankAccount" /></Field>
-              <Field label="Ngân hàng NCC"><input className={inputClass()} name="supplierBankName" /></Field>
-            </div>
-            <p className="text-sm font-semibold text-ink">Báo giá & chi phí</p>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+              <Field label="Ưu tiên"><select className={inputClass()} name="priority"><option value="normal">Thường</option><option value="high">Cao</option><option value="urgent">Gấp</option></select></Field>
               <Field label="Giá bán"><input className={inputClass()} defaultValue="1200000" min="0" name="amountDue" required type="number" /></Field>
               <Field label="Chi phí tài xế"><input className={inputClass()} defaultValue="350000" min="0" name="driverCost" type="number" /></Field>
               <Field label="Chi phí xe"><input className={inputClass()} defaultValue="350000" min="0" name="vehicleCost" type="number" /></Field>
               <Field label="Phụ phí"><input className={inputClass()} defaultValue="0" min="0" name="otherCost" type="number" /></Field>
-              <Field label="Hình thức thanh toán"><input className={inputClass()} name="paymentMethod" placeholder="Tiền mặt / chuyển khoản" /></Field>
-              <Field label="Đối tượng thu"><input className={inputClass()} name="payer" placeholder="Công ty / Khách / Tài xế" /></Field>
-              <Field label="Chủ tài khoản thu"><input className={inputClass()} name="collectionAccountOwner" /></Field>
-              <Field label="Số tài khoản thu"><input className={inputClass()} name="collectionBankAccount" /></Field>
-              <Field label="Ngân hàng thu"><input className={inputClass()} name="collectionBankName" /></Field>
+              <div className="md:col-span-2">
+                <Field label="Ghi chú báo giá"><textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="quoteNote" placeholder="Bao gồm/chưa gồm phí cầu đường, giờ chờ, VAT..." /></Field>
+              </div>
             </div>
-            <Field label="Ghi chú báo giá"><textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="quoteNote" placeholder="Bao gồm/chưa gồm phí cầu đường, giờ chờ, VAT..." /></Field>
+          </SectionDetails>
+
+          {canOperate && (
+            <SectionDetails
+              badge="Điều hành"
+              defaultOpen={false}
+              description="Mở khi cần bổ sung xe, tài xế hoặc nhà cung cấp thuê ngoài."
+              title="3. Xe / tài xế / nhà cung cấp"
+            >
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                <Field label="Hình thức xe"><select className={inputClass()} name="vehicleOwnership"><option value="company">Công ty</option><option value="rented">Thuê ngoài</option></select></Field>
+                <Field label="Biển số xe"><input className={inputClass()} name="vehiclePlateNo" /></Field>
+                <Field label="Họ tên tài xế"><input className={inputClass()} name="driverFullName" /></Field>
+                <Field label="CCCD tài xế"><input className={inputClass()} name="driverCccd" /></Field>
+                <Field label="SĐT tài xế"><input className={inputClass()} name="driverPhone" /></Field>
+                <Field label="Chủ xe / NCC"><input className={inputClass()} name="supplierOwnerName" /></Field>
+                <Field label="CCCD / MST NCC"><input className={inputClass()} name="supplierCccd" /></Field>
+                <Field label="Xuất HĐ đầu vào"><select className={inputClass()} name="supplierInvoiceRequired"><option value="no">Không</option><option value="yes">Có</option></select></Field>
+                <Field label="Tên đơn vị thuê ngoài"><input className={inputClass()} name="supplierCompanyName" /></Field>
+                <Field label="MST NCC"><input className={inputClass()} name="supplierTaxCode" /></Field>
+                <Field label="Địa chỉ NCC"><input className={inputClass()} name="supplierAddress" /></Field>
+                <Field label="SĐT NCC"><input className={inputClass()} name="supplierPhone" /></Field>
+                <Field label="Tổng tiền mua gồm VAT"><input className={inputClass()} defaultValue={0} min="0" name="supplierTotalWithVat" type="number" /></Field>
+                <Field label="TK NCC"><input className={inputClass()} name="supplierBankAccount" /></Field>
+                <Field label="Ngân hàng NCC"><input className={inputClass()} name="supplierBankName" /></Field>
+              </div>
+            </SectionDetails>
+          )}
+
+          {canFinance && (
+            <SectionDetails
+              badge="Kế toán"
+              defaultOpen={false}
+              description="Mở cho phần hóa đơn, thu/chi, tài khoản và trạng thái thanh toán."
+              title="4. Thanh toán & hóa đơn"
+            >
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                <Field label="Hình thức thanh toán"><input className={inputClass()} name="paymentMethod" placeholder="Tiền mặt / chuyển khoản" /></Field>
+                <Field label="Đối tượng thu"><input className={inputClass()} name="payer" placeholder="Công ty / Khách / Tài xế" /></Field>
+                <Field label="Chủ tài khoản thu"><input className={inputClass()} name="collectionAccountOwner" /></Field>
+                <Field label="Số tài khoản thu"><input className={inputClass()} name="collectionBankAccount" /></Field>
+                <Field label="Ngân hàng thu"><input className={inputClass()} name="collectionBankName" /></Field>
+              </div>
+            </SectionDetails>
+          )}
+
+          <SectionDetails
+            badge="Ghi chú"
+            defaultOpen={false}
+            description="Ghi chú sale và điều hành, giữ ngắn gọn nhưng đủ đọc."
+            title="5. Ghi chú & phát hành"
+          >
             <Field label="Ghi chú cho điều hành"><textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="salesNote" placeholder="Yêu cầu loại xe, khách VIP, cần xác nhận sớm..." /></Field>
-            <button className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canCreateOrder} type="submit">
-              <Save size={16} /> Tạo lệnh
-            </button>
-          </div>
+          </SectionDetails>
+
+          <button className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canCreateOrder} type="submit">
+            <Save size={16} /> Tạo lệnh
+          </button>
         </div>
       </form>
 
