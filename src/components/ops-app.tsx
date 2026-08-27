@@ -428,29 +428,73 @@ function formatDateTime(value: string) {
   return new Date(value).toLocaleString("vi-VN", {
     day: "2-digit",
     month: "2-digit",
+    timeZone: vietnamTimeZone,
     hour: "2-digit",
     minute: "2-digit"
   });
 }
 
+const vietnamTimeZone = "Asia/Ho_Chi_Minh";
+
+function vietnamDateParts(value = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: vietnamTimeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).formatToParts(value);
+  const map = new Map(parts.map((part) => [part.type, part.value]));
+  return {
+    day: map.get("day") ?? "01",
+    month: map.get("month") ?? "01",
+    year: map.get("year") ?? "1970",
+    hour: map.get("hour") ?? "00",
+    minute: map.get("minute") ?? "00"
+  };
+}
+
+function vietnamDateKey(value = new Date()) {
+  const parts = vietnamDateParts(value);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function vietnamDateTimeLabel(value = new Date()) {
+  const parts = vietnamDateParts(value);
+  return `${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute}`;
+}
+
+function vietnamDateTimeLocalValue(value = new Date()) {
+  const parts = vietnamDateParts(value);
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
+
 function timeOnly(value: string) {
   return new Date(value).toLocaleTimeString("vi-VN", {
+    timeZone: vietnamTimeZone,
     hour: "2-digit",
     minute: "2-digit"
   });
 }
 
 function dateKey(value: Date) {
-  return value.toLocaleDateString("sv-SE", { timeZone: "Asia/Ho_Chi_Minh" });
+  return vietnamDateKey(value);
 }
 
 function inputDateValue(value: Date) {
-  return value.toLocaleDateString("sv-SE", { timeZone: "Asia/Ho_Chi_Minh" });
+  return vietnamDateKey(value);
 }
 
 function orderDateKey(order: DispatchOrder) {
   return dateKey(new Date(order.startAt));
 }
+
+const defaultOrderTimes = {
+  startAt: vietnamDateTimeLocalValue(new Date(Date.now() + 60 * 60 * 1000)),
+  endAt: vietnamDateTimeLocalValue(new Date(Date.now() + 4 * 60 * 60 * 1000))
+};
 
 function getMonthCells(monthDate: Date) {
   const year = monthDate.getFullYear();
@@ -807,8 +851,9 @@ export default function OpsApp() {
       });
   }, [persistenceReady, repository, state]);
 
+  const todayKey = vietnamDateKey();
   const selectedOrder = state.orders.find((order) => order.id === selectedOrderId) ?? state.orders[0];
-  const todayOrders = state.orders.filter((order) => new Date(order.startAt).toLocaleDateString("sv-SE", { timeZone: "Asia/Ho_Chi_Minh" }) === "2026-08-25");
+  const todayOrders = state.orders.filter((order) => orderDateKey(order) === todayKey);
   const pendingDispatchReviewCount = todayOrders.filter((order) => order.orderStatus === "pending_dispatch_review").length;
   const alerts = getOperationalAlerts(state.orders);
   const revenue = todayOrders.reduce((sum, order) => sum + order.amountDue, 0);
@@ -1538,7 +1583,7 @@ export default function OpsApp() {
         <header className="border-b border-line bg-white px-5 py-4 lg:px-8">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <p className="text-sm text-slate-500">Pilot vận hành local - 25/08/2026</p>
+              <p className="text-sm text-slate-500">Pilot vận hành local - {vietnamDateTimeLabel()}</p>
               <h2 className="text-2xl font-semibold text-ink">{tab}</h2>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -1818,6 +1863,7 @@ function VehicleCalendar({
 }) {
   const cells = getMonthCells(monthDate);
   const month = monthDate.getMonth();
+  const todayKey = vietnamDateKey();
   const eventsByDate = orders.reduce<Record<string, DispatchOrder[]>>((acc, order) => {
     const key = orderDateKey(order);
     acc[key] = [...(acc[key] ?? []), order].sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
@@ -1871,7 +1917,7 @@ function VehicleCalendar({
               key={key}
             >
               <div className="mb-2 flex items-center justify-between">
-                <span className={`grid size-6 place-items-center rounded-full text-xs font-semibold ${key === "2026-08-25" ? "bg-brand text-white" : ""}`}>{date.getDate()}</span>
+                <span className={`grid size-6 place-items-center rounded-full text-xs font-semibold ${key === todayKey ? "bg-brand text-white" : ""}`}>{date.getDate()}</span>
                 {dayOrders.length > 0 && <span className="text-[11px] text-slate-400">{dayOrders.length}</span>}
               </div>
               <div className="space-y-1">
@@ -2539,8 +2585,8 @@ function OrdersPanel({
               <Field label="Ưu tiên"><select className={inputClass()} name="priority"><option value="normal">Thường</option><option value="high">Cao</option><option value="urgent">Gấp</option></select></Field>
               <Field label="Điểm đón"><input className={inputClass()} name="pickup" required /></Field>
               <Field label="Điểm trả"><input className={inputClass()} name="dropoff" required /></Field>
-              <Field label="Bắt đầu"><input className={inputClass()} defaultValue="2026-08-25T18:00" name="startAt" required type="datetime-local" /></Field>
-              <Field label="Kết thúc"><input className={inputClass()} defaultValue="2026-08-25T21:00" name="endAt" required type="datetime-local" /></Field>
+              <Field label="Bắt đầu"><input className={inputClass()} defaultValue={defaultOrderTimes.startAt} name="startAt" required type="datetime-local" /></Field>
+              <Field label="Kết thúc"><input className={inputClass()} defaultValue={defaultOrderTimes.endAt} name="endAt" required type="datetime-local" /></Field>
             </div>
           </div>
 
@@ -3023,10 +3069,11 @@ function DriverMobilePanel({
 }) {
   const lockedDriverId = currentRole === "driver" ? authDriverId : undefined;
   const selectedDriver = drivers.find((driver) => driver.id === (lockedDriverId ?? mobileDriverId)) ?? drivers[0];
+  const todayKey = vietnamDateKey();
   const driverOrders = orders
     .filter((order) => order.driverId === selectedDriver?.id && order.dispatchStatus !== "cancelled")
     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
-  const todayDriverOrders = driverOrders.filter((order) => orderDateKey(order) === "2026-08-25");
+  const todayDriverOrders = driverOrders.filter((order) => orderDateKey(order) === todayKey);
   const activeOrder = driverOrders.find((order) => order.dispatchStatus === "in_progress") ?? driverOrders.find((order) => order.dispatchStatus === "driver_accepted");
   const nextOrder = driverOrders.find((order) => !["completed", "cancelled", "in_progress", "driver_accepted"].includes(order.dispatchStatus));
   const completedCount = driverOrders.filter((order) => order.dispatchStatus === "completed").length;
