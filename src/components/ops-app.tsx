@@ -300,6 +300,18 @@ function textAreaClass() {
   return "min-h-20 w-full rounded-md border border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-teal-100";
 }
 
+function tabIcon(tab: Tab) {
+  if (tab === "Dashboard") return CalendarClock;
+  if (tab === "Lệnh điều xe") return ClipboardList;
+  if (tab === "Điều hành") return Route;
+  if (tab === "Tài xế mobile") return Smartphone;
+  if (tab === "Users") return UsersRound;
+  if (tab === "Khách hàng") return UserRound;
+  if (tab === "Tài chính") return Banknote;
+  if (tab === "Master data") return Car;
+  return ShieldCheck;
+}
+
 function statusTone(order: DispatchOrder) {
   if (order.dispatchStatus === "completed") return "good";
   if (order.dispatchStatus === "waiting_assignment") return "warn";
@@ -1658,8 +1670,22 @@ export default function OpsApp() {
           </div>
           <p className="mt-3 border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm text-cyan-900">{message}</p>
         </header>
+        <div className="border-b border-line bg-white px-3 py-3 lg:hidden">
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {tabs.map((item) => (
+              <button
+                className={`shrink-0 rounded-full border px-3 py-2 text-sm font-medium ${tab === item ? "border-teal-600 bg-teal-50 text-brand" : "border-line bg-white text-slate-600"}`}
+                key={item}
+                onClick={() => setTab(item)}
+                type="button"
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+        </div>
 
-        <div className="space-y-6 p-5 lg:p-8">
+        <div className="space-y-6 p-5 pb-28 lg:p-8">
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <StatCard label="Chuyến hôm nay" value={String(todayOrders.length)} icon={CalendarClock} detail="Tính theo ngày chạy, không theo ngày tạo." />
             <StatCard label="Chờ duyệt" value={String(pendingDispatchReviewCount)} icon={ClipboardList} detail="Sale đã gửi đề xuất, điều hành cần xét duyệt." />
@@ -1771,6 +1797,24 @@ export default function OpsApp() {
           )}
           {tab === "Audit" && (can(currentRole, "view_audit") ? <AuditPanel events={state.auditEvents} /> : <AccessDenied role={currentRole} />)}
         </div>
+        <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white/95 backdrop-blur lg:hidden">
+          <div className="flex gap-2 overflow-x-auto px-3 py-2">
+            {tabs.map((item) => {
+              const Icon = tabIcon(item);
+              return (
+                <button
+                  className={`flex shrink-0 flex-col items-center gap-1 rounded-xl border px-3 py-2 text-[11px] font-medium ${tab === item ? "border-teal-600 bg-teal-50 text-brand" : "border-line bg-white text-slate-600"}`}
+                  key={item}
+                  onClick={() => setTab(item)}
+                  type="button"
+                >
+                  <Icon size={16} />
+                  <span>{item}</span>
+                </button>
+              );
+            })}
+          </div>
+        </nav>
       </section>
     </main>
   );
