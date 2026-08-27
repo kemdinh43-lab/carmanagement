@@ -1062,10 +1062,38 @@ export default function OpsApp() {
     const customerId = String(form.get("customerId") || "");
     const companyId = String(form.get("companyId") || "");
     const contactId = String(form.get("contactId") || "");
+    const orderDate = String(form.get("orderDate") || "").trim();
     const contactName = String(form.get("contactName") || "").trim();
     const companyName = String(form.get("companyName") || "").trim();
     const taxCode = String(form.get("taxCode") || "").trim();
     const billingEmail = String(form.get("billingEmail") || "").trim();
+    const customerCccd = String(form.get("customerCccd") || "").trim();
+    const customerAddress = String(form.get("customerAddress") || "").trim();
+    const customerBankAccount = String(form.get("customerBankAccount") || "").trim();
+    const customerBankName = String(form.get("customerBankName") || "").trim();
+    const companyAddress = String(form.get("companyAddress") || "").trim();
+    const companyBankAccount = String(form.get("companyBankAccount") || "").trim();
+    const companyBankName = String(form.get("companyBankName") || "").trim();
+    const serviceCode = String(form.get("serviceCode") || "").trim();
+    const serviceClarification = String(form.get("serviceClarification") || "").trim();
+    const unit = String(form.get("unit") || "").trim();
+    const sourceOwnerName = String(form.get("sourceOwnerName") || "").trim();
+    const invoiceRequired = form.get("invoiceRequired") === "yes";
+    const vehicleOwnership = String(form.get("vehicleOwnership") || "company") as DispatchOrder["vehicleOwnership"];
+    const vehiclePlateNo = String(form.get("vehiclePlateNo") || "").trim();
+    const driverFullName = String(form.get("driverFullName") || "").trim();
+    const driverCccd = String(form.get("driverCccd") || "").trim();
+    const driverPhone = String(form.get("driverPhone") || "").trim();
+    const supplierOwnerName = String(form.get("supplierOwnerName") || "").trim();
+    const supplierCccd = String(form.get("supplierCccd") || "").trim();
+    const supplierInvoiceRequired = form.get("supplierInvoiceRequired") === "yes";
+    const supplierCompanyName = String(form.get("supplierCompanyName") || "").trim();
+    const supplierTaxCode = String(form.get("supplierTaxCode") || "").trim();
+    const supplierAddress = String(form.get("supplierAddress") || "").trim();
+    const supplierPhone = String(form.get("supplierPhone") || "").trim();
+    const supplierTotalWithVat = Number(form.get("supplierTotalWithVat") || 0);
+    const supplierBankAccount = String(form.get("supplierBankAccount") || "").trim();
+    const supplierBankName = String(form.get("supplierBankName") || "").trim();
     const selectedCustomerProfile = state.customers.find((customer) => customer.id === customerId);
     const selectedCompanyProfile = state.companies.find((company) => company.id === companyId);
     const selectedContactProfile = state.companyContacts.find((contact) => contact.id === contactId);
@@ -1103,24 +1131,57 @@ export default function OpsApp() {
     const order: DispatchOrder = {
       id: makeId("order"),
       code: buildCode(state.orders.length + 1),
+      orderDate: orderDate || undefined,
       customerKind: kind,
       customerName: kind === "company" ? selectedCompanyProfile?.legalName ?? companyName : selectedCustomerProfile?.fullName ?? String(form.get("customerName") || "").trim(),
+      customerCccd: kind === "individual" ? customerCccd || undefined : undefined,
+      customerAddress: kind === "individual" ? customerAddress || undefined : undefined,
+      customerBankAccount: kind === "individual" ? customerBankAccount || undefined : undefined,
+      customerBankName: kind === "individual" ? customerBankName || undefined : undefined,
       companyName: kind === "company" ? selectedCompanyProfile?.legalName ?? companyName : undefined,
+      companyAddress: kind === "company" ? ((selectedCompanyProfile?.legalAddress || companyAddress) || undefined) : undefined,
+      companyBankAccount: kind === "company" ? companyBankAccount || undefined : undefined,
+      companyBankName: kind === "company" ? companyBankName || undefined : undefined,
       contactName: kind === "company" ? selectedContactProfile?.fullName ?? contactName : undefined,
       contactPhone: kind === "company" ? selectedContactProfile?.phone ?? String(form.get("contactPhone") || "").trim() : selectedCustomerProfile?.phone ?? String(form.get("contactPhone") || "").trim(),
       taxCode: kind === "company" ? ((selectedCompanyProfile?.taxCode ?? taxCode) || undefined) : undefined,
       billingEmail: kind === "company" ? ((selectedCompanyProfile?.billingEmail ?? billingEmail) || undefined) : undefined,
+      serviceCode: serviceCode || undefined,
       pickup: String(form.get("pickup") || "").trim(),
       dropoff: String(form.get("dropoff") || "").trim(),
       serviceLabel: String(form.get("serviceLabel") || "Private transfer").trim(),
+      serviceClarification: serviceClarification || undefined,
+      unit: unit || undefined,
       salesOwner: String(form.get("salesOwner") || "Sale A"),
+      sourceOwnerName: sourceOwnerName || undefined,
       source: String(form.get("source") || "Manual"),
+      invoiceRequired,
+      vehicleOwnership,
+      vehiclePlateNo: vehiclePlateNo || undefined,
+      driverFullName: driverFullName || undefined,
+      driverCccd: driverCccd || undefined,
+      driverPhone: driverPhone || undefined,
+      supplierOwnerName: supplierOwnerName || undefined,
+      supplierCccd: supplierCccd || undefined,
+      supplierInvoiceRequired,
+      supplierCompanyName: supplierCompanyName || undefined,
+      supplierTaxCode: supplierTaxCode || undefined,
+      supplierAddress: supplierAddress || undefined,
+      supplierPhone: supplierPhone || undefined,
+      supplierTotalWithVat: Number.isFinite(supplierTotalWithVat) ? supplierTotalWithVat : undefined,
+      supplierBankAccount: supplierBankAccount || undefined,
+      supplierBankName: supplierBankName || undefined,
       startAt: toIsoFromInput(startAt),
       endAt: toIsoFromInput(endAt),
       amountDue,
       driverCost,
       vehicleCost,
       otherCost,
+      paymentMethod: String(form.get("paymentMethod") || "").trim() || undefined,
+      payer: String(form.get("payer") || "").trim() || undefined,
+      collectionAccountOwner: String(form.get("collectionAccountOwner") || "").trim() || undefined,
+      collectionBankAccount: String(form.get("collectionBankAccount") || "").trim() || undefined,
+      collectionBankName: String(form.get("collectionBankName") || "").trim() || undefined,
       quoteNote: String(form.get("quoteNote") || "").trim() || undefined,
       priority: String(form.get("priority") || "normal") as DispatchPriority,
       salesNote: String(form.get("salesNote") || "").trim() || undefined,
@@ -1128,7 +1189,7 @@ export default function OpsApp() {
       orderStatus: "pending_dispatch_review",
       dispatchStatus: "waiting_assignment",
       paymentStatus: "unpaid",
-      invoiceStatus: form.get("invoiceRequired") === "yes" ? (kind === "company" && (selectedCompanyProfile?.taxCode ?? taxCode) && (selectedCompanyProfile?.billingEmail ?? billingEmail) ? "ready_to_issue" : "pending_info") : "not_required",
+      invoiceStatus: invoiceRequired ? (kind === "company" && (selectedCompanyProfile?.taxCode ?? taxCode) && (selectedCompanyProfile?.billingEmail ?? billingEmail) ? "ready_to_issue" : "pending_info") : "not_required",
       reconciliationStatus: "open"
     };
 
@@ -1321,12 +1382,45 @@ export default function OpsApp() {
     const vehicleCost = Number(form.get("vehicleCost") || 0);
     const otherCost = Number(form.get("otherCost") || 0);
     const kind = String(form.get("customerKind") || selectedOrder.customerKind) as DispatchOrder["customerKind"];
+    const orderDate = String(form.get("orderDate") || selectedOrder.orderDate || "").trim();
     const customerName = String(form.get("customerName") || "").trim();
+    const customerCccd = String(form.get("customerCccd") || "").trim();
+    const customerAddress = String(form.get("customerAddress") || "").trim();
+    const customerBankAccount = String(form.get("customerBankAccount") || "").trim();
+    const customerBankName = String(form.get("customerBankName") || "").trim();
     const companyName = String(form.get("companyName") || "").trim();
     const taxCode = String(form.get("taxCode") || "").trim();
     const billingEmail = String(form.get("billingEmail") || "").trim();
+    const companyAddress = String(form.get("companyAddress") || "").trim();
+    const companyBankAccount = String(form.get("companyBankAccount") || "").trim();
+    const companyBankName = String(form.get("companyBankName") || "").trim();
+    const serviceCode = String(form.get("serviceCode") || "").trim();
+    const serviceClarification = String(form.get("serviceClarification") || "").trim();
+    const unit = String(form.get("unit") || "").trim();
     const salesOwner = String(form.get("salesOwner") || selectedOrder.salesOwner).trim();
+    const sourceOwnerName = String(form.get("sourceOwnerName") || selectedOrder.sourceOwnerName || "").trim();
     const source = String(form.get("source") || selectedOrder.source).trim();
+    const invoiceRequired = form.get("invoiceRequired") === "yes";
+    const vehicleOwnership = String(form.get("vehicleOwnership") || selectedOrder.vehicleOwnership || "").trim() || undefined;
+    const vehiclePlateNo = String(form.get("vehiclePlateNo") || "").trim();
+    const driverFullName = String(form.get("driverFullName") || "").trim();
+    const driverCccd = String(form.get("driverCccd") || "").trim();
+    const driverPhone = String(form.get("driverPhone") || "").trim();
+    const supplierOwnerName = String(form.get("supplierOwnerName") || "").trim();
+    const supplierCccd = String(form.get("supplierCccd") || "").trim();
+    const supplierInvoiceRequired = form.get("supplierInvoiceRequired") === "yes";
+    const supplierCompanyName = String(form.get("supplierCompanyName") || "").trim();
+    const supplierTaxCode = String(form.get("supplierTaxCode") || "").trim();
+    const supplierAddress = String(form.get("supplierAddress") || "").trim();
+    const supplierPhone = String(form.get("supplierPhone") || "").trim();
+    const supplierTotalWithVat = Number(form.get("supplierTotalWithVat") || 0);
+    const supplierBankAccount = String(form.get("supplierBankAccount") || "").trim();
+    const supplierBankName = String(form.get("supplierBankName") || "").trim();
+    const paymentMethod = String(form.get("paymentMethod") || "").trim();
+    const payer = String(form.get("payer") || "").trim();
+    const collectionAccountOwner = String(form.get("collectionAccountOwner") || "").trim();
+    const collectionBankAccount = String(form.get("collectionBankAccount") || "").trim();
+    const collectionBankName = String(form.get("collectionBankName") || "").trim();
 
     if (!startAt || !endAt || new Date(nextEndAt) <= new Date(nextStartAt)) {
       setMessage("Giờ kết thúc phải sau giờ bắt đầu.");
@@ -1364,24 +1458,57 @@ export default function OpsApp() {
           current,
           selectedOrder.id,
           {
+            orderDate: orderDate || undefined,
             customerKind: kind,
             customerName,
+            customerCccd: kind === "individual" ? customerCccd || undefined : undefined,
+            customerAddress: kind === "individual" ? customerAddress || undefined : undefined,
+            customerBankAccount: kind === "individual" ? customerBankAccount || undefined : undefined,
+            customerBankName: kind === "individual" ? customerBankName || undefined : undefined,
             contactName: String(form.get("contactName") || "").trim() || undefined,
             contactPhone: String(form.get("contactPhone") || "").trim(),
             companyName: kind === "company" ? companyName || customerName : undefined,
+            companyAddress: kind === "company" ? companyAddress || undefined : undefined,
+            companyBankAccount: kind === "company" ? companyBankAccount || undefined : undefined,
+            companyBankName: kind === "company" ? companyBankName || undefined : undefined,
             taxCode: kind === "company" ? taxCode || undefined : undefined,
             billingEmail: kind === "company" ? billingEmail || undefined : undefined,
+            serviceCode: serviceCode || undefined,
             pickup: String(form.get("pickup") || "").trim(),
             dropoff: String(form.get("dropoff") || "").trim(),
             serviceLabel: String(form.get("serviceLabel") || "").trim(),
+            serviceClarification: serviceClarification || undefined,
+            unit: unit || undefined,
             salesOwner,
+            sourceOwnerName: sourceOwnerName || undefined,
             source,
+            invoiceRequired,
+            vehicleOwnership: vehicleOwnership as DispatchOrder["vehicleOwnership"] | undefined,
+            vehiclePlateNo: vehiclePlateNo || undefined,
+            driverFullName: driverFullName || undefined,
+            driverCccd: driverCccd || undefined,
+            driverPhone: driverPhone || undefined,
+            supplierOwnerName: supplierOwnerName || undefined,
+            supplierCccd: supplierCccd || undefined,
+            supplierInvoiceRequired,
+            supplierCompanyName: supplierCompanyName || undefined,
+            supplierTaxCode: supplierTaxCode || undefined,
+            supplierAddress: supplierAddress || undefined,
+            supplierPhone: supplierPhone || undefined,
+            supplierTotalWithVat: Number.isFinite(supplierTotalWithVat) ? supplierTotalWithVat : undefined,
+            supplierBankAccount: supplierBankAccount || undefined,
+            supplierBankName: supplierBankName || undefined,
             startAt: nextStartAt,
             endAt: nextEndAt,
             amountDue,
             driverCost,
             vehicleCost,
             otherCost,
+            paymentMethod: paymentMethod || undefined,
+            payer: payer || undefined,
+            collectionAccountOwner: collectionAccountOwner || undefined,
+            collectionBankAccount: collectionBankAccount || undefined,
+            collectionBankName: collectionBankName || undefined,
             quoteNote: String(form.get("quoteNote") || "").trim() || undefined,
             priority: String(form.get("priority") || "normal") as DispatchPriority,
             salesNote: String(form.get("salesNote") || "").trim() || undefined
@@ -1396,24 +1523,57 @@ export default function OpsApp() {
         name: "update_dispatch_order",
         args: {
           p_order_id: selectedOrder.id,
+          p_order_date: orderDate || null,
           p_customer_kind: kind,
           p_customer_name: customerName,
+          p_customer_cccd: kind === "individual" ? customerCccd || null : null,
+          p_customer_address: kind === "individual" ? customerAddress || null : null,
+          p_customer_bank_account: kind === "individual" ? customerBankAccount || null : null,
+          p_customer_bank_name: kind === "individual" ? customerBankName || null : null,
           p_contact_name: String(form.get("contactName") || "").trim() || null,
           p_contact_phone: String(form.get("contactPhone") || "").trim(),
           p_company_name: kind === "company" ? companyName || customerName : null,
+          p_company_address: kind === "company" ? companyAddress || null : null,
+          p_company_bank_account: kind === "company" ? companyBankAccount || null : null,
+          p_company_bank_name: kind === "company" ? companyBankName || null : null,
           p_tax_code: kind === "company" ? taxCode || null : null,
           p_billing_email: kind === "company" ? billingEmail || null : null,
+          p_service_code: serviceCode || null,
           p_pickup: String(form.get("pickup") || "").trim(),
           p_dropoff: String(form.get("dropoff") || "").trim(),
           p_service_label: String(form.get("serviceLabel") || "").trim(),
+          p_service_clarification: serviceClarification || null,
+          p_unit: unit || null,
           p_sales_owner: salesOwner,
+          p_source_owner_name: sourceOwnerName || null,
           p_source: source,
+          p_invoice_required: invoiceRequired,
+          p_vehicle_ownership: vehicleOwnership || null,
+          p_vehicle_plate_no: vehiclePlateNo || null,
+          p_driver_full_name: driverFullName || null,
+          p_driver_cccd: driverCccd || null,
+          p_driver_phone: driverPhone || null,
+          p_supplier_owner_name: supplierOwnerName || null,
+          p_supplier_cccd: supplierCccd || null,
+          p_supplier_invoice_required: supplierInvoiceRequired,
+          p_supplier_company_name: supplierCompanyName || null,
+          p_supplier_tax_code: supplierTaxCode || null,
+          p_supplier_address: supplierAddress || null,
+          p_supplier_phone: supplierPhone || null,
+          p_supplier_total_with_vat: Number.isFinite(supplierTotalWithVat) ? supplierTotalWithVat : null,
+          p_supplier_bank_account: supplierBankAccount || null,
+          p_supplier_bank_name: supplierBankName || null,
           p_start_at: nextStartAt,
           p_end_at: nextEndAt,
           p_amount_due: amountDue,
           p_driver_cost: driverCost,
           p_vehicle_cost: vehicleCost,
           p_other_cost: otherCost,
+          p_payment_method: paymentMethod || null,
+          p_payer: payer || null,
+          p_collection_account_owner: collectionAccountOwner || null,
+          p_collection_bank_account: collectionBankAccount || null,
+          p_collection_bank_name: collectionBankName || null,
           p_quote_note: String(form.get("quoteNote") || "").trim() || null,
           p_priority: String(form.get("priority") || "normal"),
           p_sales_note: String(form.get("salesNote") || "").trim() || null,
@@ -2439,8 +2599,12 @@ function OrderDetailPanel({
         </div>
         <div className="border border-line bg-panel p-3">
           <p className="font-medium text-ink">Billing</p>
+          <p className="mt-2 text-slate-600">Ngày lệnh: {order.orderDate || "-"}</p>
           <p className="mt-2 text-slate-600">MST: {order.taxCode || "-"}</p>
           <p className="mt-1 text-slate-600">Email HĐ: {order.billingEmail || "-"}</p>
+          <p className="mt-1 text-slate-600">Hình thức xe: {order.vehicleOwnership === "rented" ? "Thuê ngoài" : "Công ty"}</p>
+          <p className="mt-1 text-slate-600">Thanh toán: {order.paymentMethod || "-"}</p>
+          <p className="mt-1 text-slate-600">Thu từ: {order.payer || "-"}</p>
         </div>
         <div className="border border-line bg-panel p-3">
           <p className="font-medium text-ink">Audit gần nhất</p>
@@ -2461,6 +2625,7 @@ function OrderDetailPanel({
               <section className="border border-line bg-white p-3">
                 <h4 className="font-semibold text-ink">Quản lý lệnh</h4>
                 <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <Field label="Ngày lệnh"><input className={inputClass()} defaultValue={order.orderDate ?? ""} name="orderDate" placeholder="2026-08-25" /></Field>
                   <Field label="Loại khách">
                     <select className={inputClass()} defaultValue={order.customerKind} name="customerKind">
                       <option value="individual">Cá nhân</option>
@@ -2468,7 +2633,9 @@ function OrderDetailPanel({
                     </select>
                   </Field>
                   <Field label="Sale phụ trách"><input className={inputClass()} defaultValue={order.salesOwner} name="salesOwner" /></Field>
+                  <Field label="Người tạo nguồn"><input className={inputClass()} defaultValue={order.sourceOwnerName ?? ""} name="sourceOwnerName" /></Field>
                   <Field label="Nguồn"><input className={inputClass()} defaultValue={order.source} name="source" /></Field>
+                  <Field label="Xuất hóa đơn"><select className={inputClass()} defaultValue={order.invoiceRequired ? "yes" : "no"} name="invoiceRequired"><option value="no">Không</option><option value="yes">Có</option></select></Field>
                 </div>
               </section>
 
@@ -2476,18 +2643,28 @@ function OrderDetailPanel({
                 <h4 className="font-semibold text-ink">Thông tin khách hàng</h4>
                 <div className="mt-3 grid gap-3 md:grid-cols-3">
                   <Field label="Tên khách / người đi"><input className={inputClass()} defaultValue={order.customerName} name="customerName" required /></Field>
+                  <Field label="CCCD khách"><input className={inputClass()} defaultValue={order.customerCccd ?? ""} name="customerCccd" /></Field>
+                  <Field label="Địa chỉ khách"><input className={inputClass()} defaultValue={order.customerAddress ?? ""} name="customerAddress" /></Field>
                   <Field label="Người liên hệ"><input className={inputClass()} defaultValue={order.contactName ?? ""} name="contactName" /></Field>
                   <Field label="SĐT"><input className={inputClass()} defaultValue={order.contactPhone} name="contactPhone" required /></Field>
                   <Field label="Tên công ty"><input className={inputClass()} defaultValue={order.companyName ?? ""} name="companyName" /></Field>
                   <Field label="MST"><input className={inputClass()} defaultValue={order.taxCode ?? ""} name="taxCode" /></Field>
                   <Field label="Email HĐ"><input className={inputClass()} defaultValue={order.billingEmail ?? ""} name="billingEmail" type="email" /></Field>
+                  <Field label="Địa chỉ công ty"><input className={inputClass()} defaultValue={order.companyAddress ?? ""} name="companyAddress" /></Field>
+                  <Field label="TK ngân hàng KH"><input className={inputClass()} defaultValue={order.customerBankAccount ?? ""} name="customerBankAccount" /></Field>
+                  <Field label="Ngân hàng KH"><input className={inputClass()} defaultValue={order.customerBankName ?? ""} name="customerBankName" /></Field>
+                  <Field label="TK ngân hàng CTy"><input className={inputClass()} defaultValue={order.companyBankAccount ?? ""} name="companyBankAccount" /></Field>
+                  <Field label="Ngân hàng CTy"><input className={inputClass()} defaultValue={order.companyBankName ?? ""} name="companyBankName" /></Field>
                 </div>
               </section>
 
               <section className="border border-line bg-white p-3">
                 <h4 className="font-semibold text-ink">Hành trình</h4>
                 <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <Field label="Mã dịch vụ"><input className={inputClass()} defaultValue={order.serviceCode ?? ""} name="serviceCode" /></Field>
                   <Field label="Dịch vụ"><input className={inputClass()} defaultValue={order.serviceLabel} name="serviceLabel" required /></Field>
+                  <Field label="Diễn giải"><input className={inputClass()} defaultValue={order.serviceClarification ?? ""} name="serviceClarification" /></Field>
+                  <Field label="Đơn vị tính"><input className={inputClass()} defaultValue={order.unit ?? ""} name="unit" /></Field>
                   <Field label="Điểm đón"><input className={inputClass()} defaultValue={order.pickup} name="pickup" required /></Field>
                   <Field label="Điểm trả"><input className={inputClass()} defaultValue={order.dropoff} name="dropoff" required /></Field>
                   <Field label="Bắt đầu"><input className={inputClass()} defaultValue={toDateTimeInput(order.startAt)} name="startAt" required type="datetime-local" /></Field>
@@ -2497,12 +2674,38 @@ function OrderDetailPanel({
               </section>
 
               <section className="border border-line bg-white p-3">
-                <h4 className="font-semibold text-ink">Báo giá</h4>
+                <h4 className="font-semibold text-ink">Thông tin xe & nhà cung cấp</h4>
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <Field label="Hình thức xe"><select className={inputClass()} defaultValue={order.vehicleOwnership ?? "company"} name="vehicleOwnership"><option value="company">Công ty</option><option value="rented">Thuê ngoài</option></select></Field>
+                  <Field label="Biển số xe"><input className={inputClass()} defaultValue={order.vehiclePlateNo ?? ""} name="vehiclePlateNo" /></Field>
+                  <Field label="Họ tên tài xế"><input className={inputClass()} defaultValue={order.driverFullName ?? ""} name="driverFullName" /></Field>
+                  <Field label="CCCD tài xế"><input className={inputClass()} defaultValue={order.driverCccd ?? ""} name="driverCccd" /></Field>
+                  <Field label="SĐT tài xế"><input className={inputClass()} defaultValue={order.driverPhone ?? ""} name="driverPhone" /></Field>
+                  <Field label="Tên chủ xe / nhà cung cấp"><input className={inputClass()} defaultValue={order.supplierOwnerName ?? ""} name="supplierOwnerName" /></Field>
+                  <Field label="CCCD / MST NCC"><input className={inputClass()} defaultValue={order.supplierCccd ?? ""} name="supplierCccd" /></Field>
+                  <Field label="Xuất HĐ đầu vào"><select className={inputClass()} defaultValue={order.supplierInvoiceRequired ? "yes" : "no"} name="supplierInvoiceRequired"><option value="no">Không</option><option value="yes">Có</option></select></Field>
+                  <Field label="Tên đơn vị thuê ngoài"><input className={inputClass()} defaultValue={order.supplierCompanyName ?? ""} name="supplierCompanyName" /></Field>
+                  <Field label="MST NCC"><input className={inputClass()} defaultValue={order.supplierTaxCode ?? ""} name="supplierTaxCode" /></Field>
+                  <Field label="Địa chỉ NCC"><input className={inputClass()} defaultValue={order.supplierAddress ?? ""} name="supplierAddress" /></Field>
+                  <Field label="SĐT NCC"><input className={inputClass()} defaultValue={order.supplierPhone ?? ""} name="supplierPhone" /></Field>
+                  <Field label="Tổng tiền mua gồm VAT"><input className={inputClass()} defaultValue={order.supplierTotalWithVat ?? 0} min="0" name="supplierTotalWithVat" type="number" /></Field>
+                  <Field label="TK NCC"><input className={inputClass()} defaultValue={order.supplierBankAccount ?? ""} name="supplierBankAccount" /></Field>
+                  <Field label="Ngân hàng NCC"><input className={inputClass()} defaultValue={order.supplierBankName ?? ""} name="supplierBankName" /></Field>
+                </div>
+              </section>
+
+              <section className="border border-line bg-white p-3">
+                <h4 className="font-semibold text-ink">Báo giá & thanh toán</h4>
                 <div className="mt-3 grid gap-3 md:grid-cols-3">
                   <Field label="Giá bán"><input className={inputClass()} defaultValue={order.amountDue} min="0" name="amountDue" required type="number" /></Field>
                   <Field label="Chi phí tài xế"><input className={inputClass()} defaultValue={order.driverCost ?? 0} min="0" name="driverCost" type="number" /></Field>
                   <Field label="Chi phí xe"><input className={inputClass()} defaultValue={order.vehicleCost ?? 0} min="0" name="vehicleCost" type="number" /></Field>
                   <Field label="Phụ phí"><input className={inputClass()} defaultValue={order.otherCost ?? 0} min="0" name="otherCost" type="number" /></Field>
+                  <Field label="Hình thức thanh toán"><input className={inputClass()} defaultValue={order.paymentMethod ?? ""} name="paymentMethod" /></Field>
+                  <Field label="Đối tượng thu"><input className={inputClass()} defaultValue={order.payer ?? ""} name="payer" placeholder="Công ty / Khách / Tài xế" /></Field>
+                  <Field label="Chủ tài khoản thu"><input className={inputClass()} defaultValue={order.collectionAccountOwner ?? ""} name="collectionAccountOwner" /></Field>
+                  <Field label="Số tài khoản thu"><input className={inputClass()} defaultValue={order.collectionBankAccount ?? ""} name="collectionBankAccount" /></Field>
+                  <Field label="Ngân hàng thu"><input className={inputClass()} defaultValue={order.collectionBankName ?? ""} name="collectionBankName" /></Field>
                   <div className="md:col-span-3">
                     <Field label="Ghi chú báo giá"><textarea className={textAreaClass()} defaultValue={order.quoteNote ?? ""} name="quoteNote" /></Field>
                   </div>
@@ -2757,6 +2960,13 @@ function OrdersPanel({
         <input name="customerKind" type="hidden" value={customerKind} />
         <div className="mt-4 grid gap-4 xl:grid-cols-[1.1fr_1fr_0.9fr]">
           <div className="space-y-3 border border-line bg-panel p-3">
+            <p className="text-sm font-semibold text-ink">Quản lý lệnh</p>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+              <Field label="Ngày lệnh"><input className={inputClass()} name="orderDate" placeholder="2026-08-25" /></Field>
+              <Field label="Người tạo nguồn"><input className={inputClass()} name="sourceOwnerName" /></Field>
+              <Field label="Xuất hóa đơn"><select className={inputClass()} name="invoiceRequired"><option value="no">Không</option><option value="yes">Có</option></select></Field>
+              <Field label="Hình thức xe"><select className={inputClass()} name="vehicleOwnership"><option value="company">Công ty</option><option value="rented">Thuê ngoài</option></select></Field>
+            </div>
             <p className="text-sm font-semibold text-ink">Khách hàng</p>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
               {customerKind === "individual" ? (
@@ -2770,6 +2980,10 @@ function OrdersPanel({
                     </select>
                   </Field>
                   <Field label="Tên khách mới"><input className={inputClass()} name="customerName" /></Field>
+                  <Field label="CCCD khách mới"><input className={inputClass()} name="customerCccd" /></Field>
+                  <Field label="Địa chỉ khách mới"><input className={inputClass()} name="customerAddress" /></Field>
+                  <Field label="TK ngân hàng khách"><input className={inputClass()} name="customerBankAccount" /></Field>
+                  <Field label="Ngân hàng khách"><input className={inputClass()} name="customerBankName" /></Field>
                 </>
               ) : (
                 <>
@@ -2794,6 +3008,9 @@ function OrdersPanel({
                   <Field label="Người liên hệ mới"><input className={inputClass()} name="contactName" /></Field>
                   <Field label="MST"><input className={inputClass()} name="taxCode" /></Field>
                   <Field label="Email nhận HĐ"><input className={inputClass()} name="billingEmail" type="email" /></Field>
+                  <Field label="Địa chỉ công ty"><input className={inputClass()} name="companyAddress" /></Field>
+                  <Field label="TK ngân hàng công ty"><input className={inputClass()} name="companyBankAccount" /></Field>
+                  <Field label="Ngân hàng công ty"><input className={inputClass()} name="companyBankName" /></Field>
                 </>
               )}
               <Field label={customerKind === "company" ? "SĐT contact mới" : "SĐT khách mới"}><input className={inputClass()} name="contactPhone" /></Field>
@@ -2805,9 +3022,11 @@ function OrdersPanel({
           <div className="space-y-3 border border-line bg-panel p-3">
             <p className="text-sm font-semibold text-ink">Hành trình</p>
             <div className="grid gap-3 md:grid-cols-2">
+              <Field label="Mã dịch vụ"><input className={inputClass()} name="serviceCode" /></Field>
               <Field label="Dịch vụ"><input className={inputClass()} defaultValue="Private transfer" name="serviceLabel" required /></Field>
-              <Field label="Hóa đơn"><select className={inputClass()} name="invoiceRequired"><option value="no">Không yêu cầu</option><option value="yes">Có yêu cầu</option></select></Field>
-              <Field label="Ưu tiên"><select className={inputClass()} name="priority"><option value="normal">Thường</option><option value="high">Cao</option><option value="urgent">Gấp</option></select></Field>
+              <Field label="Diễn giải"><input className={inputClass()} name="serviceClarification" /></Field>
+              <Field label="Đơn vị tính"><input className={inputClass()} name="unit" /></Field>
+                  <Field label="Ưu tiên"><select className={inputClass()} name="priority"><option value="normal">Thường</option><option value="high">Cao</option><option value="urgent">Gấp</option></select></Field>
               <Field label="Điểm đón"><input className={inputClass()} name="pickup" required /></Field>
               <Field label="Điểm trả"><input className={inputClass()} name="dropoff" required /></Field>
               <Field label="Bắt đầu"><input className={inputClass()} defaultValue={defaultOrderTimes.startAt} name="startAt" required type="datetime-local" /></Field>
@@ -2816,12 +3035,34 @@ function OrdersPanel({
           </div>
 
           <div className="space-y-3 border border-line bg-panel p-3">
+            <p className="text-sm font-semibold text-ink">Thông tin xe & nhà cung cấp</p>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+              <Field label="Biển số xe"><input className={inputClass()} name="vehiclePlateNo" /></Field>
+              <Field label="Họ tên tài xế"><input className={inputClass()} name="driverFullName" /></Field>
+              <Field label="CCCD tài xế"><input className={inputClass()} name="driverCccd" /></Field>
+              <Field label="SĐT tài xế"><input className={inputClass()} name="driverPhone" /></Field>
+              <Field label="Chủ xe / NCC"><input className={inputClass()} name="supplierOwnerName" /></Field>
+              <Field label="CCCD / MST NCC"><input className={inputClass()} name="supplierCccd" /></Field>
+              <Field label="Xuất HĐ đầu vào"><select className={inputClass()} name="supplierInvoiceRequired"><option value="no">Không</option><option value="yes">Có</option></select></Field>
+              <Field label="Tên đơn vị thuê ngoài"><input className={inputClass()} name="supplierCompanyName" /></Field>
+              <Field label="MST NCC"><input className={inputClass()} name="supplierTaxCode" /></Field>
+              <Field label="Địa chỉ NCC"><input className={inputClass()} name="supplierAddress" /></Field>
+              <Field label="SĐT NCC"><input className={inputClass()} name="supplierPhone" /></Field>
+              <Field label="Tổng tiền mua gồm VAT"><input className={inputClass()} defaultValue={0} min="0" name="supplierTotalWithVat" type="number" /></Field>
+              <Field label="TK NCC"><input className={inputClass()} name="supplierBankAccount" /></Field>
+              <Field label="Ngân hàng NCC"><input className={inputClass()} name="supplierBankName" /></Field>
+            </div>
             <p className="text-sm font-semibold text-ink">Báo giá & chi phí</p>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
               <Field label="Giá bán"><input className={inputClass()} defaultValue="1200000" min="0" name="amountDue" required type="number" /></Field>
               <Field label="Chi phí tài xế"><input className={inputClass()} defaultValue="350000" min="0" name="driverCost" type="number" /></Field>
               <Field label="Chi phí xe"><input className={inputClass()} defaultValue="350000" min="0" name="vehicleCost" type="number" /></Field>
               <Field label="Phụ phí"><input className={inputClass()} defaultValue="0" min="0" name="otherCost" type="number" /></Field>
+              <Field label="Hình thức thanh toán"><input className={inputClass()} name="paymentMethod" placeholder="Tiền mặt / chuyển khoản" /></Field>
+              <Field label="Đối tượng thu"><input className={inputClass()} name="payer" placeholder="Công ty / Khách / Tài xế" /></Field>
+              <Field label="Chủ tài khoản thu"><input className={inputClass()} name="collectionAccountOwner" /></Field>
+              <Field label="Số tài khoản thu"><input className={inputClass()} name="collectionBankAccount" /></Field>
+              <Field label="Ngân hàng thu"><input className={inputClass()} name="collectionBankName" /></Field>
             </div>
             <Field label="Ghi chú báo giá"><textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="quoteNote" placeholder="Bao gồm/chưa gồm phí cầu đường, giờ chờ, VAT..." /></Field>
             <Field label="Ghi chú cho điều hành"><textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="salesNote" placeholder="Yêu cầu loại xe, khách VIP, cần xác nhận sớm..." /></Field>
