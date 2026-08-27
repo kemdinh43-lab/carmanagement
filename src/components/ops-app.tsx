@@ -2884,81 +2884,83 @@ function DispatchPanel({
         }}
         setSelectedOrderId={setSelectedOrderId}
       />
-      <VehicleCalendar monthDate={calendarMonth} orders={orders} selectedOrderId={selectedOrder.id} setCalendarDay={setCalendarDay} setMonthDate={setCalendarMonth} setSelectedOrderId={setSelectedOrderId} vehicles={vehicles} />
-      <DayTimeline day={calendarDay} drivers={drivers} orders={orders} selectedOrderId={selectedOrder.id} setDay={setCalendarDay} setSelectedOrderId={setSelectedOrderId} vehicles={vehicles} />
-      <VehicleResourceTimeline day={calendarDay} drivers={drivers} orders={orders} selectedOrderId={selectedOrder.id} setDay={setCalendarDay} setSelectedOrderId={setSelectedOrderId} vehicles={vehicles} />
-      <DispatchBoard assignments={assignments} drivers={drivers} orders={orders} selectedOrderId={selectedOrder.id} setSelectedOrderId={setSelectedOrderId} vehicles={vehicles} />
-      <OrderDetailPanel assignments={assignments} auditEvents={auditEvents} drivers={drivers} order={selectedOrder} payments={payments} cancelOrder={cancelOrder} updateOrder={updateOrder} vehicles={vehicles} />
       <div className="grid gap-4 xl:grid-cols-[0.95fr_1.2fr]">
-      <div className="border border-line bg-white p-4 shadow-sm">
-        <div className="flex items-center gap-2">
-          <ClipboardList className="text-brand" size={20} />
-          <h3 className="font-semibold text-ink">{selectedOrder.code}</h3>
-        </div>
-        <div className="mt-4 space-y-3 text-sm">
-          <p className="font-medium">{selectedOrder.customerName}</p>
-          <p className="text-slate-600">{selectedOrder.pickup} → {selectedOrder.dropoff}</p>
-          <p className="text-slate-600">{formatDateTime(selectedOrder.startAt)} - {formatDateTime(selectedOrder.endAt)}</p>
-          <div className="flex flex-wrap gap-2">
-            <Badge tone={orderStatusTone(selectedOrder.orderStatus)}>{orderStatusLabels[selectedOrder.orderStatus]}</Badge>
-            <Badge tone={statusTone(selectedOrder)}>{dispatchLabels[selectedOrder.dispatchStatus]}</Badge>
-            <Badge tone={selectedOrder.paymentStatus === "paid" ? "good" : "warn"}>{paymentLabels[selectedOrder.paymentStatus]}</Badge>
-            <Badge tone="info">{money(selectedOrder.amountDue)}</Badge>
+        <div className="border border-line bg-white p-4 shadow-sm lg:order-none">
+          <div className="flex items-center gap-2">
+            <ClipboardList className="text-brand" size={20} />
+            <h3 className="font-semibold text-ink">{selectedOrder.code}</h3>
           </div>
-          <div className="border border-line bg-panel p-3">
-            <p className="font-medium">Assignment hiện tại</p>
-            <p className="mt-1 text-slate-600">{vehicle ? `${vehicle.plateNo} / ${vehicle.type}` : "Chưa có xe"}</p>
-            <p className="text-slate-600">{driver ? `${driver.fullName} / ${driver.phone}` : "Chưa có tài xế"}</p>
-            {activeAssignment && <p className="mt-1 text-xs text-slate-500">Assignment ID: {activeAssignment.id}</p>}
+          <div className="mt-4 space-y-3 text-sm">
+            <p className="font-medium">{selectedOrder.customerName}</p>
+            <p className="text-slate-600">{selectedOrder.pickup} → {selectedOrder.dropoff}</p>
+            <p className="text-slate-600">{formatDateTime(selectedOrder.startAt)} - {formatDateTime(selectedOrder.endAt)}</p>
+            <div className="flex flex-wrap gap-2">
+              <Badge tone={orderStatusTone(selectedOrder.orderStatus)}>{orderStatusLabels[selectedOrder.orderStatus]}</Badge>
+              <Badge tone={statusTone(selectedOrder)}>{dispatchLabels[selectedOrder.dispatchStatus]}</Badge>
+              <Badge tone={selectedOrder.paymentStatus === "paid" ? "good" : "warn"}>{paymentLabels[selectedOrder.paymentStatus]}</Badge>
+              <Badge tone="info">{money(selectedOrder.amountDue)}</Badge>
+            </div>
+            <div className="border border-line bg-panel p-3">
+              <p className="font-medium">Assignment hiện tại</p>
+              <p className="mt-1 text-slate-600">{vehicle ? `${vehicle.plateNo} / ${vehicle.type}` : "Chưa có xe"}</p>
+              <p className="text-slate-600">{driver ? `${driver.fullName} / ${driver.phone}` : "Chưa có tài xế"}</p>
+              {activeAssignment && <p className="mt-1 text-xs text-slate-500">Assignment ID: {activeAssignment.id}</p>}
+            </div>
+          </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" disabled={!canMarkDriverAccepted} onClick={() => updateDispatchStatus("driver_accepted", "Driver confirmed by dispatcher")} type="button">Tài xế nhận</button>
+            <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" disabled={!canMarkInProgress} onClick={() => updateDispatchStatus("in_progress", "Trip started")} type="button">Bắt đầu chạy</button>
+            <button className="h-10 rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canMarkCompleted} onClick={() => updateDispatchStatus("completed", "Trip completed")} type="button">Hoàn thành</button>
+            <button className="h-10 rounded-md border border-rose-200 bg-rose-50 px-3 text-sm font-medium text-rose-800 hover:bg-rose-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400" disabled={!canMarkCancelled} onClick={() => updateDispatchStatus("cancelled", "Cancelled with required reason")} type="button">Hủy lệnh</button>
           </div>
         </div>
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" disabled={!canMarkDriverAccepted} onClick={() => updateDispatchStatus("driver_accepted", "Driver confirmed by dispatcher")} type="button">Tài xế nhận</button>
-          <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" disabled={!canMarkInProgress} onClick={() => updateDispatchStatus("in_progress", "Trip started")} type="button">Bắt đầu chạy</button>
-          <button className="h-10 rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canMarkCompleted} onClick={() => updateDispatchStatus("completed", "Trip completed")} type="button">Hoàn thành</button>
-          <button className="h-10 rounded-md border border-rose-200 bg-rose-50 px-3 text-sm font-medium text-rose-800 hover:bg-rose-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400" disabled={!canMarkCancelled} onClick={() => updateDispatchStatus("cancelled", "Cancelled with required reason")} type="button">Hủy lệnh</button>
-        </div>
-      </div>
 
-      <form className="border border-line bg-white p-4 shadow-sm" onSubmit={assignOrder}>
-        <div className="flex items-center gap-2">
-          <Car className="text-brand" size={20} />
-          <h3 className="font-semibold text-ink">Phân xe/tài xế</h3>
-        </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          {selectedOrder.orderStatus !== "confirmed" && (
-            <p className="border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 md:col-span-2">Lệnh này chưa được điều hành duyệt nên chưa thể phân xe/tài xế.</p>
-          )}
-          <Field label="Xe">
-            <select className={inputClass()} defaultValue={selectedOrder.vehicleId} name="vehicleId" required>
-              {vehicles.map((item) => <option disabled={item.status !== "active"} key={item.id} value={item.id}>{item.plateNo} / {item.type} / {item.status}</option>)}
-            </select>
-          </Field>
-          <Field label="Tài xế">
-            <select className={inputClass()} defaultValue={selectedOrder.driverId} name="driverId" required>
-              {drivers.map((item) => <option disabled={item.status !== "active"} key={item.id} value={item.id}>{item.fullName} / {item.status}</option>)}
-            </select>
-          </Field>
-          <div className="md:col-span-2">
-            <Field label="Lý do khi đổi/ghi chú phân công"><textarea className={textAreaClass()} name="reason" placeholder="Ví dụ: xe cũ bận, khách đổi giờ, ưu tiên tài xế quen tuyến..." /></Field>
+        <form className="border border-line bg-white p-4 shadow-sm" onSubmit={assignOrder}>
+          <div className="flex items-center gap-2">
+            <Car className="text-brand" size={20} />
+            <h3 className="font-semibold text-ink">Phân xe/tài xế</h3>
           </div>
-        </div>
-        <button className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canAssignSelectedOrder} type="submit">
-          <Save size={16} /> Lưu phân công
-        </button>
-        <div className="mt-4 border border-line bg-panel p-3 text-sm">
-          <p className="font-medium">Assignment history</p>
-          <div className="mt-2 space-y-2">
-            {assignments.filter((item) => item.dispatchOrderId === selectedOrder.id).map((item) => {
-              const assignedVehicle = vehicles.find((vehicleItem) => vehicleItem.id === item.vehicleId);
-              const assignedDriver = drivers.find((driverItem) => driverItem.id === item.driverId);
-              return (
-                <p className="text-slate-600" key={item.id}>{assignedVehicle?.plateNo} / {assignedDriver?.fullName} / {item.status}</p>
-              );
-            })}
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            {selectedOrder.orderStatus !== "confirmed" && (
+              <p className="border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 md:col-span-2">Lệnh này chưa được điều hành duyệt nên chưa thể phân xe/tài xế.</p>
+            )}
+            <Field label="Xe">
+              <select className={inputClass()} defaultValue={selectedOrder.vehicleId} name="vehicleId" required>
+                {vehicles.map((item) => <option disabled={item.status !== "active"} key={item.id} value={item.id}>{item.plateNo} / {item.type} / {item.status}</option>)}
+              </select>
+            </Field>
+            <Field label="Tài xế">
+              <select className={inputClass()} defaultValue={selectedOrder.driverId} name="driverId" required>
+                {drivers.map((item) => <option disabled={item.status !== "active"} key={item.id} value={item.id}>{item.fullName} / {item.status}</option>)}
+              </select>
+            </Field>
+            <div className="md:col-span-2">
+              <Field label="Lý do khi đổi/ghi chú phân công"><textarea className={textAreaClass()} name="reason" placeholder="Ví dụ: xe cũ bận, khách đổi giờ, ưu tiên tài xế quen tuyến..." /></Field>
+            </div>
           </div>
-        </div>
-      </form>
+          <button className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canAssignSelectedOrder} type="submit">
+            <Save size={16} /> Lưu phân công
+          </button>
+          <div className="mt-4 border border-line bg-panel p-3 text-sm">
+            <p className="font-medium">Assignment history</p>
+            <div className="mt-2 space-y-2">
+              {assignments.filter((item) => item.dispatchOrderId === selectedOrder.id).map((item) => {
+                const assignedVehicle = vehicles.find((vehicleItem) => vehicleItem.id === item.vehicleId);
+                const assignedDriver = drivers.find((driverItem) => driverItem.id === item.driverId);
+                return (
+                  <p className="text-slate-600" key={item.id}>{assignedVehicle?.plateNo} / {assignedDriver?.fullName} / {item.status}</p>
+                );
+              })}
+            </div>
+          </div>
+        </form>
+      </div>
+      <div className="hidden space-y-4 lg:block">
+        <VehicleCalendar monthDate={calendarMonth} orders={orders} selectedOrderId={selectedOrder.id} setCalendarDay={setCalendarDay} setMonthDate={setCalendarMonth} setSelectedOrderId={setSelectedOrderId} vehicles={vehicles} />
+        <DayTimeline day={calendarDay} drivers={drivers} orders={orders} selectedOrderId={selectedOrder.id} setDay={setCalendarDay} setSelectedOrderId={setSelectedOrderId} vehicles={vehicles} />
+        <VehicleResourceTimeline day={calendarDay} drivers={drivers} orders={orders} selectedOrderId={selectedOrder.id} setDay={setCalendarDay} setSelectedOrderId={setSelectedOrderId} vehicles={vehicles} />
+        <DispatchBoard assignments={assignments} drivers={drivers} orders={orders} selectedOrderId={selectedOrder.id} setSelectedOrderId={setSelectedOrderId} vehicles={vehicles} />
+        <OrderDetailPanel assignments={assignments} auditEvents={auditEvents} drivers={drivers} order={selectedOrder} payments={payments} cancelOrder={cancelOrder} updateOrder={updateOrder} vehicles={vehicles} />
       </div>
     </section>
   );
@@ -3488,6 +3490,21 @@ function FinancePanel({
 
   return (
     <section className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+      <section className="border border-line bg-white p-4 shadow-sm xl:hidden">
+        <div className="flex items-center gap-2">
+          <Banknote className="text-brand" size={20} />
+          <h3 className="font-semibold text-ink">{selectedOrder.code}</h3>
+        </div>
+        <div className="mt-3 space-y-1 text-sm text-slate-600">
+          <p className="font-medium text-ink">{selectedOrder.customerName}</p>
+          <p>{selectedOrder.pickup} → {selectedOrder.dropoff}</p>
+          <p>{formatDateTime(selectedOrder.startAt)} - {formatDateTime(selectedOrder.endAt)}</p>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <StatMini label="Phải thu" value={money(selectedOrder.amountDue)} />
+          <StatMini label="Còn nợ" value={money(debt)} />
+        </div>
+      </section>
       <form className="border border-line bg-white p-4 shadow-sm" onSubmit={recordPayment}>
         <div className="flex items-center gap-2">
           <ReceiptText className="text-brand" size={20} />
