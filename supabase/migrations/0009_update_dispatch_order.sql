@@ -1,11 +1,17 @@
 create or replace function public.update_dispatch_order(
   p_order_id text,
+  p_customer_kind text,
   p_customer_name text,
   p_contact_name text,
   p_contact_phone text,
+  p_company_name text,
+  p_tax_code text,
+  p_billing_email text,
   p_pickup text,
   p_dropoff text,
   p_service_label text,
+  p_sales_owner text,
+  p_source text,
   p_start_at timestamptz,
   p_end_at timestamptz,
   p_amount_due numeric,
@@ -33,12 +39,18 @@ begin
   end if;
 
   update public.app_dispatch_orders
-  set customer_name = p_customer_name,
+  set customer_kind = p_customer_kind,
+      customer_name = p_customer_name,
       contact_name = nullif(p_contact_name, ''),
       contact_phone = p_contact_phone,
+      company_name = nullif(p_company_name, ''),
+      tax_code = nullif(p_tax_code, ''),
+      billing_email = nullif(p_billing_email, ''),
       pickup = p_pickup,
       dropoff = p_dropoff,
       service_label = p_service_label,
+      sales_owner = p_sales_owner,
+      source = p_source,
       start_at = p_start_at,
       end_at = p_end_at,
       amount_due = p_amount_due,
@@ -85,4 +97,4 @@ begin
 end;
 $$;
 
-grant execute on function public.update_dispatch_order(text, text, text, text, text, text, text, timestamptz, timestamptz, numeric, numeric, numeric, numeric, text, text, text, text, text) to authenticated;
+grant execute on function public.update_dispatch_order(text, text, text, text, text, text, text, text, text, text, timestamptz, timestamptz, numeric, numeric, numeric, numeric, text, text, text, text, text) to authenticated;

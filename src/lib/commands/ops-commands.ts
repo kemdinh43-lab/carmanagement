@@ -166,12 +166,18 @@ export function updateOrderDetails(
   state: OpsState,
   orderId: string,
   patch: {
+    customerKind: DispatchOrder["customerKind"];
     customerName: string;
     contactName?: string;
     contactPhone: string;
+    companyName?: string;
+    taxCode?: string;
+    billingEmail?: string;
     pickup: string;
     dropoff: string;
     serviceLabel: string;
+    salesOwner: string;
+    source: string;
     startAt: string;
     endAt: string;
     amountDue: number;

@@ -1320,6 +1320,13 @@ export default function OpsApp() {
     const driverCost = Number(form.get("driverCost") || 0);
     const vehicleCost = Number(form.get("vehicleCost") || 0);
     const otherCost = Number(form.get("otherCost") || 0);
+    const kind = String(form.get("customerKind") || selectedOrder.customerKind) as DispatchOrder["customerKind"];
+    const customerName = String(form.get("customerName") || "").trim();
+    const companyName = String(form.get("companyName") || "").trim();
+    const taxCode = String(form.get("taxCode") || "").trim();
+    const billingEmail = String(form.get("billingEmail") || "").trim();
+    const salesOwner = String(form.get("salesOwner") || selectedOrder.salesOwner).trim();
+    const source = String(form.get("source") || selectedOrder.source).trim();
 
     if (!startAt || !endAt || new Date(nextEndAt) <= new Date(nextStartAt)) {
       setMessage("Giờ kết thúc phải sau giờ bắt đầu.");
@@ -1357,12 +1364,18 @@ export default function OpsApp() {
           current,
           selectedOrder.id,
           {
-            customerName: String(form.get("customerName") || "").trim(),
+            customerKind: kind,
+            customerName,
             contactName: String(form.get("contactName") || "").trim() || undefined,
             contactPhone: String(form.get("contactPhone") || "").trim(),
+            companyName: kind === "company" ? companyName || customerName : undefined,
+            taxCode: kind === "company" ? taxCode || undefined : undefined,
+            billingEmail: kind === "company" ? billingEmail || undefined : undefined,
             pickup: String(form.get("pickup") || "").trim(),
             dropoff: String(form.get("dropoff") || "").trim(),
             serviceLabel: String(form.get("serviceLabel") || "").trim(),
+            salesOwner,
+            source,
             startAt: nextStartAt,
             endAt: nextEndAt,
             amountDue,
@@ -1383,12 +1396,18 @@ export default function OpsApp() {
         name: "update_dispatch_order",
         args: {
           p_order_id: selectedOrder.id,
-          p_customer_name: String(form.get("customerName") || "").trim(),
+          p_customer_kind: kind,
+          p_customer_name: customerName,
           p_contact_name: String(form.get("contactName") || "").trim() || null,
           p_contact_phone: String(form.get("contactPhone") || "").trim(),
+          p_company_name: kind === "company" ? companyName || customerName : null,
+          p_tax_code: kind === "company" ? taxCode || null : null,
+          p_billing_email: kind === "company" ? billingEmail || null : null,
           p_pickup: String(form.get("pickup") || "").trim(),
           p_dropoff: String(form.get("dropoff") || "").trim(),
           p_service_label: String(form.get("serviceLabel") || "").trim(),
+          p_sales_owner: salesOwner,
+          p_source: source,
           p_start_at: nextStartAt,
           p_end_at: nextEndAt,
           p_amount_due: amountDue,
@@ -2438,27 +2457,61 @@ function OrderDetailPanel({
         <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_360px]">
           <form className="border border-line bg-panel p-4" onSubmit={updateOrder}>
             <h3 className="font-semibold text-ink">Sửa lệnh</h3>
-            <div className="mt-4 grid gap-3 md:grid-cols-3">
-              <Field label="Tên khách"><input className={inputClass()} defaultValue={order.customerName} name="customerName" required /></Field>
-              <Field label="Người liên hệ"><input className={inputClass()} defaultValue={order.contactName ?? ""} name="contactName" /></Field>
-              <Field label="SĐT"><input className={inputClass()} defaultValue={order.contactPhone} name="contactPhone" required /></Field>
-              <Field label="Dịch vụ"><input className={inputClass()} defaultValue={order.serviceLabel} name="serviceLabel" required /></Field>
-              <Field label="Điểm đón"><input className={inputClass()} defaultValue={order.pickup} name="pickup" required /></Field>
-              <Field label="Điểm trả"><input className={inputClass()} defaultValue={order.dropoff} name="dropoff" required /></Field>
-              <Field label="Bắt đầu"><input className={inputClass()} defaultValue={toDateTimeInput(order.startAt)} name="startAt" required type="datetime-local" /></Field>
-              <Field label="Kết thúc"><input className={inputClass()} defaultValue={toDateTimeInput(order.endAt)} name="endAt" required type="datetime-local" /></Field>
-              <Field label="Giá bán"><input className={inputClass()} defaultValue={order.amountDue} min="0" name="amountDue" required type="number" /></Field>
-              <Field label="Ưu tiên"><select className={inputClass()} defaultValue={order.priority ?? "normal"} name="priority"><option value="normal">Thường</option><option value="high">Cao</option><option value="urgent">Gấp</option></select></Field>
-              <Field label="Chi phí tài xế"><input className={inputClass()} defaultValue={order.driverCost ?? 0} min="0" name="driverCost" type="number" /></Field>
-              <Field label="Chi phí xe"><input className={inputClass()} defaultValue={order.vehicleCost ?? 0} min="0" name="vehicleCost" type="number" /></Field>
-              <Field label="Phụ phí"><input className={inputClass()} defaultValue={order.otherCost ?? 0} min="0" name="otherCost" type="number" /></Field>
-              <div className="md:col-span-2">
-                <Field label="Ghi chú báo giá"><textarea className={textAreaClass()} defaultValue={order.quoteNote ?? ""} name="quoteNote" /></Field>
-              </div>
-              <div className="md:col-span-2">
-                <Field label="Ghi chú cho điều hành"><textarea className={textAreaClass()} defaultValue={order.salesNote ?? ""} name="salesNote" /></Field>
-              </div>
-              <Field label="Lý do sửa"><input className={inputClass()} name="editReason" placeholder="Khách đổi giờ, đổi điểm đón..." /></Field>
+            <div className="mt-4 grid gap-4">
+              <section className="border border-line bg-white p-3">
+                <h4 className="font-semibold text-ink">Quản lý lệnh</h4>
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <Field label="Loại khách">
+                    <select className={inputClass()} defaultValue={order.customerKind} name="customerKind">
+                      <option value="individual">Cá nhân</option>
+                      <option value="company">Doanh nghiệp</option>
+                    </select>
+                  </Field>
+                  <Field label="Sale phụ trách"><input className={inputClass()} defaultValue={order.salesOwner} name="salesOwner" /></Field>
+                  <Field label="Nguồn"><input className={inputClass()} defaultValue={order.source} name="source" /></Field>
+                </div>
+              </section>
+
+              <section className="border border-line bg-white p-3">
+                <h4 className="font-semibold text-ink">Thông tin khách hàng</h4>
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <Field label="Tên khách / người đi"><input className={inputClass()} defaultValue={order.customerName} name="customerName" required /></Field>
+                  <Field label="Người liên hệ"><input className={inputClass()} defaultValue={order.contactName ?? ""} name="contactName" /></Field>
+                  <Field label="SĐT"><input className={inputClass()} defaultValue={order.contactPhone} name="contactPhone" required /></Field>
+                  <Field label="Tên công ty"><input className={inputClass()} defaultValue={order.companyName ?? ""} name="companyName" /></Field>
+                  <Field label="MST"><input className={inputClass()} defaultValue={order.taxCode ?? ""} name="taxCode" /></Field>
+                  <Field label="Email HĐ"><input className={inputClass()} defaultValue={order.billingEmail ?? ""} name="billingEmail" type="email" /></Field>
+                </div>
+              </section>
+
+              <section className="border border-line bg-white p-3">
+                <h4 className="font-semibold text-ink">Hành trình</h4>
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <Field label="Dịch vụ"><input className={inputClass()} defaultValue={order.serviceLabel} name="serviceLabel" required /></Field>
+                  <Field label="Điểm đón"><input className={inputClass()} defaultValue={order.pickup} name="pickup" required /></Field>
+                  <Field label="Điểm trả"><input className={inputClass()} defaultValue={order.dropoff} name="dropoff" required /></Field>
+                  <Field label="Bắt đầu"><input className={inputClass()} defaultValue={toDateTimeInput(order.startAt)} name="startAt" required type="datetime-local" /></Field>
+                  <Field label="Kết thúc"><input className={inputClass()} defaultValue={toDateTimeInput(order.endAt)} name="endAt" required type="datetime-local" /></Field>
+                  <Field label="Ưu tiên"><select className={inputClass()} defaultValue={order.priority ?? "normal"} name="priority"><option value="normal">Thường</option><option value="high">Cao</option><option value="urgent">Gấp</option></select></Field>
+                </div>
+              </section>
+
+              <section className="border border-line bg-white p-3">
+                <h4 className="font-semibold text-ink">Báo giá</h4>
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <Field label="Giá bán"><input className={inputClass()} defaultValue={order.amountDue} min="0" name="amountDue" required type="number" /></Field>
+                  <Field label="Chi phí tài xế"><input className={inputClass()} defaultValue={order.driverCost ?? 0} min="0" name="driverCost" type="number" /></Field>
+                  <Field label="Chi phí xe"><input className={inputClass()} defaultValue={order.vehicleCost ?? 0} min="0" name="vehicleCost" type="number" /></Field>
+                  <Field label="Phụ phí"><input className={inputClass()} defaultValue={order.otherCost ?? 0} min="0" name="otherCost" type="number" /></Field>
+                  <div className="md:col-span-3">
+                    <Field label="Ghi chú báo giá"><textarea className={textAreaClass()} defaultValue={order.quoteNote ?? ""} name="quoteNote" /></Field>
+                  </div>
+                  <div className="md:col-span-3">
+                    <Field label="Ghi chú cho điều hành"><textarea className={textAreaClass()} defaultValue={order.salesNote ?? ""} name="salesNote" /></Field>
+                  </div>
+                  <Field label="Lý do sửa"><input className={inputClass()} name="editReason" placeholder="Khách đổi giờ, đổi điểm đón..." /></Field>
+                </div>
+              </section>
             </div>
             <button className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800" type="submit">
               <Save size={16} /> Lưu sửa lệnh
