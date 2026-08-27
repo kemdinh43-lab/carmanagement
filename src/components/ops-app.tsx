@@ -650,6 +650,49 @@ export default function OpsApp() {
   }, []);
 
   useEffect(() => {
+    if (!supabaseConfigured || !authUserId) return;
+    const supabase = createSupabaseBrowserClient();
+    let cancelled = false;
+
+    const reloadAuthProfile = async () => {
+      try {
+        const { data: profile } = await supabase
+          .from("app_user_profiles" as never)
+          .select("role,full_name,driver_id" as never)
+          .eq("user_id" as never, authUserId as never)
+          .maybeSingle();
+        if (cancelled) return;
+        const typedProfile = profile as { role?: AppRole; full_name?: string; driver_id?: string } | null;
+        const nextRole = typedProfile?.role ?? null;
+        setRoleState(nextRole);
+        setAuthDriverId(typedProfile?.driver_id);
+        if (typedProfile?.driver_id) setMobileDriverId(typedProfile.driver_id);
+        setAuthLabel((current) => typedProfile?.full_name ?? current);
+      } catch (error) {
+        if (!cancelled) {
+          setMessage(`Không đồng bộ được phân quyền: ${error instanceof Error ? error.message : "unknown error"}`);
+        }
+      }
+    };
+
+    const channel = supabase
+      .channel("ops-auth-profile-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "app_user_profiles" }, (payload) => {
+        const row = payload.new as { user_id?: string } | null;
+        const oldRow = payload.old as { user_id?: string } | null;
+        if (row?.user_id === authUserId || oldRow?.user_id === authUserId) {
+          void reloadAuthProfile();
+        }
+      })
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      void supabase.removeChannel(channel);
+    };
+  }, [authUserId]);
+
+  useEffect(() => {
     if (!supabaseConfigured) return;
     const supabase = createSupabaseBrowserClient();
     supabase

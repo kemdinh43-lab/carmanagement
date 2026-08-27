@@ -2,7 +2,6 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { hasSupabaseBrowserConfig } from "@/lib/config";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { roleLabels, type AppRole } from "@/lib/permissions";
@@ -17,7 +16,6 @@ type AppUserProfile = {
 };
 
 export default function AuthPage() {
-  const router = useRouter();
   const [message, setMessage] = useState(hasSupabaseBrowserConfig() ? "Supabase auth ready." : "Thiếu NEXT_PUBLIC_SUPABASE_URL và NEXT_PUBLIC_SUPABASE_ANON_KEY.");
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentRole, setCurrentRole] = useState<AppRole | null>(null);
@@ -69,6 +67,41 @@ export default function AuthPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!hasSupabaseBrowserConfig()) return;
+    const supabase = createSupabaseBrowserClient();
+    let cancelled = false;
+
+    const reload = async () => {
+      const next = await loadAuthContext(currentUserId ?? undefined);
+      if (cancelled || !next) return;
+      setCurrentUserId(next.userId);
+      setCurrentRole(next.role);
+      setDrivers(next.drivers);
+      setProfiles(next.profiles);
+    };
+
+    const profileChannel = supabase
+      .channel("auth-profile-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "app_user_profiles" }, () => {
+        void reload();
+      })
+      .subscribe();
+
+    const driverChannel = supabase
+      .channel("auth-driver-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "app_drivers" }, () => {
+        void reload();
+      })
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      void supabase.removeChannel(profileChannel);
+      void supabase.removeChannel(driverChannel);
+    };
+  }, [currentUserId]);
 
   async function handleAuth(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
