@@ -18,6 +18,7 @@ import { can, type AppRole, type PermissionAction } from "@/lib/permissions";
 
 export type OpsCommand =
   | "order.submit_proposal"
+  | "driver.submit_proposal"
   | "order.update_quote"
   | "dispatch.assign_vehicle_driver"
   | "dispatch.review_proposal"
@@ -42,6 +43,7 @@ export interface CommandMeta {
 
 export const commandCatalog: Record<OpsCommand, CommandMeta> = {
   "order.submit_proposal": { permission: "create_order", rpcName: "submit_dispatch_proposal" },
+  "driver.submit_proposal": { permission: "submit_driver_proposal", rpcName: "submit_driver_proposal" },
   "order.update_quote": { permission: "create_order", rpcName: "update_dispatch_quote" },
   "dispatch.assign_vehicle_driver": { permission: "assign_vehicle", rpcName: "assign_vehicle_driver" },
   "dispatch.review_proposal": { permission: "assign_vehicle", rpcName: "review_dispatch_proposal" },
@@ -67,6 +69,14 @@ export function submitDispatchProposal(state: OpsState, order: DispatchOrder, au
     ...state,
     orders: [order, ...state.orders],
     auditEvents: [audit({ actor: "Sale", entityType: "dispatch_order", entityId: order.id, action: "submitted_dispatch_proposal", reason: "Sale submitted proposal for dispatcher review" }), ...state.auditEvents]
+  };
+}
+
+export function submitDriverDispatchProposal(state: OpsState, order: DispatchOrder, audit: AuditFactory): OpsState {
+  return {
+    ...state,
+    orders: [order, ...state.orders],
+    auditEvents: [audit({ actor: "Driver", entityType: "dispatch_order", entityId: order.id, action: "submitted_driver_proposal", reason: "Driver submitted urgent or short proposal" }), ...state.auditEvents]
   };
 }
 

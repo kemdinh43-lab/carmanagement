@@ -2,6 +2,7 @@ export type AppRole = "sale" | "dispatcher" | "driver" | "accountant" | "manager
 
 export type PermissionAction =
   | "create_order"
+  | "submit_driver_proposal"
   | "assign_vehicle"
   | "update_dispatch_status"
   | "record_payment"
@@ -13,10 +14,10 @@ export type PermissionAction =
 const rolePermissions: Record<AppRole, PermissionAction[]> = {
   sale: ["create_order"],
   dispatcher: ["assign_vehicle", "update_dispatch_status"],
-  driver: ["update_dispatch_status"],
+  driver: ["submit_driver_proposal", "update_dispatch_status"],
   accountant: ["record_payment", "update_invoice", "close_order"],
-  manager: ["create_order", "assign_vehicle", "update_dispatch_status", "record_payment", "update_invoice", "close_order", "view_audit"],
-  admin: ["create_order", "assign_vehicle", "update_dispatch_status", "record_payment", "update_invoice", "close_order", "manage_master_data", "view_audit"]
+  manager: ["create_order", "submit_driver_proposal", "assign_vehicle", "update_dispatch_status", "record_payment", "update_invoice", "close_order", "view_audit"],
+  admin: ["create_order", "submit_driver_proposal", "assign_vehicle", "update_dispatch_status", "record_payment", "update_invoice", "close_order", "manage_master_data", "view_audit"]
 };
 
 export function can(role: AppRole, action: PermissionAction) {
@@ -31,4 +32,3 @@ export const roleLabels: Record<AppRole, string> = {
   manager: "Quản lý",
   admin: "Admin"
 };
-
