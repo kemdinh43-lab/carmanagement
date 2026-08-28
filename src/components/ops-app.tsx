@@ -1442,7 +1442,7 @@ export default function OpsApp() {
     });
   }
 
-  function reviewDispatchProposal(orderId: string, decision: "approved" | "rejected", reason: string) {
+  async function reviewDispatchProposal(orderId: string, decision: "approved" | "rejected", reason: string) {
     const targetOrder = state.orders.find((order) => order.id === orderId);
     if (!targetOrder) return;
     if (!can(currentRole, "assign_vehicle")) {
@@ -1456,18 +1456,21 @@ export default function OpsApp() {
       return;
     }
 
+    const saved = await runSupabaseRpc(
+      "review_dispatch_proposal",
+      {
+        p_order_id: orderId,
+        p_decision: decision,
+        p_reason: cleanReason || "Dispatcher approved for assignment"
+      },
+      `Không lưu được xét duyệt đề xuất ${targetOrder.code}`
+    );
+    if (!saved) return;
+
     runCommand(
       "dispatch.review_proposal",
       (current) => reviewDispatchProposalCommand(current, orderId, decision, cleanReason || "Dispatcher approved for assignment", audit, false),
-      decision === "approved" ? `Đã duyệt ${targetOrder.code}. Có thể phân xe/tài xế.` : `Đã từ chối đề xuất ${targetOrder.code}.`,
-      {
-        name: "review_dispatch_proposal",
-        args: {
-          p_order_id: orderId,
-          p_decision: decision,
-          p_reason: cleanReason || "Dispatcher approved for assignment"
-        }
-      }
+      decision === "approved" ? `Đã duyệt ${targetOrder.code}. Có thể phân xe/tài xế.` : `Đã từ chối đề xuất ${targetOrder.code}.`
     );
     notify({
       audience: "sale",
@@ -1477,7 +1480,7 @@ export default function OpsApp() {
     });
   }
 
-  function updateOrderDispatchStatus(orderId: string, nextStatus: DispatchStatus, reason: string, actor = "Dispatcher") {
+  async function updateOrderDispatchStatus(orderId: string, nextStatus: DispatchStatus, reason: string, actor = "Dispatcher") {
     const targetOrder = state.orders.find((order) => order.id === orderId);
     if (!targetOrder) return;
     if (!can(currentRole, "update_dispatch_status")) {
@@ -1488,19 +1491,22 @@ export default function OpsApp() {
       setMessage(`Không thể chuyển ${targetOrder.code} từ ${dispatchLabels[targetOrder.dispatchStatus]} sang ${dispatchLabels[nextStatus]}.`);
       return;
     }
+    const saved = await runSupabaseRpc(
+      "update_dispatch_status",
+      {
+        p_order_id: orderId,
+        p_next_status: nextStatus,
+        p_reason: reason,
+        p_actor: actor
+      },
+      `Không lưu được trạng thái ${targetOrder.code}`
+    );
+    if (!saved) return;
+
     runCommand(
       "dispatch.update_status",
       (current) => updateDispatchStatusCommand(current, orderId, nextStatus, reason, actor, audit, false),
-      `Đã cập nhật ${targetOrder.code}: ${dispatchLabels[nextStatus]}.`,
-      {
-        name: "update_dispatch_status",
-        args: {
-          p_order_id: orderId,
-          p_next_status: nextStatus,
-          p_reason: reason,
-          p_actor: actor
-        }
-      }
+      `Đã cập nhật ${targetOrder.code}: ${dispatchLabels[nextStatus]}.`
     );
     if (nextStatus === "completed") {
       notify({ audience: "accountant", title: "Chuyến đã hoàn thành", body: `${targetOrder.code} sẵn sàng đối soát.`, entityId: orderId });
@@ -1514,10 +1520,10 @@ export default function OpsApp() {
 
   function updateDispatchStatus(nextStatus: DispatchStatus, reason: string) {
     if (!selectedOrder) return;
-    updateOrderDispatchStatus(selectedOrder.id, nextStatus, reason);
+    void updateOrderDispatchStatus(selectedOrder.id, nextStatus, reason);
   }
 
-  function updateOrder(event: FormEvent<HTMLFormElement>) {
+  async function updateOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedOrder) return;
     if (!can(currentRole, "create_order") && !can(currentRole, "assign_vehicle")) {
@@ -1604,6 +1610,68 @@ export default function OpsApp() {
     }
 
     const reason = String(form.get("editReason") || "Update order").trim();
+    const rpcArgs = {
+      p_order_id: selectedOrder.id,
+      p_order_date: orderDate || null,
+      p_customer_kind: kind,
+      p_customer_name: customerName,
+      p_customer_cccd: kind === "individual" ? customerCccd || null : null,
+      p_customer_address: kind === "individual" ? customerAddress || null : null,
+      p_customer_bank_account: kind === "individual" ? customerBankAccount || null : null,
+      p_customer_bank_name: kind === "individual" ? customerBankName || null : null,
+      p_contact_name: String(form.get("contactName") || "").trim() || null,
+      p_contact_phone: String(form.get("contactPhone") || "").trim(),
+      p_company_name: kind === "company" ? companyName || customerName : null,
+      p_company_address: kind === "company" ? companyAddress || null : null,
+      p_company_bank_account: kind === "company" ? companyBankAccount || null : null,
+      p_company_bank_name: kind === "company" ? companyBankName || null : null,
+      p_tax_code: kind === "company" ? taxCode || null : null,
+      p_billing_email: kind === "company" ? billingEmail || null : null,
+      p_service_code: serviceCode || null,
+      p_pickup: String(form.get("pickup") || "").trim(),
+      p_dropoff: String(form.get("dropoff") || "").trim(),
+      p_service_label: String(form.get("serviceLabel") || "").trim(),
+      p_service_clarification: serviceClarification || null,
+      p_unit: unit || null,
+      p_sales_owner: salesOwner,
+      p_source_owner_name: sourceOwnerName || null,
+      p_source: source,
+      p_invoice_required: invoiceRequired,
+      p_vehicle_ownership: vehicleOwnership || null,
+      p_vehicle_plate_no: vehiclePlateNo || null,
+      p_driver_full_name: driverFullName || null,
+      p_driver_cccd: driverCccd || null,
+      p_driver_phone: driverPhone || null,
+      p_supplier_owner_name: supplierOwnerName || null,
+      p_supplier_cccd: supplierCccd || null,
+      p_supplier_invoice_required: supplierInvoiceRequired,
+      p_supplier_company_name: supplierCompanyName || null,
+      p_supplier_tax_code: supplierTaxCode || null,
+      p_supplier_address: supplierAddress || null,
+      p_supplier_phone: supplierPhone || null,
+      p_supplier_total_with_vat: Number.isFinite(supplierTotalWithVat) ? supplierTotalWithVat : null,
+      p_supplier_bank_account: supplierBankAccount || null,
+      p_supplier_bank_name: supplierBankName || null,
+      p_start_at: nextStartAt,
+      p_end_at: nextEndAt,
+      p_amount_due: amountDue,
+      p_driver_cost: driverCost,
+      p_vehicle_cost: vehicleCost,
+      p_other_cost: otherCost,
+      p_payment_method: paymentMethod || null,
+      p_payer: payer || null,
+      p_collection_account_owner: collectionAccountOwner || null,
+      p_collection_bank_account: collectionBankAccount || null,
+      p_collection_bank_name: collectionBankName || null,
+      p_quote_note: String(form.get("quoteNote") || "").trim() || null,
+      p_priority: String(form.get("priority") || "normal"),
+      p_sales_note: String(form.get("salesNote") || "").trim() || null,
+      p_active_assignment_id: activeAssignment?.id ?? null,
+      p_replacement_reason: reason
+    };
+    const saved = await runSupabaseRpc("update_dispatch_order", rpcArgs, `Không lưu được sửa lệnh ${selectedOrder.code}`);
+    if (!saved) return;
+
     runCommand(
       "order.update_details",
       (current) =>
@@ -1671,73 +1739,11 @@ export default function OpsApp() {
           audit,
           false
         ),
-      `Đã cập nhật lệnh ${selectedOrder.code}.`,
-      {
-        name: "update_dispatch_order",
-        args: {
-          p_order_id: selectedOrder.id,
-          p_order_date: orderDate || null,
-          p_customer_kind: kind,
-          p_customer_name: customerName,
-          p_customer_cccd: kind === "individual" ? customerCccd || null : null,
-          p_customer_address: kind === "individual" ? customerAddress || null : null,
-          p_customer_bank_account: kind === "individual" ? customerBankAccount || null : null,
-          p_customer_bank_name: kind === "individual" ? customerBankName || null : null,
-          p_contact_name: String(form.get("contactName") || "").trim() || null,
-          p_contact_phone: String(form.get("contactPhone") || "").trim(),
-          p_company_name: kind === "company" ? companyName || customerName : null,
-          p_company_address: kind === "company" ? companyAddress || null : null,
-          p_company_bank_account: kind === "company" ? companyBankAccount || null : null,
-          p_company_bank_name: kind === "company" ? companyBankName || null : null,
-          p_tax_code: kind === "company" ? taxCode || null : null,
-          p_billing_email: kind === "company" ? billingEmail || null : null,
-          p_service_code: serviceCode || null,
-          p_pickup: String(form.get("pickup") || "").trim(),
-          p_dropoff: String(form.get("dropoff") || "").trim(),
-          p_service_label: String(form.get("serviceLabel") || "").trim(),
-          p_service_clarification: serviceClarification || null,
-          p_unit: unit || null,
-          p_sales_owner: salesOwner,
-          p_source_owner_name: sourceOwnerName || null,
-          p_source: source,
-          p_invoice_required: invoiceRequired,
-          p_vehicle_ownership: vehicleOwnership || null,
-          p_vehicle_plate_no: vehiclePlateNo || null,
-          p_driver_full_name: driverFullName || null,
-          p_driver_cccd: driverCccd || null,
-          p_driver_phone: driverPhone || null,
-          p_supplier_owner_name: supplierOwnerName || null,
-          p_supplier_cccd: supplierCccd || null,
-          p_supplier_invoice_required: supplierInvoiceRequired,
-          p_supplier_company_name: supplierCompanyName || null,
-          p_supplier_tax_code: supplierTaxCode || null,
-          p_supplier_address: supplierAddress || null,
-          p_supplier_phone: supplierPhone || null,
-          p_supplier_total_with_vat: Number.isFinite(supplierTotalWithVat) ? supplierTotalWithVat : null,
-          p_supplier_bank_account: supplierBankAccount || null,
-          p_supplier_bank_name: supplierBankName || null,
-          p_start_at: nextStartAt,
-          p_end_at: nextEndAt,
-          p_amount_due: amountDue,
-          p_driver_cost: driverCost,
-          p_vehicle_cost: vehicleCost,
-          p_other_cost: otherCost,
-          p_payment_method: paymentMethod || null,
-          p_payer: payer || null,
-          p_collection_account_owner: collectionAccountOwner || null,
-          p_collection_bank_account: collectionBankAccount || null,
-          p_collection_bank_name: collectionBankName || null,
-          p_quote_note: String(form.get("quoteNote") || "").trim() || null,
-          p_priority: String(form.get("priority") || "normal"),
-          p_sales_note: String(form.get("salesNote") || "").trim() || null,
-          p_active_assignment_id: activeAssignment?.id ?? null,
-          p_replacement_reason: reason
-        }
-      }
+      `Đã cập nhật lệnh ${selectedOrder.code}.`
     );
   }
 
-  function cancelOrder(event: FormEvent<HTMLFormElement>) {
+  async function cancelOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedOrder) return;
     if (!can(currentRole, "create_order") && !can(currentRole, "assign_vehicle")) {
@@ -1752,22 +1758,25 @@ export default function OpsApp() {
       return;
     }
 
+    const saved = await runSupabaseRpc(
+      "cancel_dispatch_order",
+      {
+        p_order_id: selectedOrder.id,
+        p_reason: reason
+      },
+      `Không lưu được hủy lệnh ${selectedOrder.code}`
+    );
+    if (!saved) return;
+
     runCommand(
       "order.cancel",
       (current) => cancelOrderCommand(current, selectedOrder.id, reason, roleLabels[currentRole], audit, false),
-      `Đã hủy lệnh ${selectedOrder.code}.`,
-      {
-        name: "cancel_dispatch_order",
-        args: {
-          p_order_id: selectedOrder.id,
-          p_reason: reason
-        }
-      }
+      `Đã hủy lệnh ${selectedOrder.code}.`
     );
     event.currentTarget.reset();
   }
 
-  function updateActualCosts(event: FormEvent<HTMLFormElement>) {
+  async function updateActualCosts(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedOrder) return;
     if (!can(currentRole, "record_payment") && !can(currentRole, "update_dispatch_status")) {
@@ -1782,24 +1791,28 @@ export default function OpsApp() {
       setMessage("Chi phí thực tế không được âm.");
       return;
     }
+    const actualCostNote = String(form.get("actualCostNote") || "").trim();
+    const saved = await runSupabaseRpc(
+      "update_actual_costs",
+      {
+        p_order_id: selectedOrder.id,
+        p_actual_driver_cost: actualDriverCost,
+        p_actual_vehicle_cost: actualVehicleCost,
+        p_actual_other_cost: actualOtherCost,
+        p_actual_cost_note: actualCostNote || null
+      },
+      `Không lưu được chi phí thực tế ${selectedOrder.code}`
+    );
+    if (!saved) return;
+
     runCommand(
       "finance.update_actual_costs",
-      (current) => updateActualCostsCommand(current, selectedOrder.id, { actualDriverCost, actualVehicleCost, actualOtherCost, actualCostNote: String(form.get("actualCostNote") || "").trim() || undefined }, audit, false),
-      `Đã cập nhật chi phí thực tế cho ${selectedOrder.code}.`,
-      {
-        name: "update_actual_costs",
-        args: {
-          p_order_id: selectedOrder.id,
-          p_actual_driver_cost: actualDriverCost,
-          p_actual_vehicle_cost: actualVehicleCost,
-          p_actual_other_cost: actualOtherCost,
-          p_actual_cost_note: String(form.get("actualCostNote") || "").trim() || null
-        }
-      }
+      (current) => updateActualCostsCommand(current, selectedOrder.id, { actualDriverCost, actualVehicleCost, actualOtherCost, actualCostNote: actualCostNote || undefined }, audit, false),
+      `Đã cập nhật chi phí thực tế cho ${selectedOrder.code}.`
     );
   }
 
-  function recordPayment(event: FormEvent<HTMLFormElement>) {
+  async function recordPayment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedOrder) return;
     if (!can(currentRole, "record_payment")) {
@@ -1825,47 +1838,53 @@ export default function OpsApp() {
     const orderPayments = nextPayments.filter((item) => item.orderId === selectedOrder.id);
     const paymentStatus = calculatePaymentStatus(selectedOrder.amountDue, orderPayments);
 
+    const saved = await runSupabaseRpc(
+      "record_payment",
+      {
+        p_payment_id: payment.id,
+        p_order_id: selectedOrder.id,
+        p_amount: amount,
+        p_method: payment.method,
+        p_reference: payment.reference ?? null,
+        p_paid_at: payment.paidAt,
+        p_payment_status: paymentStatus
+      },
+      `Không lưu được thanh toán ${selectedOrder.code}`
+    );
+    if (!saved) return;
+
     runCommand(
       "finance.record_payment",
       (current) => recordPaymentCommand(current, payment, selectedOrder.id, paymentStatus, audit, false),
-      `Đã ghi nhận ${money(amount)} cho ${selectedOrder.code}.`,
-      {
-        name: "record_payment",
-        args: {
-          p_payment_id: payment.id,
-          p_order_id: selectedOrder.id,
-          p_amount: amount,
-          p_method: payment.method,
-          p_reference: payment.reference ?? null,
-          p_paid_at: payment.paidAt,
-          p_payment_status: paymentStatus
-        }
-      }
+      `Đã ghi nhận ${money(amount)} cho ${selectedOrder.code}.`
     );
     event.currentTarget.reset();
   }
 
-  function updateInvoiceStatus(nextStatus: InvoiceStatus) {
+  async function updateInvoiceStatus(nextStatus: InvoiceStatus) {
     if (!selectedOrder) return;
     if (!can(currentRole, "update_invoice")) {
       setMessage(`${roleLabels[currentRole]} không có quyền cập nhật hóa đơn.`);
       return;
     }
+    const saved = await runSupabaseRpc(
+      "update_invoice_status",
+      {
+        p_order_id: selectedOrder.id,
+        p_invoice_status: nextStatus
+      },
+      `Không lưu được hóa đơn ${selectedOrder.code}`
+    );
+    if (!saved) return;
+
     runCommand(
       "finance.update_invoice",
       (current) => updateInvoiceStatusCommand(current, selectedOrder.id, nextStatus, audit, false),
-      `Đã cập nhật hóa đơn ${selectedOrder.code}: ${invoiceLabels[nextStatus]}.`,
-      {
-        name: "update_invoice_status",
-        args: {
-          p_order_id: selectedOrder.id,
-          p_invoice_status: nextStatus
-        }
-      }
+      `Đã cập nhật hóa đơn ${selectedOrder.code}: ${invoiceLabels[nextStatus]}.`
     );
   }
 
-  function reconcileOrder() {
+  async function reconcileOrder() {
     if (!selectedOrder) return;
     if (!can(currentRole, "close_order")) {
       setMessage(`${roleLabels[currentRole]} không có quyền đóng lệnh.`);
@@ -1879,16 +1898,19 @@ export default function OpsApp() {
       setMessage("Lệnh còn công nợ. Cần thanh toán đủ hoặc thêm luồng close_with_debt có duyệt.");
       return;
     }
+    const saved = await runSupabaseRpc(
+      "close_dispatch_order",
+      {
+        p_order_id: selectedOrder.id
+      },
+      `Không lưu được đối soát ${selectedOrder.code}`
+    );
+    if (!saved) return;
+
     runCommand(
       "finance.close_order",
       (current) => closeOrder(current, selectedOrder.id, audit, false),
-      `Đã đối soát và đóng ${selectedOrder.code}.`,
-      {
-        name: "close_dispatch_order",
-        args: {
-          p_order_id: selectedOrder.id
-        }
-      }
+      `Đã đối soát và đóng ${selectedOrder.code}.`
     );
   }
 
