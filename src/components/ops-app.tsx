@@ -666,6 +666,7 @@ function toAppNotification(row: unknown): AppNotification {
   return {
     id: String(item.id),
     audience: String(item.audience) as AppNotification["audience"],
+    eventType: typeof item.event_type === "string" ? item.event_type : undefined,
     title: String(item.title),
     body: String(item.body),
     entityId: typeof item.entity_id === "string" ? item.entity_id : undefined,
@@ -1158,6 +1159,7 @@ export default function OpsApp() {
     };
     const targetedPayload = {
       ...basePayload,
+      event_type: notification.eventType ?? notification.title,
       target_user_id: notification.targetUserId ?? null,
       target_driver_id: notification.targetDriverId ?? null
     };
@@ -1165,16 +1167,49 @@ export default function OpsApp() {
       .from("app_notifications" as never)
       .upsert(targetedPayload as never)
       .then(async ({ error }) => {
-        if (!error) return;
-        const missingTargetColumns = error.message.includes("target_user_id") || error.message.includes("target_driver_id");
-        if (missingTargetColumns) {
+        if (!error) {
+          await emitIntegrationEvent(notification);
+          return;
+        }
+        const missingNewColumns = error.message.includes("target_user_id") || error.message.includes("target_driver_id") || error.message.includes("event_type");
+        if (missingNewColumns) {
           const retry = await supabase.from("app_notifications" as never).upsert(basePayload as never);
-          if (!retry.error) return;
+          if (!retry.error) {
+            await emitIntegrationEvent(notification);
+            return;
+          }
           error = retry.error;
         }
         setMessage(`Không ghi được thông báo ${notification.audience}: ${error.message}`);
         if (process.env.NODE_ENV !== "production") console.warn("[notification-write]", error);
       });
+
+    async function emitIntegrationEvent(event: AppNotification) {
+      const eventType = event.eventType ?? event.title;
+      const { error } = await supabase.from("app_integration_events" as never).upsert({
+        id: `evt_${event.id}`,
+        event_type: eventType,
+        audience: event.audience,
+        entity_type: event.entityId ? "dispatch_order" : "notification",
+        entity_id: event.entityId ?? null,
+        target_user_id: event.targetUserId ?? null,
+        target_driver_id: event.targetDriverId ?? null,
+        payload: {
+          notificationId: event.id,
+          title: event.title,
+          body: event.body,
+          audience: event.audience,
+          entityId: event.entityId ?? null,
+          targetUserId: event.targetUserId ?? null,
+          targetDriverId: event.targetDriverId ?? null
+        },
+        status: "pending",
+        created_at: event.createdAt
+      } as never);
+      if (error && process.env.NODE_ENV !== "production" && !error.message.includes("app_integration_events")) {
+        console.warn("[integration-event-write]", error);
+      }
+    }
   }
 
   function notifyMany(audiences: AppNotification["audience"][], input: Omit<AppNotification, "id" | "createdAt" | "audience">) {
@@ -1368,7 +1403,7 @@ export default function OpsApp() {
     runCommand("order.submit_proposal", (current) => submitDispatchProposal(current, order, audit), `Đã gửi đề xuất điều xe ${order.code} vào hàng chờ điều hành xét duyệt.`);
     setSelectedOrderId(order.id);
     setTab("Lệnh điều xe");
-    notifyMany(["dispatcher", "manager", "admin"], { title: "Đề xuất điều xe mới", body: `${order.code} / ${order.customerName}`, entityId: order.id });
+    notifyMany(["dispatcher", "manager", "admin"], { eventType: "dispatch_proposal_submitted", title: "Đề xuất điều xe mới", body: `${order.code} / ${order.customerName}`, entityId: order.id });
     formElement.reset();
   }
 
@@ -1457,16 +1492,17 @@ export default function OpsApp() {
     runCommand("driver.submit_proposal", (current) => submitDriverDispatchProposal(current, order, audit), urgent ? `Đã gửi đề xuất khẩn ${order.code} cho điều hành duyệt nhanh.` : `Đã gửi đề xuất ${order.code} cho Sales tiếp nhận.`);
     notify({
       audience: "driver",
+      eventType: urgent ? "urgent_driver_proposal_submitted" : "driver_proposal_submitted",
       title: urgent ? "Đề xuất khẩn đã gửi" : "Đề xuất đã gửi Sales",
       body: urgent ? `${order.code} đang chờ điều hành duyệt nhanh.` : `${order.code} đang chờ Sales hoàn thiện thông tin.`,
       entityId: order.id,
       targetDriverId: selectedDriver.id
     });
     if (urgent) {
-      notifyMany(["dispatcher", "manager", "admin"], { title: "Đề xuất khẩn từ tài xế", body: `${order.code} / ${order.customerName}`, entityId: order.id });
-      notifyMany(["sale", "manager", "admin"], { title: "Đề xuất khẩn cần Sales bổ sung", body: `${order.code} / ${selectedDriver.fullName}`, entityId: order.id });
+      notifyMany(["dispatcher", "manager", "admin"], { eventType: "urgent_driver_proposal_submitted", title: "Đề xuất khẩn từ tài xế", body: `${order.code} / ${order.customerName}`, entityId: order.id });
+      notifyMany(["sale", "manager", "admin"], { eventType: "urgent_driver_proposal_needs_sales_completion", title: "Đề xuất khẩn cần Sales bổ sung", body: `${order.code} / ${selectedDriver.fullName}`, entityId: order.id });
     } else {
-      notifyMany(["sale", "manager", "admin"], { title: "Đề xuất tài xế mới", body: `${order.code} / ${selectedDriver.fullName}`, entityId: order.id });
+      notifyMany(["sale", "manager", "admin"], { eventType: "driver_proposal_submitted", title: "Đề xuất tài xế mới", body: `${order.code} / ${selectedDriver.fullName}`, entityId: order.id });
     }
     formElement.reset();
     return true;
@@ -1519,9 +1555,10 @@ export default function OpsApp() {
       }),
       `Đã chuyển ${targetOrder.code} sang hàng chờ điều hành duyệt.`
     );
-    notifyMany(["dispatcher", "manager", "admin"], { title: "Đề xuất điều xe mới", body: `${targetOrder.code} / ${targetOrder.customerName}`, entityId: orderId });
+    notifyMany(["dispatcher", "manager", "admin"], { eventType: "driver_proposal_promoted_to_dispatch", title: "Đề xuất điều xe mới", body: `${targetOrder.code} / ${targetOrder.customerName}`, entityId: orderId });
     notify({
       audience: "driver",
+      eventType: "driver_proposal_accepted_by_sales",
       title: "Sales đã tiếp nhận đề xuất",
       body: `${targetOrder.code} đang chờ điều hành duyệt.`,
       entityId: orderId,
@@ -1606,15 +1643,17 @@ export default function OpsApp() {
       (current) => assignVehicleDriver(current, selectedOrder.id, assignment, currentAssignment?.id, reason, audit, false),
       currentAssignment ? `Đã đổi xe/tài xế cho ${selectedOrder.code}.` : `Đã phân xe/tài xế cho ${selectedOrder.code}.`
     );
-    notify({ audience: "driver", title: "Bạn có chuyến mới", body: `${selectedOrder.code} / ${formatDateTime(selectedOrder.startAt)}`, entityId: selectedOrder.id, targetDriverId: driverId });
+    notify({ audience: "driver", eventType: "driver_assigned", title: "Bạn có chuyến mới", body: `${selectedOrder.code} / ${formatDateTime(selectedOrder.startAt)}`, entityId: selectedOrder.id, targetDriverId: driverId });
     notify({
       audience: "dispatcher",
+      eventType: currentAssignment ? "driver_assignment_replaced" : "driver_assigned",
       title: currentAssignment ? "Đã đổi phân xe" : "Đã phân xe/tài xế",
       body: `${selectedOrder.code} / ${vehicleId} / ${driverId}`,
       entityId: selectedOrder.id
     });
     notify({
       audience: "sale",
+      eventType: "dispatch_order_assigned",
       title: "Đề xuất đã được triển khai",
       body: `${selectedOrder.code} đã có xe và tài xế.`,
       entityId: selectedOrder.id
@@ -1653,6 +1692,7 @@ export default function OpsApp() {
     );
     notify({
       audience: "sale",
+      eventType: decision === "approved" ? "dispatch_proposal_approved" : "dispatch_proposal_rejected",
       title: decision === "approved" ? "Đề xuất đã duyệt" : "Đề xuất bị từ chối",
       body: decision === "approved" ? `${targetOrder.code} chuyển sang chờ phân xe/tài xế.` : `${targetOrder.code} / ${cleanReason}`,
       entityId: orderId
@@ -1688,12 +1728,12 @@ export default function OpsApp() {
       `Đã cập nhật ${targetOrder.code}: ${dispatchLabels[nextStatus]}.`
     );
     if (nextStatus === "completed") {
-      notify({ audience: "accountant", title: "Chuyến đã hoàn thành", body: `${targetOrder.code} sẵn sàng đối soát.`, entityId: orderId });
-      notify({ audience: "dispatcher", title: "Chuyến hoàn thành", body: `${targetOrder.code} đã xong chuyến.`, entityId: orderId });
+      notify({ audience: "accountant", eventType: "trip_completed", title: "Chuyến đã hoàn thành", body: `${targetOrder.code} sẵn sàng đối soát.`, entityId: orderId });
+      notify({ audience: "dispatcher", eventType: "trip_completed", title: "Chuyến hoàn thành", body: `${targetOrder.code} đã xong chuyến.`, entityId: orderId });
     } else if (nextStatus === "driver_accepted") {
-      notify({ audience: "dispatcher", title: "Tài xế đã nhận chuyến", body: `${targetOrder.code} chờ xuất phát.`, entityId: orderId });
+      notify({ audience: "dispatcher", eventType: "driver_accepted_trip", title: "Tài xế đã nhận chuyến", body: `${targetOrder.code} chờ xuất phát.`, entityId: orderId });
     } else if (nextStatus === "in_progress") {
-      notify({ audience: "dispatcher", title: "Chuyến đang chạy", body: `${targetOrder.code} đang trên đường.`, entityId: orderId });
+      notify({ audience: "dispatcher", eventType: "trip_started", title: "Chuyến đang chạy", body: `${targetOrder.code} đang trên đường.`, entityId: orderId });
     }
   }
 

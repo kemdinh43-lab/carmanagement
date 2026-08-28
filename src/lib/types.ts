@@ -170,6 +170,7 @@ export interface AuditEvent {
 export interface AppNotification {
   id: string;
   audience: "sale" | "dispatcher" | "driver" | "accountant" | "manager" | "admin";
+  eventType?: string;
   title: string;
   body: string;
   entityId?: string;
