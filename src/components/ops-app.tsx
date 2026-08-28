@@ -874,7 +874,12 @@ export default function OpsApp() {
       .select("*" as never)
       .order("created_at" as never, { ascending: false } as never)
       .limit(20 as never)
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) {
+          setMessage(`Không tải được thông báo: ${error.message}`);
+          if (process.env.NODE_ENV !== "production") console.warn("[notifications-load]", error);
+          return;
+        }
         if (data) setState((current) => ({ ...current, notifications: (data as unknown[]).map(toAppNotification) }));
         startupTiming("notifications_load", notificationStartedAt, { rows: (data as unknown[] | null)?.length ?? 0 });
       });
@@ -1092,6 +1097,12 @@ export default function OpsApp() {
       });
   }
 
+  function notifyMany(audiences: AppNotification["audience"][], input: Omit<AppNotification, "id" | "createdAt" | "audience">) {
+    for (const audience of Array.from(new Set(audiences))) {
+      notify({ ...input, audience });
+    }
+  }
+
   async function reserveDispatchOrderCode(orderDate?: string): Promise<string | null> {
     const localCode = buildCode(state.orders.length + 1, orderDate || vietnamDateKey(now));
     if (!supabaseConfigured) return localCode;
@@ -1267,7 +1278,7 @@ export default function OpsApp() {
     runCommand("order.submit_proposal", (current) => submitDispatchProposal(current, order, audit), `Đã gửi đề xuất điều xe ${order.code} vào hàng chờ điều hành xét duyệt.`);
     setSelectedOrderId(order.id);
     setTab("Lệnh điều xe");
-    notify({ audience: "dispatcher", title: "Đề xuất điều xe mới", body: `${order.code} / ${order.customerName}`, entityId: order.id });
+    notifyMany(["dispatcher", "manager", "admin"], { title: "Đề xuất điều xe mới", body: `${order.code} / ${order.customerName}`, entityId: order.id });
     formElement.reset();
   }
 
@@ -1344,8 +1355,8 @@ export default function OpsApp() {
 
     runCommand("driver.submit_proposal", (current) => submitDriverDispatchProposal(current, order, audit), `Đã gửi đề xuất từ tài xế ${order.code} vào hàng chờ xử lý.`);
     notify({ audience: "driver", title: urgent ? "Đề xuất khẩn đã gửi" : "Đề xuất đã gửi", body: `${order.code} đang chờ điều hành xử lý.`, entityId: order.id });
-    notify({ audience: "dispatcher", title: urgent ? "Đề xuất khẩn từ tài xế" : "Đề xuất từ tài xế", body: `${order.code} / ${order.customerName}`, entityId: order.id });
-    notify({ audience: "sale", title: urgent ? "Đề xuất khẩn cần xử lý" : "Đề xuất tài xế mới", body: `${order.code} / ${selectedDriver.fullName}`, entityId: order.id });
+    notifyMany(["dispatcher", "manager", "admin"], { title: urgent ? "Đề xuất khẩn từ tài xế" : "Đề xuất từ tài xế", body: `${order.code} / ${order.customerName}`, entityId: order.id });
+    notifyMany(["sale", "manager", "admin"], { title: urgent ? "Đề xuất khẩn cần xử lý" : "Đề xuất tài xế mới", body: `${order.code} / ${selectedDriver.fullName}`, entityId: order.id });
     formElement.reset();
     return true;
   }
