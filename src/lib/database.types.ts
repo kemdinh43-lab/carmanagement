@@ -139,6 +139,12 @@ export interface Database {
         };
         Returns: boolean;
       };
+      next_dispatch_order_code: {
+        Args: {
+          p_order_date?: string | null;
+        };
+        Returns: string;
+      };
     };
   };
 }

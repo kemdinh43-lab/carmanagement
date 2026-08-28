@@ -623,8 +623,9 @@ function toDateTimeInput(value: string) {
   return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
 }
 
-function buildCode(index: number) {
-  return `AOT-260825-${String(index).padStart(4, "0")}`;
+function buildCode(index: number, orderDate = vietnamDateKey()) {
+  const dateCode = orderDate.replaceAll("-", "").slice(2);
+  return `AOT-${dateCode}-${String(index).padStart(4, "0")}`;
 }
 
 function orderCost(order: DispatchOrder) {
@@ -713,7 +714,9 @@ export default function OpsApp() {
   const currentRole = roleState ?? "manager";
   const visibleTabs = useMemo(() => tabs.filter((item) => canViewTab(item, currentRole)), [currentRole]);
   const activeTab = visibleTabs.includes(tab) ? tab : visibleTabs[0] ?? "Dashboard";
-  const visibleNotifications = (state.notifications ?? []).filter((item) => item.audience === currentRole || item.audience === "admin").slice(0, 5);
+  const visibleNotifications = (state.notifications ?? [])
+    .filter((item) => currentRole === "admin" || currentRole === "manager" || item.audience === currentRole || item.audience === "admin")
+    .slice(0, 5);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
@@ -1070,16 +1073,42 @@ export default function OpsApp() {
         is_read: notification.read ?? false,
         created_at: notification.createdAt
       } as never)
-      .then(() => undefined);
+      .then(({ error }) => {
+        if (error) {
+          setMessage(`Không ghi được thông báo ${notification.audience}: ${error.message}`);
+          if (process.env.NODE_ENV !== "production") console.warn("[notification-write]", error);
+        }
+      });
   }
 
-  function createOrder(event: FormEvent<HTMLFormElement>) {
+  async function reserveDispatchOrderCode(orderDate?: string): Promise<string | null> {
+    const localCode = buildCode(state.orders.length + 1, orderDate || vietnamDateKey(now));
+    if (!supabaseConfigured) return localCode;
+    if (!authUserId) {
+      setMessage("Cần đăng nhập trước khi Supabase cấp số lệnh.");
+      return null;
+    }
+
+    const { data, error } = await createSupabaseBrowserClient()
+      .rpc("next_dispatch_order_code" as never, { p_order_date: orderDate || vietnamDateKey(now) } as never) as unknown as {
+        data: string | null;
+        error: { message: string } | null;
+      };
+    if (error || !data) {
+      setMessage(`Chưa cấp được số lệnh từ Supabase: ${error?.message ?? "không có dữ liệu trả về"}. Hãy chạy migration 0014 trước khi tạo lệnh mới.`);
+      return null;
+    }
+    return data;
+  }
+
+  async function createOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!can(currentRole, "create_order")) {
       setMessage(`${roleLabels[currentRole]} không có quyền tạo lệnh.`);
       return;
     }
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const startAt = String(form.get("startAt"));
     const endAt = String(form.get("endAt"));
     const amountDue = Number(form.get("amountDue"));
@@ -1156,9 +1185,12 @@ export default function OpsApp() {
       return;
     }
 
+    const orderCode = await reserveDispatchOrderCode(orderDate || startAt.slice(0, 10));
+    if (!orderCode) return;
+
     const order: DispatchOrder = {
       id: makeId("order"),
-      code: buildCode(state.orders.length + 1),
+      code: orderCode,
       orderDate: orderDate || undefined,
       customerKind: kind,
       customerName: kind === "company" ? selectedCompanyProfile?.legalName ?? companyName : selectedCustomerProfile?.fullName ?? String(form.get("customerName") || "").trim(),
@@ -1225,16 +1257,17 @@ export default function OpsApp() {
     setSelectedOrderId(order.id);
     setTab("Lệnh điều xe");
     notify({ audience: "dispatcher", title: "Đề xuất điều xe mới", body: `${order.code} / ${order.customerName}`, entityId: order.id });
-    event.currentTarget.reset();
+    formElement.reset();
   }
 
-  function submitDriverProposal(event: FormEvent<HTMLFormElement>): boolean {
+  async function submitDriverProposal(event: FormEvent<HTMLFormElement>): Promise<boolean> {
     event.preventDefault();
     if (!can(currentRole, "submit_driver_proposal")) {
       setMessage(`${roleLabels[currentRole]} không có quyền gửi đề xuất từ tài xế.`);
       return false;
     }
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const selectedDriver = state.drivers.find((driver) => driver.id === (currentRole === "driver" ? authDriverId : mobileDriverId));
     const customerName = String(form.get("customerName") || "").trim();
     const contactPhone = String(form.get("contactPhone") || "").trim();
@@ -1264,10 +1297,13 @@ export default function OpsApp() {
       return false;
     }
 
+    const orderCode = await reserveDispatchOrderCode(startAt.slice(0, 10));
+    if (!orderCode) return false;
+
     const order: DispatchOrder = {
       id: makeId("order"),
-      code: buildCode(state.orders.length + 1),
-      orderDate: vietnamDateKey(now),
+      code: orderCode,
+      orderDate: startAt.slice(0, 10),
       customerKind: "individual",
       customerName,
       contactName: customerName,
@@ -1299,7 +1335,7 @@ export default function OpsApp() {
     notify({ audience: "driver", title: urgent ? "Đề xuất khẩn đã gửi" : "Đề xuất đã gửi", body: `${order.code} đang chờ điều hành xử lý.`, entityId: order.id });
     notify({ audience: "dispatcher", title: urgent ? "Đề xuất khẩn từ tài xế" : "Đề xuất từ tài xế", body: `${order.code} / ${order.customerName}`, entityId: order.id });
     notify({ audience: "sale", title: urgent ? "Đề xuất khẩn cần xử lý" : "Đề xuất tài xế mới", body: `${order.code} / ${selectedDriver.fullName}`, entityId: order.id });
-    event.currentTarget.reset();
+    formElement.reset();
     return true;
   }
 
@@ -3018,7 +3054,7 @@ function OrdersPanel({
   setCustomerKind: (kind: DispatchOrder["customerKind"]) => void;
   setQuery: (query: string) => void;
   setSelectedOrderId: (id: string) => void;
-  createOrder: (event: FormEvent<HTMLFormElement>) => void;
+  createOrder: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   cancelOrder: (event: FormEvent<HTMLFormElement>) => void;
   updateOrder: (event: FormEvent<HTMLFormElement>) => void;
   updateQuoteStatus: (nextStatus: QuoteStatus) => void;
@@ -3712,7 +3748,7 @@ function DriverMobilePanel({
   selectedOrderId?: string;
   setMobileDriverId: (id: string) => void;
   setSelectedOrderId: (id: string) => void;
-  submitDriverProposal: (event: FormEvent<HTMLFormElement>) => boolean;
+  submitDriverProposal: (event: FormEvent<HTMLFormElement>) => Promise<boolean>;
   updateOrderDispatchStatus: (orderId: string, nextStatus: DispatchStatus, reason: string, actor?: string) => void;
   vehicles: Vehicle[];
 }) {
@@ -3786,8 +3822,9 @@ function DriverMobilePanel({
         <form
           className="mt-4 grid gap-3"
           onSubmit={(event) => {
-            const ok = submitDriverProposal(event);
-            if (ok) setUrgent(false);
+            void submitDriverProposal(event).then((ok) => {
+              if (ok) setUrgent(false);
+            });
           }}
         >
           <div className="grid gap-3 md:grid-cols-2">
