@@ -2086,7 +2086,7 @@ export default function OpsApp() {
   async function updateActualCosts(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedOrder) return;
-    if (!can(currentRole, "record_payment") && !can(currentRole, "update_dispatch_status")) {
+    if (!can(currentRole, "record_payment")) {
       setMessage(`${roleLabels[currentRole]} không có quyền cập nhật chi phí thực tế.`);
       return;
     }
@@ -4618,7 +4618,7 @@ function FinancePanel({
   const canRecordPayment = can(currentRole, "record_payment");
   const canUpdateInvoice = can(currentRole, "update_invoice");
   const canCloseOrder = can(currentRole, "close_order");
-  const canUpdateActualCosts = can(currentRole, "record_payment") || can(currentRole, "update_dispatch_status");
+  const canUpdateActualCosts = can(currentRole, "record_payment");
   const invoiceReady = selectedOrder.invoiceStatus === "issued" || selectedOrder.invoiceStatus === "not_required";
   const selectedIssues = profileIssues(selectedOrder);
   const selectedSupplierPayable = selectedOrder.vehicleOwnership === "rented" ? selectedOrder.supplierTotalWithVat ?? orderCost(selectedOrder) : 0;
