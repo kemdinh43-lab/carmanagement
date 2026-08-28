@@ -1367,7 +1367,8 @@ export default function OpsApp() {
     }
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    const selectedDriver = state.drivers.find((driver) => driver.id === (currentRole === "driver" ? authDriverId : mobileDriverId));
+    const driverId = currentRole === "driver" ? authDriverId || mobileDriverId : mobileDriverId;
+    const selectedDriver = state.drivers.find((driver) => driver.id === driverId);
     const customerName = String(form.get("customerName") || "").trim();
     const contactPhone = String(form.get("contactPhone") || "").trim();
     const pickup = String(form.get("pickup") || "").trim();
@@ -1380,7 +1381,7 @@ export default function OpsApp() {
     const urgentReason = String(form.get("urgentReason") || "").trim();
 
     if (!selectedDriver) {
-      setMessage("Chưa có hồ sơ tài xế được gắn.");
+      setMessage("Chưa xác định được hồ sơ tài xế để gửi đề xuất.");
       return false;
     }
     if (!customerName || !contactPhone || !pickup || !dropoff || !startAt || !endAt || !serviceLabel) {
@@ -3899,12 +3900,27 @@ function DriverMobilePanel({
   const upcomingTrips = driverOrders
     .filter((order) => !["completed", "cancelled", "in_progress", "driver_accepted"].includes(order.dispatchStatus) && new Date(order.startAt).getTime() >= nowMs)
     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
-  const selectedTrip = driverOrders.find((order) => order.id === selectedOrderId) ?? activeOrder ?? upcomingTrips[0] ?? driverOrders[0];
-  const nextDriverStatus = selectedTrip ? driverNextDispatchStatus(selectedTrip) : null;
-  const driverNotifications = notifications.filter((item) => item.audience === "driver").slice(0, 5);
   const driverProposals = orders
     .filter((order) => order.source === "Driver" && order.sourceOwnerName === selectedDriver?.fullName && order.orderStatus === "pending_dispatch_review")
     .sort((a, b) => new Date(b.startAt).getTime() - new Date(a.startAt).getTime());
+  const driverEntityIds = new Set([...driverOrders.map((order) => order.id), ...driverProposals.map((order) => order.id)]);
+  const assignedFallbackNotifications: AppNotification[] = upcomingTrips.slice(0, 3).map((order) => ({
+    id: `driver-assigned-${order.id}`,
+    audience: "driver",
+    title: "Bạn có chuyến được phân",
+    body: `${order.code} / ${timeOnly(order.startAt)} / ${order.pickup} → ${order.dropoff}`,
+    entityId: order.id,
+    createdAt: order.startAt,
+    read: false
+  }));
+  const driverNotifications = [
+    ...notifications.filter((item) => item.audience === "driver" && (!item.entityId || driverEntityIds.has(item.entityId))),
+    ...assignedFallbackNotifications.filter((item) => !notifications.some((notification) => notification.entityId === item.entityId && notification.audience === "driver"))
+  ]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 5);
+  const selectedTrip = driverOrders.find((order) => order.id === selectedOrderId) ?? activeOrder ?? upcomingTrips[0] ?? driverOrders[0];
+  const nextDriverStatus = selectedTrip ? driverNextDispatchStatus(selectedTrip) : null;
   const nextTrip = activeOrder ?? upcomingTrips[0] ?? driverOrders[0];
   const canUpdate = can(currentRole, "update_dispatch_status");
 
