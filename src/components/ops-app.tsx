@@ -4585,8 +4585,27 @@ function FinancePanel({
     .reduce((sum, payment) => sum + payment.amount, 0);
   const totalDebt = Math.max(totalReceivable - totalCollected, 0);
   const totalActualProfit = activeOrders.reduce((sum, order) => sum + orderActualProfit(order), 0);
+  const totalSupplierPayable = activeOrders
+    .filter((order) => order.vehicleOwnership === "rented")
+    .reduce((sum, order) => sum + (order.supplierTotalWithVat ?? orderCost(order)), 0);
+  const driverHeldAmount = activeOrders
+    .filter((order) => (order.payer ?? "").toLowerCase().includes("tài xế") || (order.payer ?? "").toLowerCase().includes("driver"))
+    .reduce((sum, order) => sum + order.amountDue, 0);
+  const profileIssues = (order: DispatchOrder) => {
+    const orderPaid = payments.filter((payment) => payment.orderId === order.id && payment.status === "valid").reduce((sum, payment) => sum + payment.amount, 0);
+    const orderDebt = Math.max(order.amountDue - orderPaid, 0);
+    const issues: string[] = [];
+    if (order.dispatchStatus === "completed" && order.reconciliationStatus !== "closed") issues.push("Chờ đối soát");
+    if (orderDebt > 0) issues.push(`Còn nợ khách ${money(orderDebt)}`);
+    if ((order.payer ?? "").toLowerCase().includes("tài xế") || (order.payer ?? "").toLowerCase().includes("driver")) issues.push("Có thu hộ tài xế");
+    if (order.vehicleOwnership === "rented" && (order.supplierTotalWithVat ?? 0) > 0) issues.push(`Theo dõi NCC ${money(order.supplierTotalWithVat ?? 0)}`);
+    if (order.invoiceStatus !== "issued" && order.invoiceStatus !== "not_required") issues.push("Thiếu hóa đơn đầu ra");
+    if (order.vehicleOwnership === "rented" && order.supplierInvoiceRequired && !order.supplierTaxCode) issues.push("Thiếu chứng từ đầu vào");
+    if (order.reconciliationStatus !== "closed") issues.push("Hồ sơ chưa đóng");
+    return issues;
+  };
   const financeQueue = activeOrders
-    .filter((order) => order.dispatchStatus === "completed" || order.paymentStatus !== "paid" || (order.invoiceStatus !== "issued" && order.invoiceStatus !== "not_required") || order.reconciliationStatus !== "closed")
+    .filter((order) => profileIssues(order).length > 0)
     .sort((a, b) => {
       const priority = (order: DispatchOrder) => {
         if (order.dispatchStatus === "completed" && order.reconciliationStatus !== "closed") return 0;
@@ -4601,6 +4620,9 @@ function FinancePanel({
   const canCloseOrder = can(currentRole, "close_order");
   const canUpdateActualCosts = can(currentRole, "record_payment") || can(currentRole, "update_dispatch_status");
   const invoiceReady = selectedOrder.invoiceStatus === "issued" || selectedOrder.invoiceStatus === "not_required";
+  const selectedIssues = profileIssues(selectedOrder);
+  const selectedSupplierPayable = selectedOrder.vehicleOwnership === "rented" ? selectedOrder.supplierTotalWithVat ?? orderCost(selectedOrder) : 0;
+  const selectedDriverHeldAmount = (selectedOrder.payer ?? "").toLowerCase().includes("tài xế") || (selectedOrder.payer ?? "").toLowerCase().includes("driver") ? selectedOrder.amountDue : 0;
   const closeBlockers = [
     selectedOrder.dispatchStatus !== "completed" ? "Chuyến chưa hoàn thành" : "",
     selectedOrder.paymentStatus !== "paid" ? "Chưa thu đủ tiền" : "",
@@ -4610,10 +4632,13 @@ function FinancePanel({
 
   return (
     <section className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-4">
-        <StatCard label="Phải thu" value={money(totalReceivable)} detail="Tổng giá trị lệnh chưa hủy." icon={ReceiptText} />
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Phải thu khách" value={money(totalReceivable)} detail="Tổng giá trị lệnh chưa hủy." icon={ReceiptText} />
         <StatCard label="Đã thu" value={money(totalCollected)} detail="Tổng payment hợp lệ." icon={Banknote} />
-        <StatCard label="Còn nợ" value={money(totalDebt)} detail="Phần cần tiếp tục theo dõi." icon={AlertTriangle} />
+        <StatCard label="Còn nợ khách" value={money(totalDebt)} detail="Phần khách/công ty chưa thanh toán." icon={AlertTriangle} />
+        <StatCard label="Phải trả NCC" value={money(totalSupplierPayable)} detail="Tạm tính cho xe thuê ngoài." icon={Car} />
+        <StatCard label="Thu hộ chưa nộp" value={money(driverHeldAmount)} detail="Khách trả qua tài xế cần đối soát." icon={UserRound} />
+        <StatCard label="Hồ sơ chưa đối soát" value={String(activeOrders.filter((order) => order.reconciliationStatus !== "closed").length)} detail="Lệnh còn việc tài chính." icon={ClipboardList} />
         <StatCard label="Lãi thực tế" value={money(totalActualProfit)} detail="Dựa trên chi phí thực tế nếu có." icon={TrendingUp} />
       </div>
 
@@ -4629,19 +4654,19 @@ function FinancePanel({
               <tr>
                 <th className="px-3 py-2">Lệnh</th>
                 <th className="px-3 py-2">Khách</th>
-                <th className="px-3 py-2">Trạng thái</th>
                 <th className="px-3 py-2">Phải thu</th>
                 <th className="px-3 py-2">Còn nợ</th>
-                <th className="px-3 py-2">Hồ sơ</th>
+                <th className="px-3 py-2">Việc cần xử lý</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
               {financeQueue.length === 0 && (
-                <tr><td className="px-3 py-4 text-slate-500" colSpan={6}>Không có hồ sơ tài chính cần xử lý.</td></tr>
+                <tr><td className="px-3 py-4 text-slate-500" colSpan={5}>Không có hồ sơ tài chính cần xử lý.</td></tr>
               )}
               {financeQueue.map((order) => {
                 const orderPaid = payments.filter((payment) => payment.orderId === order.id && payment.status === "valid").reduce((sum, payment) => sum + payment.amount, 0);
                 const orderDebt = Math.max(order.amountDue - orderPaid, 0);
+                const issues = profileIssues(order);
                 const selected = order.id === selectedOrder.id;
                 return (
                   <tr className={selected ? "bg-teal-50" : "hover:bg-panel"} key={order.id}>
@@ -4650,16 +4675,13 @@ function FinancePanel({
                       <p className="mt-1 text-xs text-slate-500">{formatDateTime(order.startAt)}</p>
                     </td>
                     <td className="px-3 py-3 text-slate-700">{order.customerName}</td>
-                    <td className="px-3 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        <Badge tone={statusTone(order)}>{dispatchLabels[order.dispatchStatus]}</Badge>
-                        <Badge tone={order.paymentStatus === "paid" ? "good" : order.paymentStatus === "partial" ? "warn" : "danger"}>{paymentLabels[order.paymentStatus]}</Badge>
-                      </div>
-                    </td>
                     <td className="px-3 py-3 font-semibold text-ink">{money(order.amountDue)}</td>
                     <td className="px-3 py-3 font-semibold text-rose-800">{money(orderDebt)}</td>
                     <td className="px-3 py-3">
-                      <Badge tone={order.reconciliationStatus === "closed" ? "good" : "info"}>{order.reconciliationStatus}</Badge>
+                      <div className="flex flex-wrap gap-1">
+                        {issues.slice(0, 3).map((issue) => <Badge key={issue} tone={issue.includes("nợ") || issue.includes("Thiếu") ? "warn" : "info"}>{issue}</Badge>)}
+                        {issues.length > 3 && <Badge tone="neutral">+{issues.length - 3}</Badge>}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -4674,8 +4696,9 @@ function FinancePanel({
           <section className="border border-line bg-white p-4 shadow-sm">
             <div className="flex items-center gap-2">
               <Banknote className="text-brand" size={20} />
-              <h3 className="font-semibold text-ink">{selectedOrder.code}</h3>
+              <h3 className="font-semibold text-ink">Hồ sơ đang chọn</h3>
             </div>
+            <p className="mt-2 text-lg font-semibold text-ink">{selectedOrder.code}</p>
             <div className="mt-3 space-y-1 text-sm text-slate-600">
               <p className="font-medium text-ink">{selectedOrder.customerName}</p>
               <p>{selectedOrder.pickup} → {selectedOrder.dropoff}</p>
@@ -4683,15 +4706,23 @@ function FinancePanel({
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <StatMini label="Phải thu" value={money(selectedOrder.amountDue)} />
+              <StatMini label="Đã thu" value={money(paid)} />
               <StatMini label="Còn nợ" value={money(debt)} />
+              <StatMini label="Trạng thái chuyến" value={dispatchLabels[selectedOrder.dispatchStatus]} />
             </div>
+            {selectedIssues.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1">
+                {selectedIssues.slice(0, 6).map((issue) => <Badge key={issue} tone={issue.includes("nợ") || issue.includes("Thiếu") ? "warn" : "info"}>{issue}</Badge>)}
+              </div>
+            )}
           </section>
 
           <form className="border border-line bg-white p-4 shadow-sm" onSubmit={recordPayment}>
             <div className="flex items-center gap-2">
               <ReceiptText className="text-brand" size={20} />
-              <h3 className="font-semibold text-ink">Ghi nhận thanh toán</h3>
+              <h3 className="font-semibold text-ink">1. Thu tiền khách</h3>
             </div>
+            <p className="mt-1 text-sm text-slate-500">Một lệnh có thể ghi nhiều lần thanh toán. App tự tính còn nợ.</p>
             <div className="mt-4 grid gap-3">
               <Field label="Lệnh"><input className={inputClass()} readOnly value={`${selectedOrder.code} / ${selectedOrder.customerName}`} /></Field>
               <Field label="Số tiền"><input className={inputClass()} defaultValue={debt || selectedOrder.amountDue} min="1" name="amount" required type="number" /></Field>
@@ -4705,7 +4736,40 @@ function FinancePanel({
         </div>
         <div className="space-y-4">
         <section className="border border-line bg-white p-4 shadow-sm">
-          <h3 className="font-semibold text-ink">Công nợ & hóa đơn</h3>
+          <h3 className="font-semibold text-ink">2. Thu hộ tài xế</h3>
+          <p className="mt-1 text-sm text-slate-500">Khách đã trả cho tài xế chưa đồng nghĩa công ty đã nhận tiền.</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <StatMini label="Khách trả qua" value={selectedDriverHeldAmount > 0 ? selectedOrder.payer ?? "Tài xế" : "Không ghi nhận"} />
+            <StatMini label="Tạm tính thu hộ" value={money(selectedDriverHeldAmount)} />
+            <StatMini label="Cần đối soát" value={selectedDriverHeldAmount > 0 && selectedOrder.reconciliationStatus !== "closed" ? "Có" : "Không"} />
+          </div>
+          {selectedDriverHeldAmount > 0 && (
+            <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Cần xác nhận tài xế đã nộp tiền về công ty trước khi đóng hồ sơ.
+            </p>
+          )}
+        </section>
+
+        <section className="border border-line bg-white p-4 shadow-sm">
+          <h3 className="font-semibold text-ink">3. Công nợ NCC / xe ngoài</h3>
+          <p className="mt-1 text-sm text-slate-500">Chỉ phát sinh khi lệnh dùng xe thuê ngoài hoặc có nhà cung cấp.</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <StatMini label="Hình thức xe" value={selectedOrder.vehicleOwnership === "rented" ? "Thuê ngoài" : "Xe công ty"} />
+            <StatMini label="Giá mua/NCC" value={money(selectedSupplierPayable)} />
+            <StatMini label="NCC" value={selectedOrder.supplierCompanyName || selectedOrder.supplierOwnerName || "-"} />
+          </div>
+          {selectedOrder.vehicleOwnership === "rented" && (
+            <div className="mt-3 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
+              <p>Tài khoản NCC: <span className="font-medium text-ink">{selectedOrder.supplierBankAccount || "-"}</span></p>
+              <p>Ngân hàng NCC: <span className="font-medium text-ink">{selectedOrder.supplierBankName || "-"}</span></p>
+              <p>Hóa đơn đầu vào: <span className="font-medium text-ink">{selectedOrder.supplierInvoiceRequired ? "Có yêu cầu" : "Không yêu cầu"}</span></p>
+              <p>MST NCC: <span className="font-medium text-ink">{selectedOrder.supplierTaxCode || "-"}</span></p>
+            </div>
+          )}
+        </section>
+
+        <section className="border border-line bg-white p-4 shadow-sm">
+          <h3 className="font-semibold text-ink">4. Hóa đơn & tổng hợp công nợ</h3>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             <StatMini label="Phải thu" value={money(selectedOrder.amountDue)} />
             <StatMini label="Đã thu" value={money(paid)} />
@@ -4722,16 +4786,10 @@ function FinancePanel({
           <div className="mt-4 grid gap-2 sm:grid-cols-3">
             <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" disabled={!canUpdateInvoice} onClick={() => updateInvoiceStatus("ready_to_issue")} type="button">Sẵn sàng HĐ</button>
             <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" disabled={!canUpdateInvoice} onClick={() => updateInvoiceStatus("issued")} type="button">Đã xuất HĐ</button>
-            <button className="h-10 rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canCloseSelectedOrder} onClick={reconcileOrder} type="button">Đóng lệnh</button>
           </div>
-          {closeBlockers.length > 0 && (
-            <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              Chưa thể đóng: {closeBlockers.join(", ")}.
-            </p>
-          )}
         </section>
         <form className="border border-line bg-white p-4 shadow-sm" onSubmit={updateActualCosts}>
-          <h3 className="font-semibold text-ink">Chi phí thực tế sau chuyến</h3>
+          <h3 className="font-semibold text-ink">5. Chi phí thực tế sau chuyến</h3>
           <div className="mt-4 grid gap-3 md:grid-cols-3">
             <Field label="Tài xế thực tế"><input className={inputClass()} defaultValue={selectedOrder.actualDriverCost ?? selectedOrder.driverCost ?? 0} min="0" name="actualDriverCost" type="number" /></Field>
             <Field label="Xe/nhiên liệu thực tế"><input className={inputClass()} defaultValue={selectedOrder.actualVehicleCost ?? selectedOrder.vehicleCost ?? 0} min="0" name="actualVehicleCost" type="number" /></Field>
@@ -4743,7 +4801,7 @@ function FinancePanel({
           <button className="mt-4 h-10 w-full rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canUpdateActualCosts} type="submit">Lưu chi phí thực tế</button>
         </form>
         <section className="border border-line bg-white p-4 shadow-sm">
-          <h3 className="font-semibold text-ink">Payment list</h3>
+          <h3 className="font-semibold text-ink">Các lần thanh toán</h3>
           <div className="mt-3 space-y-2 text-sm">
             {selectedPayments.length === 0 && <p className="text-slate-500">Chưa có thanh toán.</p>}
             {selectedPayments.map((payment) => (
@@ -4756,6 +4814,32 @@ function FinancePanel({
               </div>
             ))}
           </div>
+        </section>
+        <section className="border border-line bg-white p-4 shadow-sm">
+          <h3 className="font-semibold text-ink">6. Đối soát & đóng hồ sơ</h3>
+          <div className="mt-4 grid gap-2 text-sm">
+            {[
+              ["Chuyến đã hoàn thành", selectedOrder.dispatchStatus === "completed"],
+              ["Khách đã xử lý thanh toán", selectedOrder.paymentStatus === "paid"],
+              ["Thu hộ đã nộp/không phát sinh", selectedDriverHeldAmount === 0 || selectedOrder.reconciliationStatus === "closed"],
+              ["NCC đã xử lý/không phát sinh", selectedOrder.vehicleOwnership !== "rented" || selectedSupplierPayable >= 0],
+              ["Hóa đơn/chứng từ đã xử lý", invoiceReady],
+              ["Chi phí thực tế đã nhập", orderActualCost(selectedOrder) > 0]
+            ].map(([label, ok]) => (
+              <p className="flex items-center gap-2" key={String(label)}>
+                <CheckCircle2 className={ok ? "text-brand" : "text-slate-300"} size={16} />
+                <span className={ok ? "text-slate-700" : "text-slate-500"}>{label}</span>
+              </p>
+            ))}
+          </div>
+          {closeBlockers.length > 0 ? (
+            <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Chưa thể đóng: {closeBlockers.join(", ")}.
+            </p>
+          ) : (
+            <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">Hồ sơ đủ điều kiện đóng.</p>
+          )}
+          <button className="mt-4 h-10 w-full rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canCloseSelectedOrder} onClick={reconcileOrder} type="button">Đóng hồ sơ</button>
         </section>
       </div>
       </section>
