@@ -19,6 +19,7 @@ import { can, type AppRole, type PermissionAction } from "@/lib/permissions";
 export type OpsCommand =
   | "order.submit_proposal"
   | "driver.submit_proposal"
+  | "driver.submit_trip_report"
   | "order.update_quote"
   | "dispatch.assign_vehicle_driver"
   | "dispatch.review_proposal"
@@ -44,6 +45,7 @@ export interface CommandMeta {
 export const commandCatalog: Record<OpsCommand, CommandMeta> = {
   "order.submit_proposal": { permission: "create_order", rpcName: "submit_dispatch_proposal" },
   "driver.submit_proposal": { permission: "submit_driver_proposal", rpcName: "submit_driver_proposal" },
+  "driver.submit_trip_report": { permission: "submit_driver_report", rpcName: "submit_driver_trip_report" },
   "order.update_quote": { permission: "create_order", rpcName: "update_dispatch_quote" },
   "dispatch.assign_vehicle_driver": { permission: "assign_vehicle", rpcName: "assign_vehicle_driver" },
   "dispatch.review_proposal": { permission: "assign_vehicle", rpcName: "review_dispatch_proposal" },
@@ -77,6 +79,48 @@ export function submitDriverDispatchProposal(state: OpsState, order: DispatchOrd
     ...state,
     orders: [order, ...state.orders],
     auditEvents: [audit({ actor: "Driver", entityType: "dispatch_order", entityId: order.id, action: "submitted_driver_proposal", reason: "Driver submitted urgent or short proposal" }), ...state.auditEvents]
+  };
+}
+
+export function submitDriverTripReport(
+  state: OpsState,
+  orderId: string,
+  patch: {
+    driverCollectedAmount: number;
+    driverExpenseFuel: number;
+    driverExpenseToll: number;
+    driverExpenseParking: number;
+    driverExpenseWater: number;
+    driverExpenseOther: number;
+    driverExpenseNote?: string;
+  },
+  audit: AuditFactory,
+  includeAudit = true
+): OpsState {
+  return {
+    ...state,
+    orders: state.orders.map((order) =>
+      order.id === orderId
+        ? {
+            ...order,
+            ...patch,
+            driverReportStatus: "reported" as const,
+            driverReportedAt: new Date().toISOString()
+          }
+        : order
+    ),
+    auditEvents: includeAudit
+      ? [
+          audit({
+            actor: "Driver",
+            entityType: "dispatch_order",
+            entityId: orderId,
+            action: "submitted_driver_trip_report",
+            reason: `${patch.driverCollectedAmount} / ${patch.driverExpenseFuel + patch.driverExpenseToll + patch.driverExpenseParking + patch.driverExpenseWater + patch.driverExpenseOther}`
+          }),
+          ...state.auditEvents
+        ]
+      : state.auditEvents
   };
 }
 

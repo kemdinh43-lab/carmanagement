@@ -7,7 +7,8 @@ import { appDispatchOrderPersistenceColumns, appPaymentPersistenceColumns } from
 const migrationSql = [
   "0001_core.sql",
   "0013_dispatch_order_detail_fields.sql",
-  "0021_finance_schema_alignment.sql"
+  "0021_finance_schema_alignment.sql",
+  "0022_driver_trip_reports.sql"
 ]
   .map((file) => readFileSync(join(process.cwd(), "supabase", "migrations", file), "utf8"))
   .join("\n");

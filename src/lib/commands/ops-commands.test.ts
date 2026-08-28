@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AuditEvent, DispatchOrder, OpsState } from "@/lib/types";
-import { assignVehicleDriver, canRunCommand, commandCatalog, reviewDispatchProposal, submitDriverDispatchProposal } from "./ops-commands";
+import { assignVehicleDriver, canRunCommand, commandCatalog, reviewDispatchProposal, submitDriverDispatchProposal, submitDriverTripReport } from "./ops-commands";
 
 const audit = (event: Omit<AuditEvent, "id" | "createdAt">): AuditEvent => ({
   ...event,
@@ -57,6 +57,7 @@ describe("ops command catalog", () => {
   it("keeps command rpc names stable", () => {
     expect(commandCatalog["dispatch.assign_vehicle_driver"].rpcName).toBe("assign_vehicle_driver");
     expect(commandCatalog["finance.close_order"].permission).toBe("close_order");
+    expect(commandCatalog["driver.submit_trip_report"].rpcName).toBe("submit_driver_trip_report");
   });
 
   it("maps role permissions to commands", () => {
@@ -65,6 +66,7 @@ describe("ops command catalog", () => {
     expect(canRunCommand("dispatcher", "order.update_details")).toBe(true);
     expect(canRunCommand("accountant", "order.update_details")).toBe(true);
     expect(canRunCommand("driver", "order.update_details")).toBe(false);
+    expect(canRunCommand("driver", "driver.submit_trip_report")).toBe(true);
     expect(canRunCommand("admin", "master.create_vehicle")).toBe(true);
   });
 });
@@ -142,6 +144,41 @@ describe("dispatch review and assignment flow", () => {
       vehicleId: "v1",
       driverId: "dr1",
       status: "active"
+    });
+  });
+});
+
+describe("driver trip report flow", () => {
+  it("stores collected cash and trip expenses for finance review", () => {
+    const order = driverProposal({ dispatchStatus: "completed", driverReportStatus: "not_reported" });
+    const state = submitDriverTripReport(
+      emptyState(order),
+      order.id,
+      {
+        driverCollectedAmount: 1200000,
+        driverExpenseFuel: 150000,
+        driverExpenseToll: 50000,
+        driverExpenseParking: 30000,
+        driverExpenseWater: 20000,
+        driverExpenseOther: 0,
+        driverExpenseNote: "Cau duong + gui xe"
+      },
+      audit
+    );
+
+    expect(state.orders[0]).toMatchObject({
+      driverCollectedAmount: 1200000,
+      driverExpenseFuel: 150000,
+      driverExpenseToll: 50000,
+      driverExpenseParking: 30000,
+      driverExpenseWater: 20000,
+      driverExpenseOther: 0,
+      driverExpenseNote: "Cau duong + gui xe",
+      driverReportStatus: "reported"
+    });
+    expect(state.auditEvents[0]).toMatchObject({
+      actor: "Driver",
+      action: "submitted_driver_trip_report"
     });
   });
 });

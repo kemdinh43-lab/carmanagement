@@ -9,6 +9,7 @@ export type DispatchStatus =
 export type PaymentStatus = "unpaid" | "partial" | "paid" | "refunded";
 export type QuoteStatus = "draft" | "sent" | "approved" | "rejected" | "expired";
 export type DispatchPriority = "normal" | "high" | "urgent";
+export type DriverReportStatus = "not_reported" | "reported" | "reviewed";
 export type InvoiceStatus =
   | "not_required"
   | "pending_info"
@@ -157,6 +158,15 @@ export interface DispatchOrder extends TimeWindow {
   actualVehicleCost?: number;
   actualOtherCost?: number;
   actualCostNote?: string;
+  driverCollectedAmount?: number;
+  driverExpenseFuel?: number;
+  driverExpenseToll?: number;
+  driverExpenseParking?: number;
+  driverExpenseWater?: number;
+  driverExpenseOther?: number;
+  driverExpenseNote?: string;
+  driverReportStatus?: DriverReportStatus;
+  driverReportedAt?: string;
 }
 
 export interface AuditEvent {

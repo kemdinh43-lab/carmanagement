@@ -56,6 +56,7 @@ import {
   recordPayment as recordPaymentCommand,
   reviewDispatchProposal as reviewDispatchProposalCommand,
   submitDriverDispatchProposal,
+  submitDriverTripReport as submitDriverTripReportCommand,
   submitDispatchProposal,
   updateActualCosts as updateActualCostsCommand,
   updateDispatchStatus as updateDispatchStatusCommand,
@@ -1584,6 +1585,108 @@ export default function OpsApp() {
     return true;
   }
 
+  async function submitDriverTripReport(event: FormEvent<HTMLFormElement>): Promise<boolean> {
+    event.preventDefault();
+    if (!can(currentRole, "submit_driver_report")) {
+      setMessage(`${roleLabels[currentRole]} không có quyền gửi báo cáo sau chuyến.`);
+      return false;
+    }
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const orderId = String(form.get("orderId") || "").trim();
+    const targetOrder = state.orders.find((order) => order.id === orderId);
+    const driverId = currentRole === "driver" ? authDriverId || mobileDriverId : mobileDriverId;
+
+    if (!targetOrder) {
+      setMessage("Chưa xác định được chuyến để ghi báo cáo.");
+      return false;
+    }
+    if (targetOrder.driverId !== driverId) {
+      setMessage("Báo cáo chỉ được ghi cho chuyến của tài xế đang chọn.");
+      return false;
+    }
+    if (targetOrder.dispatchStatus !== "completed") {
+      setMessage("Chỉ có thể báo cáo sau khi chuyến đã hoàn thành.");
+      return false;
+    }
+
+    const collectedAmount = Number(form.get("driverCollectedAmount") || 0);
+    const useFuel = form.get("useFuel") === "yes";
+    const useToll = form.get("useToll") === "yes";
+    const useParking = form.get("useParking") === "yes";
+    const useWater = form.get("useWater") === "yes";
+    const useOther = form.get("useOther") === "yes";
+    const driverExpenseFuel = useFuel ? Number(form.get("driverExpenseFuel") || 0) : 0;
+    const driverExpenseToll = useToll ? Number(form.get("driverExpenseToll") || 0) : 0;
+    const driverExpenseParking = useParking ? Number(form.get("driverExpenseParking") || 0) : 0;
+    const driverExpenseWater = useWater ? Number(form.get("driverExpenseWater") || 0) : 0;
+    const driverExpenseOther = useOther ? Number(form.get("driverExpenseOther") || 0) : 0;
+    const driverExpenseNote = String(form.get("driverExpenseNote") || "").trim();
+
+    const expenseValues = [driverExpenseFuel, driverExpenseToll, driverExpenseParking, driverExpenseWater, driverExpenseOther];
+    if (collectedAmount < 0 || expenseValues.some((value) => value < 0)) {
+      setMessage("Số tiền báo cáo không được âm.");
+      return false;
+    }
+    if ((useFuel && driverExpenseFuel <= 0) || (useToll && driverExpenseToll <= 0) || (useParking && driverExpenseParking <= 0) || (useWater && driverExpenseWater <= 0) || (useOther && driverExpenseOther <= 0)) {
+      setMessage("Các khoản chi phí đã tick cần có số tiền lớn hơn 0.");
+      return false;
+    }
+
+    const saved = await runSupabaseRpc(
+      "submit_driver_trip_report",
+      {
+        p_order_id: targetOrder.id,
+        p_driver_collected_amount: collectedAmount,
+        p_driver_expense_fuel: driverExpenseFuel,
+        p_driver_expense_toll: driverExpenseToll,
+        p_driver_expense_parking: driverExpenseParking,
+        p_driver_expense_water: driverExpenseWater,
+        p_driver_expense_other: driverExpenseOther,
+        p_driver_expense_note: driverExpenseNote || null
+      },
+      `Không lưu được báo cáo sau chuyến ${targetOrder.code}`
+    );
+    if (!saved) return false;
+
+    runCommand(
+      "driver.submit_trip_report",
+      (current) =>
+        submitDriverTripReportCommand(
+          current,
+          targetOrder.id,
+          {
+            driverCollectedAmount: collectedAmount,
+            driverExpenseFuel,
+            driverExpenseToll,
+            driverExpenseParking,
+            driverExpenseWater,
+            driverExpenseOther,
+            driverExpenseNote: driverExpenseNote || undefined
+          },
+          audit,
+          false
+        ),
+      `Đã ghi nhận báo cáo sau chuyến cho ${targetOrder.code}.`
+    );
+    notify({
+      audience: "driver",
+      eventType: "driver_trip_report_submitted",
+      title: "Đã gửi báo cáo sau chuyến",
+      body: `${targetOrder.code} đã được ghi nhận.`,
+      entityId: targetOrder.id,
+      targetDriverId: targetOrder.driverId ?? undefined
+    });
+    notifyMany(["accountant", "manager", "admin"], {
+      eventType: "driver_trip_report_submitted",
+      title: "Tài xế đã gửi báo cáo chuyến",
+      body: `${targetOrder.code} / thu hộ ${money(collectedAmount)}`,
+      entityId: targetOrder.id
+    });
+    formElement.reset();
+    return true;
+  }
+
   async function promoteDriverProposalToDispatch(orderId: string) {
     const targetOrder = state.orders.find((order) => order.id === orderId);
     if (!targetOrder) return;
@@ -2530,6 +2633,7 @@ export default function OpsApp() {
               setMobileDriverId={setMobileDriverId}
               setSelectedOrderId={setSelectedOrderId}
               submitDriverProposal={submitDriverProposal}
+              submitDriverTripReport={submitDriverTripReport}
               updateOrderDispatchStatus={updateOrderDispatchStatus}
               vehicles={state.vehicles}
             />
@@ -4192,6 +4296,7 @@ function DriverMobilePanel({
   setMobileDriverId,
   setSelectedOrderId,
   submitDriverProposal,
+  submitDriverTripReport,
   updateOrderDispatchStatus,
   vehicles
 }: {
@@ -4206,6 +4311,7 @@ function DriverMobilePanel({
   setMobileDriverId: (id: string) => void;
   setSelectedOrderId: (id: string) => void;
   submitDriverProposal: (event: FormEvent<HTMLFormElement>) => Promise<boolean>;
+  submitDriverTripReport: (event: FormEvent<HTMLFormElement>) => Promise<boolean>;
   updateOrderDispatchStatus: (orderId: string, nextStatus: DispatchStatus, reason: string, actor?: string) => void;
   vehicles: Vehicle[];
 }) {
@@ -4242,6 +4348,13 @@ function DriverMobilePanel({
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 5);
   const selectedTrip = driverOrders.find((order) => order.id === selectedOrderId) ?? activeOrder ?? upcomingTrips[0] ?? driverOrders[0];
+  const completedTripsToday = todayDriverOrders.filter((order) => order.dispatchStatus === "completed");
+  const completedTrips = driverOrders.filter((order) => order.dispatchStatus === "completed");
+  const reportTrip = selectedTrip?.dispatchStatus === "completed" ? selectedTrip : completedTripsToday[completedTripsToday.length - 1] ?? completedTrips[completedTrips.length - 1];
+  const reportTripExpenseTotal = reportTrip
+    ? (reportTrip.driverExpenseFuel ?? 0) + (reportTrip.driverExpenseToll ?? 0) + (reportTrip.driverExpenseParking ?? 0) + (reportTrip.driverExpenseWater ?? 0) + (reportTrip.driverExpenseOther ?? 0)
+    : 0;
+  const reportTripCollectedAmount = reportTrip?.driverCollectedAmount ?? reportTrip?.amountDue ?? 0;
   const nextDriverStatus = selectedTrip ? driverNextDispatchStatus(selectedTrip) : null;
   const nextTrip = activeOrder ?? upcomingTrips[0] ?? driverOrders[0];
   const canUpdate = can(currentRole, "update_dispatch_status");
@@ -4438,6 +4551,68 @@ function DriverMobilePanel({
         </section>
       )}
 
+      {reportTrip ? (
+        <section className="border border-line bg-white p-4 shadow-sm" key={reportTrip.id}>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm text-slate-500">Báo cáo sau chuyến</p>
+              <h4 className="font-semibold text-ink">{reportTrip.code}</h4>
+              <p className="mt-1 text-xs text-slate-500">
+                {reportTrip.pickup} → {reportTrip.dropoff}
+              </p>
+            </div>
+            <Badge tone={reportTrip.driverReportStatus === "reported" ? "good" : "warn"}>{reportTrip.driverReportStatus === "reported" ? "Đã báo" : "Cần báo"}</Badge>
+          </div>
+          <p className="mt-2 text-sm text-slate-600">Tài xế nhập tiền thu hộ và tick các khoản chi phí thực tế. Kế toán nhìn ngay trong hồ sơ lệnh.</p>
+          <form
+            className="mt-4 grid gap-3"
+            onSubmit={(event) => {
+              void submitDriverTripReport(event);
+            }}
+          >
+            <input name="orderId" type="hidden" value={reportTrip.id} />
+            <div className="grid gap-3 md:grid-cols-2">
+              <Field label="Tiền thu hộ">
+                <input className={inputClass()} defaultValue={reportTripCollectedAmount} min="0" name="driverCollectedAmount" type="number" />
+              </Field>
+              <Field label="Ghi chú báo cáo">
+                <textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="driverExpenseNote" placeholder="Ví dụ: khách trả tiền mặt, gửi xe 30k, nước 20k..." defaultValue={reportTrip.driverExpenseNote ?? ""} />
+              </Field>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[
+                { key: "fuel", label: "Xăng", name: "driverExpenseFuel", checked: (reportTrip.driverExpenseFuel ?? 0) > 0, value: reportTrip.driverExpenseFuel ?? 0 },
+                { key: "toll", label: "Cầu đường", name: "driverExpenseToll", checked: (reportTrip.driverExpenseToll ?? 0) > 0, value: reportTrip.driverExpenseToll ?? 0 },
+                { key: "parking", label: "Gửi xe", name: "driverExpenseParking", checked: (reportTrip.driverExpenseParking ?? 0) > 0, value: reportTrip.driverExpenseParking ?? 0 },
+                { key: "water", label: "Nước / ăn uống", name: "driverExpenseWater", checked: (reportTrip.driverExpenseWater ?? 0) > 0, value: reportTrip.driverExpenseWater ?? 0 },
+                { key: "other", label: "Khác", name: "driverExpenseOther", checked: (reportTrip.driverExpenseOther ?? 0) > 0, value: reportTrip.driverExpenseOther ?? 0 }
+              ].map((expense) => (
+                <div className="rounded-md border border-line bg-panel p-3" key={expense.key}>
+                  <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                    <input defaultChecked={expense.checked} name={`use${expense.key.charAt(0).toUpperCase()}${expense.key.slice(1)}`} type="checkbox" value="yes" />
+                    {expense.label}
+                  </label>
+                  <input className={`${inputClass()} mt-2`} defaultValue={expense.value} min="0" name={expense.name} placeholder="0" type="number" />
+                </div>
+              ))}
+            </div>
+            <div className="grid gap-2 rounded-md border border-dashed border-line bg-panel px-3 py-2 text-sm text-slate-600 sm:grid-cols-3">
+              <p>Thu hộ: <span className="font-semibold text-ink">{money(reportTripCollectedAmount)}</span></p>
+              <p>Chi phí: <span className="font-semibold text-ink">{money(reportTripExpenseTotal)}</span></p>
+              <p>Cần nộp/đối soát: <span className="font-semibold text-ink">{money(Math.max(reportTripCollectedAmount - reportTripExpenseTotal, 0))}</span></p>
+            </div>
+            <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!can(currentRole, "submit_driver_report")} type="submit">
+              <Save size={16} /> Gửi báo cáo
+            </button>
+          </form>
+        </section>
+      ) : (
+        <section className="border border-line bg-white p-4 shadow-sm">
+          <h4 className="font-semibold text-ink">Báo cáo sau chuyến</h4>
+          <p className="mt-2 text-sm text-slate-500">Chỉ hiện khi tài xế có chuyến đã hoàn thành để nhập thu hộ và chi phí phát sinh.</p>
+        </section>
+      )}
+
       <section className="border border-line bg-white p-4 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <h4 className="font-semibold text-ink">Thông báo từ điều hành</h4>
@@ -4594,15 +4769,16 @@ function FinancePanel({
     .filter((order) => order.vehicleOwnership === "rented")
     .reduce((sum, order) => sum + (order.supplierTotalWithVat ?? orderCost(order)), 0);
   const driverHeldAmount = activeOrders
-    .filter((order) => (order.payer ?? "").toLowerCase().includes("tài xế") || (order.payer ?? "").toLowerCase().includes("driver"))
-    .reduce((sum, order) => sum + order.amountDue, 0);
+    .filter((order) => (order.driverCollectedAmount ?? 0) > 0 || (order.payer ?? "").toLowerCase().includes("tài xế") || (order.payer ?? "").toLowerCase().includes("driver"))
+    .reduce((sum, order) => sum + (order.driverCollectedAmount ?? order.amountDue), 0);
   const profileIssues = (order: DispatchOrder) => {
     const orderPaid = payments.filter((payment) => payment.orderId === order.id && payment.status === "valid").reduce((sum, payment) => sum + payment.amount, 0);
     const orderDebt = Math.max(order.amountDue - orderPaid, 0);
     const issues: string[] = [];
     if (order.dispatchStatus === "completed" && order.reconciliationStatus !== "closed") issues.push("Chờ đối soát");
     if (orderDebt > 0) issues.push(`Còn nợ khách ${money(orderDebt)}`);
-    if ((order.payer ?? "").toLowerCase().includes("tài xế") || (order.payer ?? "").toLowerCase().includes("driver")) issues.push("Có thu hộ tài xế");
+    if ((order.driverCollectedAmount ?? 0) > 0 || (order.payer ?? "").toLowerCase().includes("tài xế") || (order.payer ?? "").toLowerCase().includes("driver")) issues.push("Có thu hộ tài xế");
+    if (order.dispatchStatus === "completed" && order.driverReportStatus !== "reported") issues.push("Chờ báo cáo tài xế");
     if (order.vehicleOwnership === "rented" && (order.supplierTotalWithVat ?? 0) > 0) issues.push(`Theo dõi NCC ${money(order.supplierTotalWithVat ?? 0)}`);
     if (order.invoiceStatus !== "issued" && order.invoiceStatus !== "not_required") issues.push("Thiếu hóa đơn đầu ra");
     if (order.vehicleOwnership === "rented" && order.supplierInvoiceRequired && !order.supplierTaxCode) issues.push("Thiếu chứng từ đầu vào");
@@ -4613,10 +4789,11 @@ function FinancePanel({
     .filter((order) => profileIssues(order).length > 0)
     .sort((a, b) => {
       const priority = (order: DispatchOrder) => {
-        if (order.dispatchStatus === "completed" && order.reconciliationStatus !== "closed") return 0;
-        if (order.paymentStatus !== "paid") return 1;
-        if (order.invoiceStatus !== "issued" && order.invoiceStatus !== "not_required") return 2;
-        return 3;
+        if (order.dispatchStatus === "completed" && order.driverReportStatus !== "reported") return 0;
+        if (order.dispatchStatus === "completed" && order.reconciliationStatus !== "closed") return 1;
+        if (order.paymentStatus !== "paid") return 2;
+        if (order.invoiceStatus !== "issued" && order.invoiceStatus !== "not_required") return 3;
+        return 4;
       };
       return priority(a) - priority(b) || new Date(a.startAt).getTime() - new Date(b.startAt).getTime();
     });
@@ -4625,13 +4802,21 @@ function FinancePanel({
   const canCloseOrder = can(currentRole, "close_order");
   const canUpdateActualCosts = can(currentRole, "record_payment");
   const invoiceReady = selectedOrder.invoiceStatus === "issued" || selectedOrder.invoiceStatus === "not_required";
+  const selectedDriverReportCollectedAmount = selectedOrder.driverCollectedAmount ?? ((selectedOrder.payer ?? "").toLowerCase().includes("tài xế") || (selectedOrder.payer ?? "").toLowerCase().includes("driver") ? selectedOrder.amountDue : 0);
+  const selectedDriverReportExpenseTotal =
+    (selectedOrder.driverExpenseFuel ?? 0) +
+    (selectedOrder.driverExpenseToll ?? 0) +
+    (selectedOrder.driverExpenseParking ?? 0) +
+    (selectedOrder.driverExpenseWater ?? 0) +
+    (selectedOrder.driverExpenseOther ?? 0);
   const selectedIssues = profileIssues(selectedOrder);
   const selectedSupplierPayable = selectedOrder.vehicleOwnership === "rented" ? selectedOrder.supplierTotalWithVat ?? orderCost(selectedOrder) : 0;
-  const selectedDriverHeldAmount = (selectedOrder.payer ?? "").toLowerCase().includes("tài xế") || (selectedOrder.payer ?? "").toLowerCase().includes("driver") ? selectedOrder.amountDue : 0;
+  const selectedDriverHeldAmount = selectedDriverReportCollectedAmount;
   const closeBlockers = [
     selectedOrder.dispatchStatus !== "completed" ? "Chuyến chưa hoàn thành" : "",
     selectedOrder.paymentStatus !== "paid" ? "Chưa thu đủ tiền" : "",
-    !invoiceReady ? "Hóa đơn/chứng từ chưa xong" : ""
+    !invoiceReady ? "Hóa đơn/chứng từ chưa xong" : "",
+    selectedOrder.dispatchStatus === "completed" && selectedOrder.driverReportStatus !== "reported" ? "Chưa có báo cáo tài xế" : ""
   ].filter(Boolean);
   const canCloseSelectedOrder = canCloseOrder && closeBlockers.length === 0;
 
@@ -4715,11 +4900,28 @@ function FinancePanel({
               <StatMini label="Còn nợ" value={money(debt)} />
               <StatMini label="Trạng thái chuyến" value={dispatchLabels[selectedOrder.dispatchStatus]} />
             </div>
-            {selectedIssues.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1">
-                {selectedIssues.slice(0, 6).map((issue) => <Badge key={issue} tone={issue.includes("nợ") || issue.includes("Thiếu") ? "warn" : "info"}>{issue}</Badge>)}
-              </div>
-            )}
+          {selectedIssues.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1">
+              {selectedIssues.slice(0, 6).map((issue) => <Badge key={issue} tone={issue.includes("nợ") || issue.includes("Thiếu") ? "warn" : "info"}>{issue}</Badge>)}
+            </div>
+          )}
+        </section>
+
+          <section className="border border-line bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="font-semibold text-ink">Báo cáo từ tài xế</h3>
+              <Badge tone={selectedOrder.driverReportStatus === "reported" ? "good" : "warn"}>{selectedOrder.driverReportStatus === "reported" ? "Đã báo" : "Chưa báo"}</Badge>
+            </div>
+            <p className="mt-1 text-sm text-slate-500">Dữ liệu này do tài xế gửi sau chuyến, kế toán dùng để đối chiếu hồ sơ.</p>
+            <div className="mt-4 grid gap-2 sm:grid-cols-3">
+              <StatMini label="Thu hộ báo" value={money(selectedDriverReportCollectedAmount)} />
+              <StatMini label="Tổng chi phí báo" value={money(selectedDriverReportExpenseTotal)} />
+              <StatMini label="Cần nộp về" value={money(Math.max(selectedDriverReportCollectedAmount - selectedDriverReportExpenseTotal, 0))} />
+              <StatMini label="Đã báo lúc" value={selectedOrder.driverReportedAt ? formatDateTime(selectedOrder.driverReportedAt) : "-"} />
+            </div>
+            <p className="mt-3 rounded-md border border-dashed border-line bg-panel px-3 py-2 text-xs text-slate-500">
+              {selectedOrder.driverExpenseNote ?? "Chưa có ghi chú báo cáo từ tài xế."}
+            </p>
           </section>
 
           <form className="border border-line bg-white p-4 shadow-sm" onSubmit={recordPayment}>
