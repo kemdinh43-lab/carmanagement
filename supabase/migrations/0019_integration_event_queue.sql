@@ -1,3 +1,48 @@
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+create or replace function public.current_app_role()
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(
+    (
+      select role
+      from public.app_user_profiles
+      where user_id = auth.uid()
+      limit 1
+    ),
+    'sale'
+  )
+$$;
+
+create or replace function public.is_authenticated_user()
+returns boolean
+language sql
+stable
+as $$
+  select auth.uid() is not null
+$$;
+
+create or replace function public.is_manager_or_admin()
+returns boolean
+language sql
+stable
+as $$
+  select public.current_app_role() in ('manager', 'admin')
+$$;
+
 alter table if exists public.app_notifications
   add column if not exists target_user_id uuid references auth.users(id) on delete cascade,
   add column if not exists target_driver_id text references public.app_drivers(id) on delete cascade,
