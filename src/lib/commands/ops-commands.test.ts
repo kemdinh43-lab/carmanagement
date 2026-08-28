@@ -62,6 +62,9 @@ describe("ops command catalog", () => {
   it("maps role permissions to commands", () => {
     expect(canRunCommand("sale", "order.submit_proposal")).toBe(true);
     expect(canRunCommand("sale", "finance.record_payment")).toBe(false);
+    expect(canRunCommand("dispatcher", "order.update_details")).toBe(true);
+    expect(canRunCommand("accountant", "order.update_details")).toBe(true);
+    expect(canRunCommand("driver", "order.update_details")).toBe(false);
     expect(canRunCommand("admin", "master.create_vehicle")).toBe(true);
   });
 });

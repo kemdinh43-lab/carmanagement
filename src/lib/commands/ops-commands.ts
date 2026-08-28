@@ -48,7 +48,7 @@ export const commandCatalog: Record<OpsCommand, CommandMeta> = {
   "dispatch.assign_vehicle_driver": { permission: "assign_vehicle", rpcName: "assign_vehicle_driver" },
   "dispatch.review_proposal": { permission: "assign_vehicle", rpcName: "review_dispatch_proposal" },
   "dispatch.update_status": { permission: "update_dispatch_status", rpcName: "update_dispatch_status" },
-  "order.update_details": { permission: "create_order", rpcName: "update_dispatch_order" },
+  "order.update_details": { permission: "update_order_details", rpcName: "update_dispatch_order" },
   "order.cancel": { permission: "create_order", rpcName: "cancel_dispatch_order" },
   "finance.update_actual_costs": { permission: "record_payment", rpcName: "update_actual_costs" },
   "finance.record_payment": { permission: "record_payment", rpcName: "record_payment" },

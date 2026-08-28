@@ -638,6 +638,81 @@ function orderMargin(order: DispatchOrder) {
   return orderProfit(order) / order.amountDue;
 }
 
+function present(value: unknown) {
+  return value !== null && value !== undefined && String(value).trim() !== "";
+}
+
+function orderReadiness(order: DispatchOrder) {
+  const salesMissing = [
+    ["Ngày lệnh", order.orderDate],
+    ["Khách hàng", order.customerName],
+    ["SĐT liên hệ", order.contactPhone],
+    ["Điểm đón", order.pickup],
+    ["Điểm trả", order.dropoff],
+    ["Dịch vụ", order.serviceLabel],
+    ["Giờ bắt đầu", order.startAt],
+    ["Giờ kết thúc", order.endAt],
+    ["Nguồn", order.source],
+    ["Sale phụ trách", order.salesOwner],
+    ["Giá bán", order.amountDue > 0 ? order.amountDue : ""]
+  ].filter(([, value]) => !present(value)).map(([label]) => String(label));
+
+  const hasDriver = present(order.driverId) || present(order.driverFullName);
+  const hasVehicle = present(order.vehicleId) || present(order.vehiclePlateNo);
+  const dispatchMissing = [
+    ["Xe/biển số", hasVehicle ? "ok" : ""],
+    ["Tài xế", hasDriver ? "ok" : ""],
+    ["SĐT tài xế", present(order.driverId) || present(order.driverPhone) ? "ok" : ""]
+  ].filter(([, value]) => !present(value)).map(([label]) => String(label));
+
+  if (order.vehicleOwnership === "rented") {
+    [
+      ["Chủ xe/NCC", order.supplierOwnerName],
+      ["SĐT NCC", order.supplierPhone],
+      ["Tổng tiền mua gồm VAT", order.supplierTotalWithVat && order.supplierTotalWithVat > 0 ? order.supplierTotalWithVat : ""]
+    ].forEach(([label, value]) => {
+      if (!present(value)) dispatchMissing.push(String(label));
+    });
+  }
+
+  const accountingMissing = [
+    ["Hình thức thanh toán", order.paymentMethod],
+    ["Đối tượng thu", order.payer],
+    ["Chủ tài khoản thu", order.collectionAccountOwner],
+    ["Số tài khoản thu", order.collectionBankAccount],
+    ["Ngân hàng thu", order.collectionBankName]
+  ].filter(([, value]) => !present(value)).map(([label]) => String(label));
+
+  if (order.invoiceRequired) {
+    [
+      ["Tên công ty xuất HĐ", order.companyName || order.customerName],
+      ["MST", order.taxCode],
+      ["Email HĐ", order.billingEmail],
+      ["Địa chỉ xuất HĐ", order.companyAddress || order.customerAddress]
+    ].forEach(([label, value]) => {
+      if (!present(value)) accountingMissing.push(String(label));
+    });
+  }
+
+  return [
+    {
+      label: "Tạo đề xuất",
+      description: "Đủ để Sale gửi lệnh vào hàng chờ.",
+      missing: salesMissing
+    },
+    {
+      label: "Phát hành xe",
+      description: "Đủ để Điều hành phát chuyến cho tài xế.",
+      missing: dispatchMissing
+    },
+    {
+      label: "Chốt kế toán",
+      description: "Đủ để đối soát, hóa đơn và công nợ.",
+      missing: accountingMissing
+    }
+  ];
+}
+
 function driverActionLabel(order: DispatchOrder) {
   if (order.dispatchStatus === "assigned" || order.dispatchStatus === "waiting_assignment") return "Nhận chuyến";
   if (order.dispatchStatus === "driver_accepted") return "Bắt đầu chạy";
@@ -1745,7 +1820,7 @@ export default function OpsApp() {
   async function updateOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedOrder) return;
-    if (!can(currentRole, "create_order") && !can(currentRole, "assign_vehicle")) {
+    if (!can(currentRole, "update_order_details")) {
       setMessage(`${roleLabels[currentRole]} không có quyền sửa lệnh.`);
       return;
     }
@@ -2960,6 +3035,7 @@ function OrderDetailPanel({
   const dispatchEditable = can(currentRole, "assign_vehicle");
   const financeEditable = can(currentRole, "record_payment") || can(currentRole, "update_invoice") || can(currentRole, "close_order");
   const notesEditable = salesEditable || dispatchEditable;
+  const readiness = orderReadiness(order);
 
   return (
     <section className="border border-line bg-white p-4 shadow-sm">
@@ -3001,6 +3077,27 @@ function OrderDetailPanel({
         <StatMini label="Liên hệ" value={`${order.contactName || order.customerName} / ${order.contactPhone}`} />
         <StatMini label="Xe/Tài xế" value={`${vehicle?.plateNo ?? "Chưa xe"} / ${driver?.fullName ?? "Chưa tài xế"}`} />
         <StatMini label="Công nợ" value={money(Math.max(order.amountDue - paid, 0))} />
+      </div>
+      <div className="mt-4 grid gap-3 lg:grid-cols-3">
+        {readiness.map((item) => {
+          const ready = item.missing.length === 0;
+          return (
+            <section className={`border p-3 ${ready ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`} key={item.label}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className={`font-semibold ${ready ? "text-emerald-900" : "text-amber-950"}`}>{item.label}</p>
+                  <p className={`mt-1 text-xs ${ready ? "text-emerald-700" : "text-amber-800"}`}>{item.description}</p>
+                </div>
+                <Badge tone={ready ? "good" : "warn"}>{ready ? "Đủ" : `${item.missing.length} thiếu`}</Badge>
+              </div>
+              {item.missing.length > 0 && (
+                <p className="mt-3 text-xs leading-5 text-amber-900">
+                  Thiếu: {item.missing.slice(0, 5).join(", ")}{item.missing.length > 5 ? ` +${item.missing.length - 5}` : ""}
+                </p>
+              )}
+            </section>
+          );
+        })}
       </div>
       <div className="mt-4 grid gap-4 text-sm lg:grid-cols-4">
         <div className="border border-line bg-panel p-3">
