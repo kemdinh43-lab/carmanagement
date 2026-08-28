@@ -1186,8 +1186,8 @@ export default function OpsApp() {
     }
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    const startAt = String(form.get("startAt"));
-    const endAt = String(form.get("endAt"));
+    const startAt = String(form.get("startAt") || "");
+    const endAt = String(form.get("endAt") || "");
     const amountDue = Number(form.get("amountDue"));
     const driverCost = Number(form.get("driverCost") || 0);
     const vehicleCost = Number(form.get("vehicleCost") || 0);
@@ -1679,54 +1679,66 @@ export default function OpsApp() {
     }
 
     const form = new FormData(event.currentTarget);
-    const startAt = String(form.get("startAt"));
-    const endAt = String(form.get("endAt"));
+    const canEditSales = can(currentRole, "create_order");
+    const canEditDispatch = can(currentRole, "assign_vehicle");
+    const canEditFinance = can(currentRole, "record_payment") || can(currentRole, "update_invoice") || can(currentRole, "close_order");
+    const startAt = canEditSales ? String(form.get("startAt") ?? "") : toDateTimeInput(selectedOrder.startAt);
+    const endAt = canEditSales ? String(form.get("endAt") ?? "") : toDateTimeInput(selectedOrder.endAt);
     const nextStartAt = toIsoFromInput(startAt);
     const nextEndAt = toIsoFromInput(endAt);
-    const amountDue = Number(form.get("amountDue"));
-    const driverCost = Number(form.get("driverCost") || 0);
-    const vehicleCost = Number(form.get("vehicleCost") || 0);
-    const otherCost = Number(form.get("otherCost") || 0);
-    const kind = String(form.get("customerKind") || selectedOrder.customerKind) as DispatchOrder["customerKind"];
-    const orderDate = String(form.get("orderDate") || selectedOrder.orderDate || "").trim();
-    const customerName = String(form.get("customerName") || "").trim();
-    const customerCccd = String(form.get("customerCccd") || "").trim();
-    const customerAddress = String(form.get("customerAddress") || "").trim();
-    const customerBankAccount = String(form.get("customerBankAccount") || "").trim();
-    const customerBankName = String(form.get("customerBankName") || "").trim();
-    const companyName = String(form.get("companyName") || "").trim();
-    const taxCode = String(form.get("taxCode") || "").trim();
-    const billingEmail = String(form.get("billingEmail") || "").trim();
-    const companyAddress = String(form.get("companyAddress") || "").trim();
-    const companyBankAccount = String(form.get("companyBankAccount") || "").trim();
-    const companyBankName = String(form.get("companyBankName") || "").trim();
-    const serviceCode = String(form.get("serviceCode") || "").trim();
-    const serviceClarification = String(form.get("serviceClarification") || "").trim();
-    const unit = String(form.get("unit") || "").trim();
-    const salesOwner = String(form.get("salesOwner") || selectedOrder.salesOwner).trim();
-    const sourceOwnerName = String(form.get("sourceOwnerName") || selectedOrder.sourceOwnerName || "").trim();
-    const source = String(form.get("source") || selectedOrder.source).trim();
-    const invoiceRequired = form.get("invoiceRequired") === "yes";
-    const vehicleOwnership = String(form.get("vehicleOwnership") || selectedOrder.vehicleOwnership || "").trim() || undefined;
-    const vehiclePlateNo = String(form.get("vehiclePlateNo") || "").trim();
-    const driverFullName = String(form.get("driverFullName") || "").trim();
-    const driverCccd = String(form.get("driverCccd") || "").trim();
-    const driverPhone = String(form.get("driverPhone") || "").trim();
-    const supplierOwnerName = String(form.get("supplierOwnerName") || "").trim();
-    const supplierCccd = String(form.get("supplierCccd") || "").trim();
-    const supplierInvoiceRequired = form.get("supplierInvoiceRequired") === "yes";
-    const supplierCompanyName = String(form.get("supplierCompanyName") || "").trim();
-    const supplierTaxCode = String(form.get("supplierTaxCode") || "").trim();
-    const supplierAddress = String(form.get("supplierAddress") || "").trim();
-    const supplierPhone = String(form.get("supplierPhone") || "").trim();
-    const supplierTotalWithVat = Number(form.get("supplierTotalWithVat") || 0);
-    const supplierBankAccount = String(form.get("supplierBankAccount") || "").trim();
-    const supplierBankName = String(form.get("supplierBankName") || "").trim();
-    const paymentMethod = String(form.get("paymentMethod") || "").trim();
-    const payer = String(form.get("payer") || "").trim();
-    const collectionAccountOwner = String(form.get("collectionAccountOwner") || "").trim();
-    const collectionBankAccount = String(form.get("collectionBankAccount") || "").trim();
-    const collectionBankName = String(form.get("collectionBankName") || "").trim();
+    const readText = (name: string, fallback: string, editable: boolean) => (editable ? String(form.get(name) ?? "").trim() : fallback);
+    const readMaybeText = (name: string, fallback: string | null | undefined, editable: boolean) => (editable ? String(form.get(name) ?? "").trim() || null : fallback ?? null);
+    const readNumber = (name: string, fallback: number, editable: boolean) => (editable ? Number(form.get(name) || 0) : fallback);
+    const readMaybeNumber = (name: string, fallback: number | null | undefined, editable: boolean) => (editable ? Number(form.get(name) || 0) : fallback ?? null);
+    const readBoolean = (name: string, fallback: boolean, editable: boolean) => (editable ? form.get(name) === "yes" : fallback);
+
+    const kind = (canEditSales ? String(form.get("customerKind") || selectedOrder.customerKind) : selectedOrder.customerKind) as DispatchOrder["customerKind"];
+    const orderDate = readText("orderDate", selectedOrder.orderDate ?? "", canEditSales);
+    const customerName = readText("customerName", selectedOrder.customerName, canEditSales);
+    const customerCccd = readMaybeText("customerCccd", selectedOrder.customerCccd, canEditSales);
+    const customerAddress = readMaybeText("customerAddress", selectedOrder.customerAddress, canEditSales);
+    const customerBankAccount = readMaybeText("customerBankAccount", selectedOrder.customerBankAccount, canEditSales);
+    const customerBankName = readMaybeText("customerBankName", selectedOrder.customerBankName, canEditSales);
+    const companyName = readMaybeText("companyName", selectedOrder.companyName, canEditSales);
+    const taxCode = readMaybeText("taxCode", selectedOrder.taxCode, canEditSales);
+    const billingEmail = readMaybeText("billingEmail", selectedOrder.billingEmail, canEditSales);
+    const companyAddress = readMaybeText("companyAddress", selectedOrder.companyAddress, canEditSales);
+    const companyBankAccount = readMaybeText("companyBankAccount", selectedOrder.companyBankAccount, canEditSales);
+    const companyBankName = readMaybeText("companyBankName", selectedOrder.companyBankName, canEditSales);
+    const serviceCode = readMaybeText("serviceCode", selectedOrder.serviceCode, canEditSales);
+    const serviceClarification = readMaybeText("serviceClarification", selectedOrder.serviceClarification, canEditSales);
+    const unit = readMaybeText("unit", selectedOrder.unit, canEditSales);
+    const salesOwner = readText("salesOwner", selectedOrder.salesOwner, canEditSales);
+    const sourceOwnerName = readMaybeText("sourceOwnerName", selectedOrder.sourceOwnerName, canEditSales);
+    const source = readText("source", selectedOrder.source, canEditSales);
+    const invoiceRequired = readBoolean("invoiceRequired", Boolean(selectedOrder.invoiceRequired), canEditSales);
+    const vehicleOwnership = readMaybeText("vehicleOwnership", selectedOrder.vehicleOwnership, canEditDispatch) as DispatchOrder["vehicleOwnership"] | null;
+    const vehiclePlateNo = readMaybeText("vehiclePlateNo", selectedOrder.vehiclePlateNo, canEditDispatch);
+    const driverFullName = readMaybeText("driverFullName", selectedOrder.driverFullName, canEditDispatch);
+    const driverCccd = readMaybeText("driverCccd", selectedOrder.driverCccd, canEditDispatch);
+    const driverPhone = readMaybeText("driverPhone", selectedOrder.driverPhone, canEditDispatch);
+    const supplierOwnerName = readMaybeText("supplierOwnerName", selectedOrder.supplierOwnerName, canEditDispatch);
+    const supplierCccd = readMaybeText("supplierCccd", selectedOrder.supplierCccd, canEditDispatch);
+    const supplierInvoiceRequired = readBoolean("supplierInvoiceRequired", Boolean(selectedOrder.supplierInvoiceRequired), canEditDispatch);
+    const supplierCompanyName = readMaybeText("supplierCompanyName", selectedOrder.supplierCompanyName, canEditDispatch);
+    const supplierTaxCode = readMaybeText("supplierTaxCode", selectedOrder.supplierTaxCode, canEditDispatch);
+    const supplierAddress = readMaybeText("supplierAddress", selectedOrder.supplierAddress, canEditDispatch);
+    const supplierPhone = readMaybeText("supplierPhone", selectedOrder.supplierPhone, canEditDispatch);
+    const supplierTotalWithVat = readMaybeNumber("supplierTotalWithVat", selectedOrder.supplierTotalWithVat, canEditDispatch);
+    const supplierBankAccount = readMaybeText("supplierBankAccount", selectedOrder.supplierBankAccount, canEditDispatch);
+    const supplierBankName = readMaybeText("supplierBankName", selectedOrder.supplierBankName, canEditDispatch);
+    const amountDue = readNumber("amountDue", selectedOrder.amountDue, canEditSales);
+    const driverCost = readNumber("driverCost", selectedOrder.driverCost ?? 0, canEditSales);
+    const vehicleCost = readNumber("vehicleCost", selectedOrder.vehicleCost ?? 0, canEditSales);
+    const otherCost = readNumber("otherCost", selectedOrder.otherCost ?? 0, canEditSales);
+    const paymentMethod = readMaybeText("paymentMethod", selectedOrder.paymentMethod, canEditFinance);
+    const payer = readMaybeText("payer", selectedOrder.payer, canEditFinance);
+    const collectionAccountOwner = readMaybeText("collectionAccountOwner", selectedOrder.collectionAccountOwner, canEditFinance);
+    const collectionBankAccount = readMaybeText("collectionBankAccount", selectedOrder.collectionBankAccount, canEditFinance);
+    const collectionBankName = readMaybeText("collectionBankName", selectedOrder.collectionBankName, canEditFinance);
+    const quoteNote = readMaybeText("quoteNote", selectedOrder.quoteNote, canEditSales);
+    const priority = readText("priority", selectedOrder.priority ?? "normal", canEditSales) as DispatchPriority;
+    const salesNote = readMaybeText("salesNote", selectedOrder.salesNote, canEditSales || canEditDispatch);
 
     if (!startAt || !endAt || new Date(nextEndAt) <= new Date(nextStartAt)) {
       setMessage("Giờ kết thúc phải sau giờ bắt đầu.");
@@ -1766,8 +1778,8 @@ export default function OpsApp() {
       p_customer_address: kind === "individual" ? customerAddress || null : null,
       p_customer_bank_account: kind === "individual" ? customerBankAccount || null : null,
       p_customer_bank_name: kind === "individual" ? customerBankName || null : null,
-      p_contact_name: String(form.get("contactName") || "").trim() || null,
-      p_contact_phone: String(form.get("contactPhone") || "").trim(),
+      p_contact_name: readMaybeText("contactName", selectedOrder.contactName, canEditSales),
+      p_contact_phone: readText("contactPhone", selectedOrder.contactPhone, canEditSales),
       p_company_name: kind === "company" ? companyName || customerName : null,
       p_company_address: kind === "company" ? companyAddress || null : null,
       p_company_bank_account: kind === "company" ? companyBankAccount || null : null,
@@ -1775,9 +1787,9 @@ export default function OpsApp() {
       p_tax_code: kind === "company" ? taxCode || null : null,
       p_billing_email: kind === "company" ? billingEmail || null : null,
       p_service_code: serviceCode || null,
-      p_pickup: String(form.get("pickup") || "").trim(),
-      p_dropoff: String(form.get("dropoff") || "").trim(),
-      p_service_label: String(form.get("serviceLabel") || "").trim(),
+      p_pickup: readText("pickup", selectedOrder.pickup, canEditSales),
+      p_dropoff: readText("dropoff", selectedOrder.dropoff, canEditSales),
+      p_service_label: readText("serviceLabel", selectedOrder.serviceLabel, canEditSales),
       p_service_clarification: serviceClarification || null,
       p_unit: unit || null,
       p_sales_owner: salesOwner,
@@ -1810,9 +1822,9 @@ export default function OpsApp() {
       p_collection_account_owner: collectionAccountOwner || null,
       p_collection_bank_account: collectionBankAccount || null,
       p_collection_bank_name: collectionBankName || null,
-      p_quote_note: String(form.get("quoteNote") || "").trim() || null,
-      p_priority: String(form.get("priority") || "normal"),
-      p_sales_note: String(form.get("salesNote") || "").trim() || null,
+      p_quote_note: quoteNote || null,
+      p_priority: priority,
+      p_sales_note: salesNote || null,
       p_active_assignment_id: activeAssignment?.id ?? null,
       p_replacement_reason: reason
     };
@@ -1829,29 +1841,29 @@ export default function OpsApp() {
             orderDate: orderDate || undefined,
             customerKind: kind,
             customerName,
-            customerCccd: kind === "individual" ? customerCccd || undefined : undefined,
-            customerAddress: kind === "individual" ? customerAddress || undefined : undefined,
-            customerBankAccount: kind === "individual" ? customerBankAccount || undefined : undefined,
-            customerBankName: kind === "individual" ? customerBankName || undefined : undefined,
-            contactName: String(form.get("contactName") || "").trim() || undefined,
-            contactPhone: String(form.get("contactPhone") || "").trim(),
-            companyName: kind === "company" ? companyName || customerName : undefined,
-            companyAddress: kind === "company" ? companyAddress || undefined : undefined,
-            companyBankAccount: kind === "company" ? companyBankAccount || undefined : undefined,
-            companyBankName: kind === "company" ? companyBankName || undefined : undefined,
-            taxCode: kind === "company" ? taxCode || undefined : undefined,
-            billingEmail: kind === "company" ? billingEmail || undefined : undefined,
+            customerCccd: customerCccd || undefined,
+            customerAddress: customerAddress || undefined,
+            customerBankAccount: customerBankAccount || undefined,
+            customerBankName: customerBankName || undefined,
+            contactName: readMaybeText("contactName", selectedOrder.contactName, canEditSales) || undefined,
+            contactPhone: readText("contactPhone", selectedOrder.contactPhone, canEditSales),
+            companyName: companyName || undefined,
+            companyAddress: companyAddress || undefined,
+            companyBankAccount: companyBankAccount || undefined,
+            companyBankName: companyBankName || undefined,
+            taxCode: taxCode || undefined,
+            billingEmail: billingEmail || undefined,
             serviceCode: serviceCode || undefined,
-            pickup: String(form.get("pickup") || "").trim(),
-            dropoff: String(form.get("dropoff") || "").trim(),
-            serviceLabel: String(form.get("serviceLabel") || "").trim(),
+            pickup: readText("pickup", selectedOrder.pickup, canEditSales),
+            dropoff: readText("dropoff", selectedOrder.dropoff, canEditSales),
+            serviceLabel: readText("serviceLabel", selectedOrder.serviceLabel, canEditSales),
             serviceClarification: serviceClarification || undefined,
             unit: unit || undefined,
             salesOwner,
             sourceOwnerName: sourceOwnerName || undefined,
             source,
             invoiceRequired,
-            vehicleOwnership: vehicleOwnership as DispatchOrder["vehicleOwnership"] | undefined,
+            vehicleOwnership: vehicleOwnership ?? undefined,
             vehiclePlateNo: vehiclePlateNo || undefined,
             driverFullName: driverFullName || undefined,
             driverCccd: driverCccd || undefined,
@@ -1863,23 +1875,23 @@ export default function OpsApp() {
             supplierTaxCode: supplierTaxCode || undefined,
             supplierAddress: supplierAddress || undefined,
             supplierPhone: supplierPhone || undefined,
-            supplierTotalWithVat: Number.isFinite(supplierTotalWithVat) ? supplierTotalWithVat : undefined,
+            supplierTotalWithVat: supplierTotalWithVat == null ? undefined : supplierTotalWithVat,
             supplierBankAccount: supplierBankAccount || undefined,
             supplierBankName: supplierBankName || undefined,
             startAt: nextStartAt,
             endAt: nextEndAt,
             amountDue,
-            driverCost,
-            vehicleCost,
-            otherCost,
+            driverCost: driverCost ?? 0,
+            vehicleCost: vehicleCost ?? 0,
+            otherCost: otherCost ?? 0,
             paymentMethod: paymentMethod || undefined,
             payer: payer || undefined,
             collectionAccountOwner: collectionAccountOwner || undefined,
             collectionBankAccount: collectionBankAccount || undefined,
             collectionBankName: collectionBankName || undefined,
-            quoteNote: String(form.get("quoteNote") || "").trim() || undefined,
-            priority: String(form.get("priority") || "normal") as DispatchPriority,
-            salesNote: String(form.get("salesNote") || "").trim() || undefined
+            quoteNote: quoteNote || undefined,
+            priority,
+            salesNote: salesNote || undefined
           },
           activeAssignment?.id,
           reason,
