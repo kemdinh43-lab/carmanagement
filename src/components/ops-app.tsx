@@ -2132,14 +2132,17 @@ export default function OpsApp() {
       setMessage("Số tiền thanh toán phải lớn hơn 0.");
       return;
     }
+    const paidAtInput = String(form.get("paidAt") || "").trim();
     const payment: Payment = {
       id: makeId("pay"),
       orderId: selectedOrder.id,
       amount,
       status: "valid",
-      paidAt: new Date().toISOString(),
+      paidAt: paidAtInput ? new Date(paidAtInput).toISOString() : new Date().toISOString(),
       method: String(form.get("method")) as Payment["method"],
-      reference: String(form.get("reference") || "").trim() || undefined
+      collector: String(form.get("collector") || "").trim() || undefined,
+      reference: String(form.get("reference") || "").trim() || undefined,
+      note: String(form.get("note") || "").trim() || undefined
     };
     const nextPayments = [payment, ...state.payments];
     const orderPayments = nextPayments.filter((item) => item.orderId === selectedOrder.id);
@@ -2154,7 +2157,9 @@ export default function OpsApp() {
         p_method: payment.method,
         p_reference: payment.reference ?? null,
         p_paid_at: payment.paidAt,
-        p_payment_status: paymentStatus
+        p_payment_status: paymentStatus,
+        p_collector: payment.collector ?? null,
+        p_note: payment.note ?? null
       },
       `Không lưu được thanh toán ${selectedOrder.code}`
     );
@@ -4726,8 +4731,11 @@ function FinancePanel({
             <div className="mt-4 grid gap-3">
               <Field label="Lệnh"><input className={inputClass()} readOnly value={`${selectedOrder.code} / ${selectedOrder.customerName}`} /></Field>
               <Field label="Số tiền"><input className={inputClass()} defaultValue={debt || selectedOrder.amountDue} min="1" name="amount" required type="number" /></Field>
+              <Field label="Ngày thu"><input className={inputClass()} defaultValue={vietnamDateTimeLocalValue()} name="paidAt" type="datetime-local" /></Field>
               <Field label="Phương thức"><select className={inputClass()} name="method"><option value="cash">Tiền mặt</option><option value="bank_transfer">Chuyển khoản</option><option value="card">Thẻ</option><option value="other">Khác</option></select></Field>
+              <Field label="Người/đối tượng thu"><input className={inputClass()} defaultValue={selectedOrder.collectionAccountOwner ?? ""} name="collector" placeholder="Công ty, tài xế, nhân sự thu hộ..." /></Field>
               <Field label="Mã tham chiếu"><input className={inputClass()} name="reference" placeholder="Mã GD ngân hàng nếu có" /></Field>
+              <Field label="Ghi chú thanh toán"><textarea className={textAreaClass()} name="note" placeholder="Thu lần 1, khách chuyển thiếu, tài xế thu hộ..." /></Field>
             </div>
             <button className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canRecordPayment} type="submit">
               <Banknote size={16} /> Ghi payment
@@ -4808,7 +4816,8 @@ function FinancePanel({
               <div className="flex items-center justify-between border border-line bg-panel p-3" key={payment.id}>
                 <div>
                   <p className="font-medium">{money(payment.amount)}</p>
-                  <p className="text-xs text-slate-500">{payment.method} / {payment.reference || "không mã GD"}</p>
+                  <p className="text-xs text-slate-500">{formatDateTime(payment.paidAt)} / {payment.method} / {payment.collector || "chưa ghi người thu"}</p>
+                  <p className="text-xs text-slate-500">{payment.reference || "không mã GD"}{payment.note ? ` / ${payment.note}` : ""}</p>
                 </div>
                 <Badge tone="good">{payment.status}</Badge>
               </div>

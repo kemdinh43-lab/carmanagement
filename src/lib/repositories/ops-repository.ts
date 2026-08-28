@@ -488,11 +488,31 @@ function fromAssignment(assignment: Assignment) {
 }
 
 function toPayment(row: Record<string, unknown>): Payment {
-  return { id: text(row, "id"), orderId: text(row, "order_id"), amount: numberValue(row, "amount"), status: text(row, "status") as Payment["status"], paidAt: text(row, "paid_at"), method: text(row, "method") as Payment["method"], reference: optionalText(row, "reference") };
+  return {
+    id: text(row, "id"),
+    orderId: text(row, "order_id"),
+    amount: numberValue(row, "amount"),
+    status: text(row, "status") as Payment["status"],
+    paidAt: text(row, "paid_at"),
+    method: text(row, "method") as Payment["method"],
+    collector: optionalText(row, "collector"),
+    reference: optionalText(row, "reference"),
+    note: optionalText(row, "note")
+  };
 }
 
 function fromPayment(payment: Payment) {
-  return { id: payment.id, order_id: payment.orderId, amount: payment.amount, status: payment.status, paid_at: payment.paidAt, method: payment.method, reference: payment.reference ?? null };
+  return {
+    id: payment.id,
+    order_id: payment.orderId,
+    amount: payment.amount,
+    status: payment.status,
+    paid_at: payment.paidAt,
+    method: payment.method,
+    collector: payment.collector ?? null,
+    reference: payment.reference ?? null,
+    note: payment.note ?? null
+  };
 }
 
 function toAuditEvent(row: Record<string, unknown>): AuditEvent {

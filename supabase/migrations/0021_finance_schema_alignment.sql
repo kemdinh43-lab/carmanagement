@@ -1,3 +1,46 @@
+alter table if exists public.app_dispatch_orders
+  add column if not exists order_date text,
+  add column if not exists customer_cccd text,
+  add column if not exists customer_address text,
+  add column if not exists customer_bank_account text,
+  add column if not exists customer_bank_name text,
+  add column if not exists company_address text,
+  add column if not exists company_bank_account text,
+  add column if not exists company_bank_name text,
+  add column if not exists service_code text,
+  add column if not exists service_clarification text,
+  add column if not exists unit text,
+  add column if not exists source_owner_name text,
+  add column if not exists invoice_required boolean,
+  add column if not exists vehicle_ownership text,
+  add column if not exists vehicle_plate_no text,
+  add column if not exists driver_full_name text,
+  add column if not exists driver_cccd text,
+  add column if not exists driver_phone text,
+  add column if not exists supplier_owner_name text,
+  add column if not exists supplier_cccd text,
+  add column if not exists supplier_invoice_required boolean,
+  add column if not exists supplier_company_name text,
+  add column if not exists supplier_tax_code text,
+  add column if not exists supplier_address text,
+  add column if not exists supplier_phone text,
+  add column if not exists supplier_total_with_vat numeric(14,2),
+  add column if not exists supplier_bank_account text,
+  add column if not exists supplier_bank_name text,
+  add column if not exists payment_method text,
+  add column if not exists payer text,
+  add column if not exists collection_account_owner text,
+  add column if not exists collection_bank_account text,
+  add column if not exists collection_bank_name text,
+  add column if not exists actual_driver_cost numeric(14,2),
+  add column if not exists actual_vehicle_cost numeric(14,2),
+  add column if not exists actual_other_cost numeric(14,2),
+  add column if not exists actual_cost_note text;
+
+alter table if exists public.app_payments
+  add column if not exists collector text,
+  add column if not exists note text;
+
 create or replace function public.current_app_role()
 returns text
 language sql
@@ -103,14 +146,31 @@ begin
 end;
 $$;
 
-create or replace function public.record_payment(
+do $$
+declare
+  fn record;
+begin
+  for fn in
+    select p.oid::regprocedure as signature
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'record_payment'
+  loop
+    execute 'drop function if exists ' || fn.signature;
+  end loop;
+end $$;
+
+create function public.record_payment(
   p_payment_id text,
   p_order_id text,
   p_amount numeric,
   p_method text,
   p_reference text default null,
   p_paid_at timestamptz default now(),
-  p_payment_status text default null
+  p_payment_status text default null,
+  p_collector text default null,
+  p_note text default null
 )
 returns text
 language plpgsql
@@ -143,7 +203,7 @@ begin
   end if;
 
   insert into public.app_payments (
-    id, order_id, amount, status, paid_at, method, reference, updated_at
+    id, order_id, amount, status, paid_at, method, collector, reference, note, updated_at
   ) values (
     p_payment_id,
     p_order_id,
@@ -151,7 +211,9 @@ begin
     'valid',
     coalesce(p_paid_at, now()),
     p_method,
+    nullif(p_collector, ''),
     nullif(p_reference, ''),
+    nullif(p_note, ''),
     now()
   )
   on conflict (id) do update set
@@ -160,7 +222,9 @@ begin
     status = excluded.status,
     paid_at = excluded.paid_at,
     method = excluded.method,
+    collector = excluded.collector,
     reference = excluded.reference,
+    note = excluded.note,
     updated_at = now();
 
   select coalesce(sum(amount), 0)
@@ -188,7 +252,7 @@ begin
     'payment',
     p_payment_id,
     'recorded_payment',
-    p_method || ' / ' || p_amount::text || coalesce(' / ' || nullif(p_reference, ''), ''),
+    p_method || ' / ' || p_amount::text || coalesce(' / ' || nullif(p_collector, ''), '') || coalesce(' / ' || nullif(p_reference, ''), ''),
     now(),
     now()
   );
@@ -309,7 +373,7 @@ $$;
 grant execute on function public.current_app_actor_name() to authenticated;
 grant execute on function public.assert_finance_role() to authenticated;
 grant execute on function public.update_actual_costs(text, numeric, numeric, numeric, text) to authenticated;
-grant execute on function public.record_payment(text, text, numeric, text, text, timestamptz, text) to authenticated;
+grant execute on function public.record_payment(text, text, numeric, text, text, timestamptz, text, text, text) to authenticated;
 grant execute on function public.update_invoice_status(text, text) to authenticated;
 grant execute on function public.close_dispatch_order(text) to authenticated;
 grant execute on function public.close_order(text) to authenticated;

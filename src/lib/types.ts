@@ -82,7 +82,9 @@ export interface Payment {
   status: "valid" | "voided" | "refunded";
   paidAt: string;
   method: "cash" | "bank_transfer" | "card" | "other";
+  collector?: string;
   reference?: string;
+  note?: string;
 }
 
 export interface DispatchOrder extends TimeWindow {
