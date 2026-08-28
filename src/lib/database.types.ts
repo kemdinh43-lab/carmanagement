@@ -145,6 +145,13 @@ export interface Database {
         };
         Returns: string;
       };
+      submit_dispatch_order_proposal: {
+        Args: {
+          p_order: Json;
+          p_actor?: string | null;
+        };
+        Returns: string;
+      };
     };
   };
 }

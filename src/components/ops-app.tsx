@@ -1066,6 +1066,73 @@ export default function OpsApp() {
     return true;
   }
 
+  function orderRpcPayload(order: DispatchOrder) {
+    return {
+      id: order.id,
+      code: order.code,
+      order_date: order.orderDate ?? null,
+      customer_kind: order.customerKind,
+      customer_name: order.customerName,
+      customer_cccd: order.customerCccd ?? null,
+      customer_address: order.customerAddress ?? null,
+      customer_bank_account: order.customerBankAccount ?? null,
+      customer_bank_name: order.customerBankName ?? null,
+      company_name: order.companyName ?? null,
+      company_address: order.companyAddress ?? null,
+      company_bank_account: order.companyBankAccount ?? null,
+      company_bank_name: order.companyBankName ?? null,
+      contact_name: order.contactName ?? null,
+      contact_phone: order.contactPhone,
+      tax_code: order.taxCode ?? null,
+      billing_email: order.billingEmail ?? null,
+      pickup: order.pickup,
+      dropoff: order.dropoff,
+      service_code: order.serviceCode ?? null,
+      service_label: order.serviceLabel,
+      service_clarification: order.serviceClarification ?? null,
+      unit: order.unit ?? null,
+      sales_owner: order.salesOwner,
+      source_owner_name: order.sourceOwnerName ?? null,
+      source: order.source,
+      invoice_required: order.invoiceRequired ?? null,
+      vehicle_ownership: order.vehicleOwnership ?? null,
+      vehicle_plate_no: order.vehiclePlateNo ?? null,
+      driver_full_name: order.driverFullName ?? null,
+      driver_cccd: order.driverCccd ?? null,
+      driver_phone: order.driverPhone ?? null,
+      supplier_owner_name: order.supplierOwnerName ?? null,
+      supplier_cccd: order.supplierCccd ?? null,
+      supplier_invoice_required: order.supplierInvoiceRequired ?? null,
+      supplier_company_name: order.supplierCompanyName ?? null,
+      supplier_tax_code: order.supplierTaxCode ?? null,
+      supplier_address: order.supplierAddress ?? null,
+      supplier_phone: order.supplierPhone ?? null,
+      supplier_total_with_vat: order.supplierTotalWithVat ?? null,
+      supplier_bank_account: order.supplierBankAccount ?? null,
+      supplier_bank_name: order.supplierBankName ?? null,
+      start_at: order.startAt,
+      end_at: order.endAt,
+      amount_due: order.amountDue,
+      driver_cost: order.driverCost ?? null,
+      vehicle_cost: order.vehicleCost ?? null,
+      other_cost: order.otherCost ?? null,
+      payment_method: order.paymentMethod ?? null,
+      payer: order.payer ?? null,
+      collection_account_owner: order.collectionAccountOwner ?? null,
+      collection_bank_account: order.collectionBankAccount ?? null,
+      collection_bank_name: order.collectionBankName ?? null,
+      quote_note: order.quoteNote ?? null,
+      quote_status: order.quoteStatus ?? null,
+      order_status: order.orderStatus,
+      dispatch_status: order.dispatchStatus,
+      payment_status: order.paymentStatus,
+      invoice_status: order.invoiceStatus,
+      reconciliation_status: order.reconciliationStatus,
+      priority: order.priority ?? null,
+      sales_note: order.salesNote ?? null
+    };
+  }
+
   function audit(event: Omit<AuditEvent, "id" | "createdAt">): AuditEvent {
     return {
       ...event,
@@ -1275,6 +1342,16 @@ export default function OpsApp() {
       reconciliationStatus: "open"
     };
 
+    const saved = await runSupabaseRpc(
+      "submit_dispatch_order_proposal",
+      {
+        p_order: orderRpcPayload(order),
+        p_actor: "Sale"
+      },
+      `Không lưu được đề xuất điều xe ${order.code}`
+    );
+    if (!saved) return;
+
     runCommand("order.submit_proposal", (current) => submitDispatchProposal(current, order, audit), `Đã gửi đề xuất điều xe ${order.code} vào hàng chờ điều hành xét duyệt.`);
     setSelectedOrderId(order.id);
     setTab("Lệnh điều xe");
@@ -1352,6 +1429,16 @@ export default function OpsApp() {
       invoiceStatus: "not_required",
       reconciliationStatus: "open"
     };
+
+    const saved = await runSupabaseRpc(
+      "submit_dispatch_order_proposal",
+      {
+        p_order: orderRpcPayload(order),
+        p_actor: "Driver"
+      },
+      `Không lưu được đề xuất từ tài xế ${order.code}`
+    );
+    if (!saved) return false;
 
     runCommand("driver.submit_proposal", (current) => submitDriverDispatchProposal(current, order, audit), `Đã gửi đề xuất từ tài xế ${order.code} vào hàng chờ xử lý.`);
     notify({ audience: "driver", title: urgent ? "Đề xuất khẩn đã gửi" : "Đề xuất đã gửi", body: `${order.code} đang chờ điều hành xử lý.`, entityId: order.id });
