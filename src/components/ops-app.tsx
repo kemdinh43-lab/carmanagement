@@ -1411,7 +1411,7 @@ export default function OpsApp() {
       pickup,
       dropoff,
       serviceLabel,
-      salesOwner: selectedDriver.fullName,
+      salesOwner: urgent ? selectedDriver.fullName : "Chờ Sale tiếp nhận",
       sourceOwnerName: selectedDriver.fullName,
       source: "Driver",
       amountDue: 0,
@@ -1424,7 +1424,7 @@ export default function OpsApp() {
       salesNote: urgent ? `Khẩn: ${urgentReason}${note ? ` | Ghi chú: ${note}` : ""}` : note || undefined,
       priority: urgent ? "urgent" : "normal",
       quoteStatus: "draft",
-      orderStatus: "pending_dispatch_review",
+      orderStatus: urgent ? "pending_dispatch_review" : "draft",
       dispatchStatus: "waiting_assignment",
       paymentStatus: "unpaid",
       invoiceStatus: "not_required",
@@ -1441,12 +1441,72 @@ export default function OpsApp() {
     );
     if (!saved) return false;
 
-    runCommand("driver.submit_proposal", (current) => submitDriverDispatchProposal(current, order, audit), `Đã gửi đề xuất từ tài xế ${order.code} vào hàng chờ xử lý.`);
-    notify({ audience: "driver", title: urgent ? "Đề xuất khẩn đã gửi" : "Đề xuất đã gửi", body: `${order.code} đang chờ điều hành xử lý.`, entityId: order.id });
-    notifyMany(["dispatcher", "manager", "admin"], { title: urgent ? "Đề xuất khẩn từ tài xế" : "Đề xuất từ tài xế", body: `${order.code} / ${order.customerName}`, entityId: order.id });
-    notifyMany(["sale", "manager", "admin"], { title: urgent ? "Đề xuất khẩn cần xử lý" : "Đề xuất tài xế mới", body: `${order.code} / ${selectedDriver.fullName}`, entityId: order.id });
+    runCommand("driver.submit_proposal", (current) => submitDriverDispatchProposal(current, order, audit), urgent ? `Đã gửi đề xuất khẩn ${order.code} cho điều hành duyệt nhanh.` : `Đã gửi đề xuất ${order.code} cho Sales tiếp nhận.`);
+    notify({
+      audience: "driver",
+      title: urgent ? "Đề xuất khẩn đã gửi" : "Đề xuất đã gửi Sales",
+      body: urgent ? `${order.code} đang chờ điều hành duyệt nhanh.` : `${order.code} đang chờ Sales hoàn thiện thông tin.`,
+      entityId: order.id
+    });
+    if (urgent) {
+      notifyMany(["dispatcher", "manager", "admin"], { title: "Đề xuất khẩn từ tài xế", body: `${order.code} / ${order.customerName}`, entityId: order.id });
+      notifyMany(["sale", "manager", "admin"], { title: "Đề xuất khẩn cần Sales bổ sung", body: `${order.code} / ${selectedDriver.fullName}`, entityId: order.id });
+    } else {
+      notifyMany(["sale", "manager", "admin"], { title: "Đề xuất tài xế mới", body: `${order.code} / ${selectedDriver.fullName}`, entityId: order.id });
+    }
     formElement.reset();
     return true;
+  }
+
+  async function promoteDriverProposalToDispatch(orderId: string) {
+    const targetOrder = state.orders.find((order) => order.id === orderId);
+    if (!targetOrder) return;
+    if (!can(currentRole, "create_order")) {
+      setMessage(`${roleLabels[currentRole]} không có quyền tiếp nhận đề xuất tài xế.`);
+      return;
+    }
+    if (targetOrder.source !== "Driver" || targetOrder.orderStatus !== "draft") {
+      setMessage(`${targetOrder.code} không phải đề xuất thường đang chờ Sales.`);
+      return;
+    }
+
+    const nextOrder: DispatchOrder = {
+      ...targetOrder,
+      salesOwner: authLabel || targetOrder.salesOwner,
+      orderStatus: "pending_dispatch_review",
+      dispatchStatus: "waiting_assignment",
+      salesNote: targetOrder.salesNote ? `${targetOrder.salesNote} | Sales đã tiếp nhận` : "Sales đã tiếp nhận đề xuất tài xế"
+    };
+    const saved = await runSupabaseRpc(
+      "submit_dispatch_order_proposal",
+      {
+        p_order: orderRpcPayload(nextOrder),
+        p_actor: "Sale"
+      },
+      `Không lưu được chuyển đề xuất ${targetOrder.code} sang điều hành`
+    );
+    if (!saved) return;
+
+    runCommand(
+      "order.submit_proposal",
+      (current) => ({
+        ...current,
+        orders: current.orders.map((order) => (order.id === orderId ? nextOrder : order)),
+        auditEvents: [
+          audit({
+            actor: "Sale",
+            entityType: "dispatch_order",
+            entityId: orderId,
+            action: "accepted_driver_proposal",
+            reason: "Sales accepted driver proposal for dispatcher review"
+          }),
+          ...current.auditEvents
+        ]
+      }),
+      `Đã chuyển ${targetOrder.code} sang hàng chờ điều hành duyệt.`
+    );
+    notifyMany(["dispatcher", "manager", "admin"], { title: "Đề xuất điều xe mới", body: `${targetOrder.code} / ${targetOrder.customerName}`, entityId: orderId });
+    notify({ audience: "driver", title: "Sales đã tiếp nhận đề xuất", body: `${targetOrder.code} đang chờ điều hành duyệt.`, entityId: orderId });
   }
 
   function updateQuoteStatus(nextStatus: QuoteStatus) {
@@ -2266,6 +2326,7 @@ export default function OpsApp() {
               vehicles={state.vehicles}
               createOrder={createOrder}
               cancelOrder={cancelOrder}
+              promoteDriverProposalToDispatch={promoteDriverProposalToDispatch}
               updateOrder={updateOrder}
               updateQuoteStatus={updateQuoteStatus}
             />
@@ -3169,6 +3230,7 @@ function OrdersPanel({
   setSelectedOrderId,
   createOrder,
   cancelOrder,
+  promoteDriverProposalToDispatch,
   updateOrder,
   updateQuoteStatus,
   vehicles
@@ -3191,6 +3253,7 @@ function OrdersPanel({
   setSelectedOrderId: (id: string) => void;
   createOrder: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   cancelOrder: (event: FormEvent<HTMLFormElement>) => void;
+  promoteDriverProposalToDispatch: (orderId: string) => Promise<void>;
   updateOrder: (event: FormEvent<HTMLFormElement>) => void;
   updateQuoteStatus: (nextStatus: QuoteStatus) => void;
   vehicles: Vehicle[];
@@ -3207,6 +3270,9 @@ function OrdersPanel({
     { approved: 0, draft: 0, expired: 0, rejected: 0, sent: 0 } satisfies Record<QuoteStatus, number>
   );
   const lowMarginCount = filteredOrders.filter((order) => orderMargin(order) < 0.15).length;
+  const driverDraftProposals = filteredOrders
+    .filter((order) => order.source === "Driver" && order.orderStatus === "draft")
+    .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
 
   return (
     <section className="space-y-4">
@@ -3380,6 +3446,42 @@ function OrdersPanel({
           </button>
         </div>
       </form>
+
+      {canCreateOrder && driverDraftProposals.length > 0 && (
+        <section className="border border-amber-200 bg-amber-50 shadow-sm">
+          <div className="flex flex-col gap-2 border-b border-amber-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h3 className="font-semibold text-amber-950">Đề xuất tài xế chờ Sales</h3>
+              <p className="text-sm text-amber-800">Cuốc thường từ tài xế về Sales trước. Sales kiểm tra thông tin rồi chuyển sang điều hành.</p>
+            </div>
+            <Badge tone="warn">{driverDraftProposals.length} chờ Sales</Badge>
+          </div>
+          <div className="divide-y divide-amber-200">
+            {driverDraftProposals.map((order) => (
+              <article className="grid gap-3 px-4 py-4 lg:grid-cols-[1fr_220px]" key={order.id}>
+                <button className="text-left" onClick={() => setSelectedOrderId(order.id)} type="button">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-semibold text-ink">{order.code}</p>
+                    <Badge tone="info">Từ tài xế</Badge>
+                    <Badge tone="neutral">Chờ Sales</Badge>
+                  </div>
+                  <p className="mt-2 text-sm text-slate-700">{order.customerName} / {order.contactPhone}</p>
+                  <p className="mt-1 text-sm text-slate-600">{formatDateTime(order.startAt)} - {order.pickup} → {order.dropoff}</p>
+                  <p className="mt-1 text-xs text-slate-500">Tài xế báo: {order.sourceOwnerName ?? order.salesOwner}</p>
+                  {order.quoteNote && <p className="mt-1 text-sm text-amber-800">Ghi chú: {order.quoteNote}</p>}
+                </button>
+                <button
+                  className="h-10 self-center rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800"
+                  onClick={() => void promoteDriverProposalToDispatch(order.id)}
+                  type="button"
+                >
+                  Chuyển điều hành
+                </button>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="grid gap-3 md:grid-cols-4">
         <StatMini label="Báo giá nháp" value={String(quoteStats.draft)} />
@@ -3901,7 +4003,7 @@ function DriverMobilePanel({
     .filter((order) => !["completed", "cancelled", "in_progress", "driver_accepted"].includes(order.dispatchStatus) && new Date(order.startAt).getTime() >= nowMs)
     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
   const driverProposals = orders
-    .filter((order) => order.source === "Driver" && order.sourceOwnerName === selectedDriver?.fullName && order.orderStatus === "pending_dispatch_review")
+    .filter((order) => order.source === "Driver" && order.sourceOwnerName === selectedDriver?.fullName && ["draft", "pending_dispatch_review"].includes(order.orderStatus))
     .sort((a, b) => new Date(b.startAt).getTime() - new Date(a.startAt).getTime());
   const driverEntityIds = new Set([...driverOrders.map((order) => order.id), ...driverProposals.map((order) => order.id)]);
   const assignedFallbackNotifications: AppNotification[] = upcomingTrips.slice(0, 3).map((order) => ({
@@ -4069,7 +4171,9 @@ function DriverMobilePanel({
                   <Badge tone={order.priority === "urgent" ? "warn" : "info"}>{order.priority === "urgent" ? "Khẩn" : "Ngắn"}</Badge>
                 </div>
                 <p className="mt-1 text-sm text-slate-600">{order.pickup} → {order.dropoff}</p>
-                <p className="mt-1 text-xs text-slate-500">{timeOnly(order.startAt)} · {order.dispatchStatus === "waiting_assignment" ? "Chờ điều hành" : dispatchLabels[order.dispatchStatus]}</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {timeOnly(order.startAt)} · {order.orderStatus === "draft" ? "Chờ Sales tiếp nhận" : order.dispatchStatus === "waiting_assignment" ? "Chờ điều hành" : dispatchLabels[order.dispatchStatus]}
+                </p>
               </article>
             ))}
           </div>
