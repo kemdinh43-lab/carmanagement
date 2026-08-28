@@ -669,6 +669,8 @@ function toAppNotification(row: unknown): AppNotification {
     title: String(item.title),
     body: String(item.body),
     entityId: typeof item.entity_id === "string" ? item.entity_id : undefined,
+    targetUserId: typeof item.target_user_id === "string" ? item.target_user_id : undefined,
+    targetDriverId: typeof item.target_driver_id === "string" ? item.target_driver_id : undefined,
     createdAt: String(item.created_at),
     read: Boolean(item.is_read)
   };
@@ -702,8 +704,19 @@ export default function OpsApp() {
   const currentRole = roleState ?? "manager";
   const visibleTabs = useMemo(() => tabs.filter((item) => canViewTab(item, currentRole)), [currentRole]);
   const activeTab = visibleTabs.includes(tab) ? tab : visibleTabs[0] ?? "Dashboard";
+  const isVisibleNotification = (item: AppNotification) => {
+    if (currentRole === "admin" || currentRole === "manager") return true;
+    if (item.audience !== currentRole) return false;
+    if (item.targetUserId && item.targetUserId !== authUserId) return false;
+    if (currentRole === "driver" && item.targetDriverId && item.targetDriverId !== authDriverId) return false;
+    if (currentRole === "driver" && item.entityId) {
+      const order = state.orders.find((candidate) => candidate.id === item.entityId);
+      if (order?.driverId && authDriverId && order.driverId !== authDriverId) return false;
+    }
+    return true;
+  };
   const visibleNotifications = (state.notifications ?? [])
-    .filter((item) => currentRole === "admin" || currentRole === "manager" || item.audience === currentRole || item.audience === "admin")
+    .filter(isVisibleNotification)
     .slice(0, 5);
 
   useEffect(() => {
@@ -1133,22 +1146,34 @@ export default function OpsApp() {
     const notification: AppNotification = { ...input, id: makeId("noti"), createdAt: new Date().toISOString() };
     setState((current) => ({ ...current, notifications: [notification, ...(current.notifications ?? [])].slice(0, 30) }));
     if (!supabaseConfigured) return;
-    createSupabaseBrowserClient()
+    const supabase = createSupabaseBrowserClient();
+    const basePayload = {
+      id: notification.id,
+      audience: notification.audience,
+      title: notification.title,
+      body: notification.body,
+      entity_id: notification.entityId ?? null,
+      is_read: notification.read ?? false,
+      created_at: notification.createdAt
+    };
+    const targetedPayload = {
+      ...basePayload,
+      target_user_id: notification.targetUserId ?? null,
+      target_driver_id: notification.targetDriverId ?? null
+    };
+    supabase
       .from("app_notifications" as never)
-      .upsert({
-        id: notification.id,
-        audience: notification.audience,
-        title: notification.title,
-        body: notification.body,
-        entity_id: notification.entityId ?? null,
-        is_read: notification.read ?? false,
-        created_at: notification.createdAt
-      } as never)
-      .then(({ error }) => {
-        if (error) {
-          setMessage(`Không ghi được thông báo ${notification.audience}: ${error.message}`);
-          if (process.env.NODE_ENV !== "production") console.warn("[notification-write]", error);
+      .upsert(targetedPayload as never)
+      .then(async ({ error }) => {
+        if (!error) return;
+        const missingTargetColumns = error.message.includes("target_user_id") || error.message.includes("target_driver_id");
+        if (missingTargetColumns) {
+          const retry = await supabase.from("app_notifications" as never).upsert(basePayload as never);
+          if (!retry.error) return;
+          error = retry.error;
         }
+        setMessage(`Không ghi được thông báo ${notification.audience}: ${error.message}`);
+        if (process.env.NODE_ENV !== "production") console.warn("[notification-write]", error);
       });
   }
 
@@ -1165,8 +1190,8 @@ export default function OpsApp() {
       setMessage("Cần đăng nhập trước khi Supabase cấp số lệnh.");
       return null;
     }
-
-    const { data, error } = await createSupabaseBrowserClient()
+    const supabase = createSupabaseBrowserClient();
+    const { data, error } = await supabase
       .rpc("next_dispatch_order_code" as never, { p_order_date: orderDate || vietnamDateKey(now) } as never) as unknown as {
         data: string | null;
         error: { message: string } | null;
@@ -1434,7 +1459,8 @@ export default function OpsApp() {
       audience: "driver",
       title: urgent ? "Đề xuất khẩn đã gửi" : "Đề xuất đã gửi Sales",
       body: urgent ? `${order.code} đang chờ điều hành duyệt nhanh.` : `${order.code} đang chờ Sales hoàn thiện thông tin.`,
-      entityId: order.id
+      entityId: order.id,
+      targetDriverId: selectedDriver.id
     });
     if (urgent) {
       notifyMany(["dispatcher", "manager", "admin"], { title: "Đề xuất khẩn từ tài xế", body: `${order.code} / ${order.customerName}`, entityId: order.id });
@@ -1494,7 +1520,13 @@ export default function OpsApp() {
       `Đã chuyển ${targetOrder.code} sang hàng chờ điều hành duyệt.`
     );
     notifyMany(["dispatcher", "manager", "admin"], { title: "Đề xuất điều xe mới", body: `${targetOrder.code} / ${targetOrder.customerName}`, entityId: orderId });
-    notify({ audience: "driver", title: "Sales đã tiếp nhận đề xuất", body: `${targetOrder.code} đang chờ điều hành duyệt.`, entityId: orderId });
+    notify({
+      audience: "driver",
+      title: "Sales đã tiếp nhận đề xuất",
+      body: `${targetOrder.code} đang chờ điều hành duyệt.`,
+      entityId: orderId,
+      targetDriverId: state.drivers.find((driver) => driver.fullName === targetOrder.sourceOwnerName)?.id
+    });
   }
 
   function updateQuoteStatus(nextStatus: QuoteStatus) {
@@ -1574,7 +1606,7 @@ export default function OpsApp() {
       (current) => assignVehicleDriver(current, selectedOrder.id, assignment, currentAssignment?.id, reason, audit, false),
       currentAssignment ? `Đã đổi xe/tài xế cho ${selectedOrder.code}.` : `Đã phân xe/tài xế cho ${selectedOrder.code}.`
     );
-    notify({ audience: "driver", title: "Bạn có chuyến mới", body: `${selectedOrder.code} / ${formatDateTime(selectedOrder.startAt)}`, entityId: selectedOrder.id });
+    notify({ audience: "driver", title: "Bạn có chuyến mới", body: `${selectedOrder.code} / ${formatDateTime(selectedOrder.startAt)}`, entityId: selectedOrder.id, targetDriverId: driverId });
     notify({
       audience: "dispatcher",
       title: currentAssignment ? "Đã đổi phân xe" : "Đã phân xe/tài xế",

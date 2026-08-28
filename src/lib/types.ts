@@ -173,6 +173,8 @@ export interface AppNotification {
   title: string;
   body: string;
   entityId?: string;
+  targetUserId?: string;
+  targetDriverId?: string;
   createdAt: string;
   read?: boolean;
 }
