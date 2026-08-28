@@ -1023,12 +1023,12 @@ export default function OpsApp() {
       if (serverRpc) {
         void supabase
           .rpc(serverRpc.name as never, serverRpc.args as never)
-          .then(
-            () => undefined,
-            (error: unknown) => {
+          .then(({ error }) => {
+            if (error) {
+              setMessage(`Không lưu được command ${commandCatalog[command].rpcName} xuống Supabase: ${error.message}`);
               if (process.env.NODE_ENV !== "production") console.warn("[command-rpc]", error);
             }
-          );
+          });
       }
       void supabase
         .rpc(
@@ -1048,6 +1048,17 @@ export default function OpsApp() {
           }
         );
     }
+  }
+
+  async function runSupabaseRpc(name: string, args: Record<string, unknown>, failPrefix: string) {
+    if (!supabaseConfigured) return true;
+    const { error } = await createSupabaseBrowserClient().rpc(name as never, args as never);
+    if (error) {
+      setMessage(`${failPrefix}: ${error.message}`);
+      if (process.env.NODE_ENV !== "production") console.warn(`[${name}]`, error);
+      return false;
+    }
+    return true;
   }
 
   function audit(event: Omit<AuditEvent, "id" | "createdAt">): AuditEvent {
@@ -1349,7 +1360,7 @@ export default function OpsApp() {
     runCommand("order.update_quote", (current) => updateQuoteStatusCommand(current, selectedOrder.id, nextStatus, audit), `Đã cập nhật báo giá ${selectedOrder.code}: ${quoteLabels[nextStatus]}.`);
   }
 
-  function assignOrder(event: FormEvent<HTMLFormElement>) {
+  async function assignOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedOrder) return;
     if (!can(currentRole, "assign_vehicle")) {
@@ -1395,23 +1406,26 @@ export default function OpsApp() {
       replaceReason: currentAssignment ? reason : undefined
     };
 
+    const saved = await runSupabaseRpc(
+      "assign_vehicle_driver",
+      {
+        p_order_id: selectedOrder.id,
+        p_assignment_id: assignment.id,
+        p_vehicle_id: vehicleId,
+        p_driver_id: driverId,
+        p_start_at: selectedOrder.startAt,
+        p_end_at: selectedOrder.endAt,
+        p_replace_assignment_id: currentAssignment?.id ?? null,
+        p_replace_reason: currentAssignment ? reason : null
+      },
+      `Không lưu được phân xe/tài xế cho ${selectedOrder.code}`
+    );
+    if (!saved) return;
+
     runCommand(
       "dispatch.assign_vehicle_driver",
       (current) => assignVehicleDriver(current, selectedOrder.id, assignment, currentAssignment?.id, reason, audit, false),
-      currentAssignment ? `Đã đổi xe/tài xế cho ${selectedOrder.code}.` : `Đã phân xe/tài xế cho ${selectedOrder.code}.`,
-      {
-        name: "assign_vehicle_driver",
-        args: {
-          p_order_id: selectedOrder.id,
-          p_assignment_id: assignment.id,
-          p_vehicle_id: vehicleId,
-          p_driver_id: driverId,
-          p_start_at: selectedOrder.startAt,
-          p_end_at: selectedOrder.endAt,
-          p_replace_assignment_id: currentAssignment?.id ?? null,
-          p_replace_reason: currentAssignment ? reason : null
-        }
-      }
+      currentAssignment ? `Đã đổi xe/tài xế cho ${selectedOrder.code}.` : `Đã phân xe/tài xế cho ${selectedOrder.code}.`
     );
     notify({ audience: "driver", title: "Bạn có chuyến mới", body: `${selectedOrder.code} / ${formatDateTime(selectedOrder.startAt)}`, entityId: selectedOrder.id });
     notify({
@@ -3397,7 +3411,7 @@ function DispatchPanel({
   orders: DispatchOrder[];
   payments: Payment[];
   selectedOrder: DispatchOrder;
-  assignOrder: (event: FormEvent<HTMLFormElement>) => void;
+  assignOrder: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   cancelOrder: (event: FormEvent<HTMLFormElement>) => void;
   reviewDispatchProposal: (orderId: string, decision: "approved" | "rejected", reason: string) => void;
   setCalendarDay: (date: Date) => void;
