@@ -1,4 +1,4 @@
-import type { Assignment, DispatchOrder, Payment, PaymentStatus, TimeWindow } from "./types";
+import type { Assignment, DispatchOrder, DispatchStatus, Payment, PaymentStatus, TimeWindow } from "./types";
 
 export function overlaps(a: TimeWindow, b: TimeWindow): boolean {
   const aStart = new Date(a.startAt).getTime();
@@ -28,6 +28,18 @@ export function findAssignmentConflict(
     const sameDriver = assignment.driverId === candidate.driverId;
     return (sameVehicle || sameDriver) && overlaps(candidate, assignment);
   });
+}
+
+export function allowedDispatchNextStatuses(currentStatus: DispatchStatus): DispatchStatus[] {
+  if (currentStatus === "waiting_assignment") return ["assigned", "cancelled"];
+  if (currentStatus === "assigned") return ["driver_accepted", "cancelled"];
+  if (currentStatus === "driver_accepted") return ["in_progress", "cancelled"];
+  if (currentStatus === "in_progress") return ["completed", "cancelled"];
+  return [];
+}
+
+export function canMoveDispatchStatus(currentStatus: DispatchStatus, nextStatus: DispatchStatus) {
+  return allowedDispatchNextStatuses(currentStatus).includes(nextStatus);
 }
 
 export function calculatePaymentStatus(amountDue: number, payments: Payment[]): PaymentStatus {

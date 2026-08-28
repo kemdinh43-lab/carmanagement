@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculatePaymentStatus, findAssignmentConflict, overlaps } from "./domain";
+import { calculatePaymentStatus, canMoveDispatchStatus, findAssignmentConflict, overlaps } from "./domain";
 import type { Assignment } from "./types";
 
 const assignments: Assignment[] = [
@@ -72,3 +72,12 @@ describe("payment status", () => {
   });
 });
 
+describe("dispatch status flow", () => {
+  it("only allows valid next transitions", () => {
+    expect(canMoveDispatchStatus("waiting_assignment", "assigned")).toBe(true);
+    expect(canMoveDispatchStatus("waiting_assignment", "completed")).toBe(false);
+    expect(canMoveDispatchStatus("assigned", "driver_accepted")).toBe(true);
+    expect(canMoveDispatchStatus("driver_accepted", "in_progress")).toBe(true);
+    expect(canMoveDispatchStatus("in_progress", "completed")).toBe(true);
+  });
+});

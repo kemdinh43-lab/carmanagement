@@ -41,7 +41,7 @@ import {
   vehicles as seedVehicles
 } from "@/data/demo";
 import { hasSupabaseBrowserConfig } from "@/lib/config";
-import { calculatePaymentStatus, findAssignmentConflict, getOperationalAlerts, money } from "@/lib/domain";
+import { calculatePaymentStatus, canMoveDispatchStatus, findAssignmentConflict, getOperationalAlerts, money } from "@/lib/domain";
 import {
   assignVehicleDriver,
   cancelOrder as cancelOrderCommand,
@@ -358,18 +358,6 @@ function statusTone(order: DispatchOrder) {
   if (order.dispatchStatus === "waiting_assignment") return "warn";
   if (order.dispatchStatus === "cancelled") return "danger";
   return "info";
-}
-
-function allowedDispatchNextStatuses(currentStatus: DispatchStatus): DispatchStatus[] {
-  if (currentStatus === "waiting_assignment") return ["assigned", "cancelled"];
-  if (currentStatus === "assigned") return ["driver_accepted", "cancelled"];
-  if (currentStatus === "driver_accepted") return ["in_progress", "cancelled"];
-  if (currentStatus === "in_progress") return ["completed", "cancelled"];
-  return [];
-}
-
-function canMoveDispatchStatus(currentStatus: DispatchStatus, nextStatus: DispatchStatus) {
-  return allowedDispatchNextStatuses(currentStatus).includes(nextStatus);
 }
 
 function quoteTone(status?: QuoteStatus): "neutral" | "info" | "good" | "warn" | "danger" {
