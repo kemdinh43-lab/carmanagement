@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AuditEvent, DispatchOrder, OpsState } from "@/lib/types";
-import { assignVehicleDriver, canRunCommand, commandCatalog, reviewDispatchProposal, submitDriverDispatchProposal, submitDriverTripReport } from "./ops-commands";
+import { assignVehicleDriver, canRunCommand, closeOrder, commandCatalog, reviewDispatchProposal, submitDriverDispatchProposal, submitDriverTripReport } from "./ops-commands";
 
 const audit = (event: Omit<AuditEvent, "id" | "createdAt">): AuditEvent => ({
   ...event,
@@ -179,6 +179,16 @@ describe("driver trip report flow", () => {
     expect(state.auditEvents[0]).toMatchObject({
       actor: "Driver",
       action: "submitted_driver_trip_report"
+    });
+  });
+
+  it("marks driver report as reviewed when finance closes the order", () => {
+    const order = driverProposal({ dispatchStatus: "completed", driverReportStatus: "reported", paymentStatus: "paid", invoiceStatus: "issued" });
+    const state = closeOrder(emptyState(order), order.id, audit);
+
+    expect(state.orders[0]).toMatchObject({
+      reconciliationStatus: "closed",
+      driverReportStatus: "reviewed"
     });
   });
 });

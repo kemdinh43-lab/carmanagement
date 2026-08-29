@@ -125,7 +125,7 @@ begin
     raise exception 'cannot close: trip is not completed';
   end if;
 
-  if order_row.driver_report_status <> 'reported' then
+  if order_row.driver_report_status not in ('reported', 'reviewed') then
     raise exception 'cannot close: driver report is missing';
   end if;
 
@@ -139,6 +139,7 @@ begin
 
   update public.app_dispatch_orders
   set reconciliation_status = 'closed',
+      driver_report_status = case when driver_report_status = 'reported' then 'reviewed' else driver_report_status end,
       updated_at = now()
   where id = p_order_id;
 

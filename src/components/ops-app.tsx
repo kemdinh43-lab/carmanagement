@@ -4769,16 +4769,16 @@ function FinancePanel({
     .filter((order) => order.vehicleOwnership === "rented")
     .reduce((sum, order) => sum + (order.supplierTotalWithVat ?? orderCost(order)), 0);
   const driverHeldAmount = activeOrders
-    .filter((order) => (order.driverCollectedAmount ?? 0) > 0 || (order.payer ?? "").toLowerCase().includes("tài xế") || (order.payer ?? "").toLowerCase().includes("driver"))
-    .reduce((sum, order) => sum + (order.driverCollectedAmount ?? order.amountDue), 0);
+    .filter((order) => order.driverReportStatus === "reported" && (order.driverCollectedAmount ?? 0) > 0)
+    .reduce((sum, order) => sum + (order.driverCollectedAmount ?? 0), 0);
   const profileIssues = (order: DispatchOrder) => {
     const orderPaid = payments.filter((payment) => payment.orderId === order.id && payment.status === "valid").reduce((sum, payment) => sum + payment.amount, 0);
     const orderDebt = Math.max(order.amountDue - orderPaid, 0);
     const issues: string[] = [];
     if (order.dispatchStatus === "completed" && order.reconciliationStatus !== "closed") issues.push("Chờ đối soát");
     if (orderDebt > 0) issues.push(`Còn nợ khách ${money(orderDebt)}`);
-    if ((order.driverCollectedAmount ?? 0) > 0 || (order.payer ?? "").toLowerCase().includes("tài xế") || (order.payer ?? "").toLowerCase().includes("driver")) issues.push("Có thu hộ tài xế");
-    if (order.dispatchStatus === "completed" && order.driverReportStatus !== "reported") issues.push("Chờ báo cáo tài xế");
+    if (order.driverReportStatus === "reported" && (order.driverCollectedAmount ?? 0) > 0) issues.push("Có thu hộ tài xế");
+    if (order.dispatchStatus === "completed" && !["reported", "reviewed"].includes(order.driverReportStatus ?? "not_reported")) issues.push("Chờ báo cáo tài xế");
     if (order.vehicleOwnership === "rented" && (order.supplierTotalWithVat ?? 0) > 0) issues.push(`Theo dõi NCC ${money(order.supplierTotalWithVat ?? 0)}`);
     if (order.invoiceStatus !== "issued" && order.invoiceStatus !== "not_required") issues.push("Thiếu hóa đơn đầu ra");
     if (order.vehicleOwnership === "rented" && order.supplierInvoiceRequired && !order.supplierTaxCode) issues.push("Thiếu chứng từ đầu vào");
@@ -4802,7 +4802,7 @@ function FinancePanel({
   const canCloseOrder = can(currentRole, "close_order");
   const canUpdateActualCosts = can(currentRole, "record_payment");
   const invoiceReady = selectedOrder.invoiceStatus === "issued" || selectedOrder.invoiceStatus === "not_required";
-  const selectedDriverReportCollectedAmount = selectedOrder.driverCollectedAmount ?? ((selectedOrder.payer ?? "").toLowerCase().includes("tài xế") || (selectedOrder.payer ?? "").toLowerCase().includes("driver") ? selectedOrder.amountDue : 0);
+  const selectedDriverReportCollectedAmount = selectedOrder.driverReportStatus === "reported" || selectedOrder.driverReportStatus === "reviewed" ? (selectedOrder.driverCollectedAmount ?? 0) : 0;
   const selectedDriverReportExpenseTotal =
     (selectedOrder.driverExpenseFuel ?? 0) +
     (selectedOrder.driverExpenseToll ?? 0) +
@@ -4816,7 +4816,7 @@ function FinancePanel({
     selectedOrder.dispatchStatus !== "completed" ? "Chuyến chưa hoàn thành" : "",
     selectedOrder.paymentStatus !== "paid" ? "Chưa thu đủ tiền" : "",
     !invoiceReady ? "Hóa đơn/chứng từ chưa xong" : "",
-    selectedOrder.dispatchStatus === "completed" && selectedOrder.driverReportStatus !== "reported" ? "Chưa có báo cáo tài xế" : ""
+    selectedOrder.dispatchStatus === "completed" && !["reported", "reviewed"].includes(selectedOrder.driverReportStatus ?? "not_reported") ? "Chưa có báo cáo tài xế" : ""
   ].filter(Boolean);
   const canCloseSelectedOrder = canCloseOrder && closeBlockers.length === 0;
 
@@ -4910,7 +4910,7 @@ function FinancePanel({
           <section className="border border-line bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <h3 className="font-semibold text-ink">Báo cáo từ tài xế</h3>
-              <Badge tone={selectedOrder.driverReportStatus === "reported" ? "good" : "warn"}>{selectedOrder.driverReportStatus === "reported" ? "Đã báo" : "Chưa báo"}</Badge>
+              <Badge tone={selectedOrder.driverReportStatus === "reviewed" ? "good" : selectedOrder.driverReportStatus === "reported" ? "info" : "warn"}>{selectedOrder.driverReportStatus === "reviewed" ? "Đã duyệt" : selectedOrder.driverReportStatus === "reported" ? "Đã báo" : "Chưa báo"}</Badge>
             </div>
             <p className="mt-1 text-sm text-slate-500">Dữ liệu này do tài xế gửi sau chuyến, kế toán dùng để đối chiếu hồ sơ.</p>
             <div className="mt-4 grid gap-2 sm:grid-cols-3">

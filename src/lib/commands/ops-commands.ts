@@ -355,7 +355,15 @@ export function updateInvoiceStatus(state: OpsState, orderId: string, nextStatus
 export function closeOrder(state: OpsState, orderId: string, audit: AuditFactory, includeAudit = true): OpsState {
   return {
     ...state,
-    orders: state.orders.map((order) => (order.id === orderId ? { ...order, reconciliationStatus: "closed" } : order)),
+    orders: state.orders.map((order) =>
+      order.id === orderId
+        ? {
+            ...order,
+            reconciliationStatus: "closed",
+            driverReportStatus: order.driverReportStatus === "reported" ? "reviewed" : order.driverReportStatus
+          }
+        : order
+    ),
     auditEvents: includeAudit ? [audit({ actor: "Accountant", entityType: "reconciliation", entityId: orderId, action: "closed_order" }), ...state.auditEvents] : state.auditEvents
   };
 }
