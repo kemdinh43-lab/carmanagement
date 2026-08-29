@@ -854,32 +854,48 @@ export default function OpsApp() {
     const supabase = createSupabaseBrowserClient();
     let cancelled = false;
     const authStartedAt = performance.now();
+    let bootstrapTimeout: number | null = null;
 
     (async () => {
       try {
-        const { data } = await supabase.auth.getUser();
+        bootstrapTimeout = window.setTimeout(() => {
+          if (cancelled) return;
+          setRoleState(null);
+          setAuthUserId(null);
+          setAuthLabel("Auth chậm, vui lòng mở Auth");
+          setAuthReady(true);
+        }, 3000);
+
+        const { data } = await supabase.auth.getSession();
         if (cancelled) return;
-        if (!data.user) {
+        if (bootstrapTimeout) {
+          window.clearTimeout(bootstrapTimeout);
+          bootstrapTimeout = null;
+        }
+
+        const user = data.session?.user ?? null;
+        if (!user) {
           setRoleState(null);
           setAuthUserId(null);
           setAuthLabel("Chưa đăng nhập");
-          startupTiming("auth_get_user", authStartedAt, { signedIn: false });
+          setAuthReady(true);
+          startupTiming("auth_get_session", authStartedAt, { signedIn: false });
           return;
         }
-        setAuthUserId(data.user.id);
-        startupTiming("auth_get_user", authStartedAt, { signedIn: true });
+        setAuthUserId(user.id);
+        startupTiming("auth_get_session", authStartedAt, { signedIn: true });
         const profileStartedAt = performance.now();
         const { data: profile } = await supabase
           .from("app_user_profiles" as never)
           .select("role,full_name,driver_id" as never)
-          .eq("user_id" as never, data.user.id as never)
+          .eq("user_id" as never, user.id as never)
           .maybeSingle();
         const typedProfile = profile as { role?: AppRole; full_name?: string; driver_id?: string } | null;
         const nextRole = typedProfile?.role ?? "sale";
         if (!typedProfile) {
           await supabase.from("app_user_profiles" as never).upsert({
-            user_id: data.user.id,
-            full_name: data.user.email || "",
+            user_id: user.id,
+            full_name: user.email || "",
             phone: null,
             role: nextRole,
             driver_id: null
@@ -891,7 +907,7 @@ export default function OpsApp() {
           setMobileDriverId(typedProfile.driver_id);
           setTab("Màn làm việc");
         }
-        setAuthLabel(typedProfile?.full_name || data.user.email || "Signed in");
+        setAuthLabel(typedProfile?.full_name || user.email || "Signed in");
         startupTiming("profile_load", profileStartedAt, { role: nextRole });
       } catch (error) {
         if (cancelled) return;
@@ -899,6 +915,10 @@ export default function OpsApp() {
         setAuthUserId(null);
         setAuthLabel(error instanceof Error ? error.message : "Auth load failed");
       } finally {
+        if (bootstrapTimeout) {
+          window.clearTimeout(bootstrapTimeout);
+          bootstrapTimeout = null;
+        }
         if (!cancelled) {
           setAuthReady(true);
           startupTiming("auth_total", authStartedAt);
