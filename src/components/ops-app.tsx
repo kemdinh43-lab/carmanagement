@@ -779,7 +779,7 @@ export default function OpsApp() {
   const [persistenceReady, setPersistenceReady] = useState(false);
   const [message, setMessage] = useState(supabaseConfigured ? "Đang kết nối Supabase..." : "Dữ liệu pilot lưu trên trình duyệt máy này.");
   const [now, setNow] = useState(() => new Date());
-  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState(() => (typeof window !== "undefined" ? window.matchMedia("(max-width: 1023px)").matches : false));
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 1023px)");

@@ -16,6 +16,14 @@ type AppTable =
 
 type QueryResult<T> = Promise<{ data: T[] | null; error: { message: string; code?: string } | null }>;
 type MutationResult = Promise<{ error: { message: string; code?: string } | null }>;
+const customerSelectColumns = "id,full_name,phone,email,address,status";
+const companySelectColumns = "id,legal_name,tax_code,legal_address,billing_email,status";
+const companyContactSelectColumns = "id,company_id,full_name,phone,email,position,is_primary";
+const vehicleSelectColumns = "id,plate_no,vehicle_type,seats,status";
+const driverSelectColumns = "id,full_name,phone,status";
+const assignmentSelectColumns = "id,dispatch_order_id,vehicle_id,driver_id,status,start_at,end_at,replace_reason";
+const paymentSelectColumns = "id,order_id,amount,status,paid_at,method,collector,reference,note";
+const auditSelectColumns = "id,actor,entity_type,entity_id,action,reason,created_at";
 type SupabaseTableClient = {
   from(table: AppTable): {
     select(columns?: string): { order(column: string, options?: { ascending?: boolean }): QueryResult<Record<string, unknown>> } & QueryResult<Record<string, unknown>>;
@@ -153,18 +161,19 @@ export class SupabaseOpsRepository implements OpsRepository {
   async load() {
     const supabase = createSupabaseBrowserClient() as unknown as SupabaseTableClient;
     const startedAt = performance.now();
+    const mobileViewport = isMobileViewport();
     let rows: Awaited<ReturnType<typeof selectTable>>[];
     try {
       rows = await Promise.all([
-        selectTable(supabase, "app_customers"),
-        selectTable(supabase, "app_companies"),
-        selectTable(supabase, "app_company_contacts"),
-        selectTable(supabase, "app_vehicles"),
-        selectTable(supabase, "app_drivers"),
-        selectTable(supabase, "app_dispatch_orders"),
-        selectTable(supabase, "app_dispatch_assignments"),
-        selectTable(supabase, "app_payments"),
-        selectTable(supabase, "app_audit_events")
+        selectTable(supabase, "app_customers", customerSelectColumns),
+        selectTable(supabase, "app_companies", companySelectColumns),
+        selectTable(supabase, "app_company_contacts", companyContactSelectColumns),
+        selectTable(supabase, "app_vehicles", vehicleSelectColumns),
+        selectTable(supabase, "app_drivers", driverSelectColumns),
+        selectTable(supabase, "app_dispatch_orders", appDispatchOrderPersistenceColumns.join(",")),
+        selectTable(supabase, "app_dispatch_assignments", assignmentSelectColumns),
+        selectTable(supabase, "app_payments", paymentSelectColumns),
+        mobileViewport ? Promise.resolve([] as Record<string, unknown>[]) : selectTable(supabase, "app_audit_events", auditSelectColumns)
       ]);
       repositoryTiming("relational_tables_loaded", startedAt);
     } catch (error) {
@@ -235,9 +244,9 @@ export function createOpsRepository(key: string): OpsRepository {
   return new LocalStorageOpsRepository(key);
 }
 
-async function selectTable(supabase: SupabaseTableClient, table: AppTable) {
+async function selectTable(supabase: SupabaseTableClient, table: AppTable, columns?: string) {
   const startedAt = performance.now();
-  const { data, error } = await supabase.from(table).select("*");
+  const { data, error } = await supabase.from(table).select(columns ?? "*");
   if (error) throw new Error(`${table}: ${error.message}`);
   repositoryTiming(`select_${table}`, startedAt, { rows: data?.length ?? 0 });
   return data ?? [];
@@ -247,6 +256,10 @@ function repositoryTiming(label: string, startedAt: number, detail?: Record<stri
   if (typeof window === "undefined") return;
   const elapsedMs = Math.round(performance.now() - startedAt);
   console.info(`[startup] ${label}`, { elapsedMs, ...detail });
+}
+
+function isMobileViewport() {
+  return typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches;
 }
 
 function isMissingRelationalSchema(error: unknown) {
