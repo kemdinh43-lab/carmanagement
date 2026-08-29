@@ -779,6 +779,16 @@ export default function OpsApp() {
   const [persistenceReady, setPersistenceReady] = useState(false);
   const [message, setMessage] = useState(supabaseConfigured ? "Đang kết nối Supabase..." : "Dữ liệu pilot lưu trên trình duyệt máy này.");
   const [now, setNow] = useState(() => new Date());
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 1023px)");
+    const updateViewport = () => setIsMobileViewport(media.matches);
+    updateViewport();
+    media.addEventListener("change", updateViewport);
+    return () => media.removeEventListener("change", updateViewport);
+  }, []);
+
   const currentRole = roleState ?? "manager";
   const visibleTabs = useMemo(() => tabs.filter((item) => canViewTab(item, currentRole)), [currentRole]);
   const activeTab = visibleTabs.includes(tab) ? tab : visibleTabs[0] ?? "Dashboard";
@@ -981,17 +991,37 @@ export default function OpsApp() {
     let pendingReload = false;
     let timeout: number | null = null;
 
-    const reloadTables = [
-      "app_customers",
-      "app_companies",
-      "app_company_contacts",
-      "app_vehicles",
-      "app_drivers",
-      "app_dispatch_orders",
-      "app_dispatch_assignments",
-      "app_payments",
-      "app_audit_events"
-    ] as const;
+    const reloadTables = currentRole === "driver"
+      ? ([
+          "app_drivers",
+          "app_vehicles",
+          "app_dispatch_orders",
+          "app_dispatch_assignments",
+          "app_notifications"
+        ] as const)
+      : (isMobileViewport
+        ? ([
+            "app_customers",
+            "app_companies",
+            "app_company_contacts",
+            "app_vehicles",
+            "app_drivers",
+            "app_dispatch_orders",
+            "app_dispatch_assignments",
+            "app_payments",
+            "app_notifications"
+          ] as const)
+        : ([
+            "app_customers",
+            "app_companies",
+            "app_company_contacts",
+            "app_vehicles",
+            "app_drivers",
+            "app_dispatch_orders",
+            "app_dispatch_assignments",
+            "app_payments",
+            "app_audit_events"
+          ] as const));
 
     const runReload = async () => {
       if (inFlight) {
@@ -1056,7 +1086,7 @@ export default function OpsApp() {
       if (timeout) window.clearTimeout(timeout);
       for (const channel of channels) void supabase.removeChannel(channel);
     };
-  }, [persistenceReady, repository]);
+  }, [currentRole, isMobileViewport, persistenceReady, repository]);
 
   useEffect(() => {
     if (!persistenceReady) return;
@@ -2559,6 +2589,7 @@ export default function OpsApp() {
               setCalendarDay={setCalendarDay}
               setSelectedOrderId={setSelectedOrderId}
               setTab={setTab}
+              compact={isMobileViewport}
             />
           )}
           {activeTab === "Lệnh điều xe" && (
@@ -2618,6 +2649,7 @@ export default function OpsApp() {
               updateDispatchStatus={updateDispatchStatus}
               updateOrder={updateOrder}
               vehicles={state.vehicles}
+              compact={isMobileViewport}
             />
           )}
           {activeTab === "Màn làm việc" && (
@@ -3411,7 +3443,8 @@ function DashboardPanel({
   setCalendarMonth,
   setSelectedOrderId,
   setTab,
-  vehicles
+  vehicles,
+  compact = false
 }: {
   alerts: DispatchOrder[];
   calendarDay: Date;
@@ -3426,8 +3459,69 @@ function DashboardPanel({
   setSelectedOrderId: (id: string) => void;
   setTab: (tab: Tab) => void;
   vehicles: Vehicle[];
+  compact?: boolean;
 }) {
   const pendingReviewOrders = orders.filter((order) => order.orderStatus === "pending_dispatch_review");
+  if (compact) {
+    return (
+      <section className="space-y-4">
+        <div className="border border-line bg-white p-4 shadow-sm">
+          <div className="flex items-center gap-2">
+            <CalendarClock className="text-brand" size={20} />
+            <h3 className="font-semibold text-ink">Dashboard gọn cho mobile</h3>
+          </div>
+          <p className="mt-2 text-sm text-slate-600">Điện thoại chỉ giữ phần quan trọng nhất: duyệt nhanh, xem lệnh đang chờ và chuyển sang màn làm việc khi cần.</p>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50" onClick={() => setTab("Điều hành")} type="button">Mở Điều hành</button>
+            <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50" onClick={() => setTab("Màn làm việc")} type="button">Mở Màn làm việc</button>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <StatMini label="Chuyến hôm nay" value={String(orders.filter((order) => orderDateKey(order) === vietnamDateKey()).length)} />
+            <StatMini label="Chờ duyệt" value={String(pendingReviewOrders.length)} />
+          </div>
+        </div>
+        <DispatchReviewQueue
+          canReview={can(currentRole, "assign_vehicle")}
+          orders={pendingReviewOrders}
+          reviewDispatchProposal={reviewDispatchProposal}
+          selectedOrderId=""
+          onReviewed={(orderId, decision) => {
+            if (decision === "approved") {
+              setSelectedOrderId(orderId);
+              setTab("Điều hành");
+            }
+          }}
+          setSelectedOrderId={(id) => {
+            setSelectedOrderId(id);
+            setTab("Điều hành");
+          }}
+        />
+        <section className="border border-line bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-2 border-b border-line pb-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h3 className="font-semibold text-ink">Realtime thông báo</h3>
+              <p className="text-sm text-slate-500">Hiện thông báo ngắn gọn cho sale, điều hành, tài xế và kế toán.</p>
+            </div>
+            <Badge tone={notifications.length > 0 ? "info" : "good"}>{notifications.length} gần nhất</Badge>
+          </div>
+          <div className="mt-4 space-y-3">
+            {notifications.length === 0 && <p className="text-sm text-slate-500">Chưa có thông báo mới.</p>}
+            {notifications.slice(0, 6).map((notification) => (
+              <article className="border border-line bg-panel p-3" key={notification.id}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-semibold text-ink">{notification.title}</p>
+                  <Badge tone={notification.audience === "driver" ? "info" : notification.audience === "accountant" ? "warn" : "neutral"}>{notification.audience}</Badge>
+                </div>
+                <p className="mt-1 text-sm text-slate-600">{notification.body}</p>
+                <p className="mt-2 text-xs text-slate-500">{formatDateTime(notification.createdAt)}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      </section>
+    );
+  }
+
   return (
     <section className="space-y-4">
       <DispatchReviewQueue
@@ -3947,6 +4041,7 @@ function DispatchPanel({
   setSelectedOrderId,
   updateDispatchStatus,
   updateOrder,
+  compact,
   vehicles
 }: {
   assignments: Assignment[];
@@ -3966,6 +4061,7 @@ function DispatchPanel({
   setSelectedOrderId: (id: string) => void;
   updateDispatchStatus: (nextStatus: DispatchStatus, reason: string) => void;
   updateOrder: (event: FormEvent<HTMLFormElement>) => void;
+  compact: boolean;
   vehicles: Vehicle[];
 }) {
   const activeAssignment = assignments.find((assignment) => assignment.dispatchOrderId === selectedOrder.id && assignment.status === "active");
@@ -4065,13 +4161,29 @@ function DispatchPanel({
           </div>
         </form>
       </div>
-      <div className="hidden space-y-4 lg:block">
-        <VehicleCalendar monthDate={calendarMonth} orders={orders} selectedOrderId={selectedOrder.id} setCalendarDay={setCalendarDay} setMonthDate={setCalendarMonth} setSelectedOrderId={setSelectedOrderId} vehicles={vehicles} />
-        <DayTimeline day={calendarDay} drivers={drivers} orders={orders} selectedOrderId={selectedOrder.id} setDay={setCalendarDay} setSelectedOrderId={setSelectedOrderId} vehicles={vehicles} />
-        <VehicleResourceTimeline day={calendarDay} drivers={drivers} orders={orders} selectedOrderId={selectedOrder.id} setDay={setCalendarDay} setSelectedOrderId={setSelectedOrderId} vehicles={vehicles} />
-        <DispatchBoard assignments={assignments} drivers={drivers} orders={orders} selectedOrderId={selectedOrder.id} setSelectedOrderId={setSelectedOrderId} vehicles={vehicles} />
-        <OrderDetailPanel assignments={assignments} auditEvents={auditEvents} currentRole={currentRole} drivers={drivers} order={selectedOrder} payments={payments} cancelOrder={cancelOrder} updateOrder={updateOrder} vehicles={vehicles} />
-      </div>
+      {compact ? (
+        <div className="space-y-4">
+          <section className="border border-line bg-white p-4 shadow-sm">
+            <div className="flex items-center gap-2">
+              <CalendarClock className="text-brand" size={20} />
+              <h3 className="font-semibold text-ink">Màn điều hành gọn</h3>
+            </div>
+            <p className="mt-2 text-sm text-slate-500">Điện thoại chỉ giữ phần cốt lõi của lệnh đang chọn. Bảng lịch và timeline chi tiết chỉ mở trên màn rộng.</p>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50" onClick={() => setSelectedOrderId(selectedOrder.id)} type="button">Giữ lệnh này</button>
+              <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50" onClick={() => setCalendarDay(new Date(selectedOrder.startAt))} type="button">Xem ngày chạy</button>
+            </div>
+          </section>
+        </div>
+      ) : (
+        <div className="hidden space-y-4 lg:block">
+          <VehicleCalendar monthDate={calendarMonth} orders={orders} selectedOrderId={selectedOrder.id} setCalendarDay={setCalendarDay} setMonthDate={setCalendarMonth} setSelectedOrderId={setSelectedOrderId} vehicles={vehicles} />
+          <DayTimeline day={calendarDay} drivers={drivers} orders={orders} selectedOrderId={selectedOrder.id} setDay={setCalendarDay} setSelectedOrderId={setSelectedOrderId} vehicles={vehicles} />
+          <VehicleResourceTimeline day={calendarDay} drivers={drivers} orders={orders} selectedOrderId={selectedOrder.id} setDay={setCalendarDay} setSelectedOrderId={setSelectedOrderId} vehicles={vehicles} />
+          <DispatchBoard assignments={assignments} drivers={drivers} orders={orders} selectedOrderId={selectedOrder.id} setSelectedOrderId={setSelectedOrderId} vehicles={vehicles} />
+          <OrderDetailPanel assignments={assignments} auditEvents={auditEvents} currentRole={currentRole} drivers={drivers} order={selectedOrder} payments={payments} cancelOrder={cancelOrder} updateOrder={updateOrder} vehicles={vehicles} />
+        </div>
+      )}
     </section>
   );
 }
