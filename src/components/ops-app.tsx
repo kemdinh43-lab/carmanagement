@@ -871,8 +871,14 @@ export default function OpsApp() {
           orders: normalized.orders.length,
           payments: normalized.payments.length
         });
-        persistedStateRef.current = normalized;
-        setState(normalized);
+        setState((current) => {
+          const merged = {
+            ...normalized,
+            notifications: current.notifications ?? normalized.notifications ?? []
+          };
+          persistedStateRef.current = merged;
+          return merged;
+        });
         setSelectedOrderId(normalized.orders[2]?.id ?? normalized.orders[0]?.id ?? "");
         setMobileDriverId(normalized.drivers[0]?.id ?? "");
         setPersistenceReady(true);
