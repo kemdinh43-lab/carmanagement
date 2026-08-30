@@ -28,8 +28,6 @@ const auditSelectColumns = "id,actor,entity_type,entity_id,action,reason,created
 type SupabaseTableClient = {
   from(table: AppTable): {
     select(columns?: string): { order(column: string, options?: { ascending?: boolean }): QueryResult<Record<string, unknown>> } & QueryResult<Record<string, unknown>>;
-    delete(): { neq(column: string, value: string): MutationResult };
-    upsert(values: Record<string, unknown>[]): MutationResult;
   };
 };
 type SnapshotClient = {
@@ -226,22 +224,7 @@ export class SupabaseOpsRepository implements OpsRepository {
     };
   }
 
-  async save(state: OpsState, previousState?: OpsState) {
-    const supabase = createSupabaseBrowserClient() as unknown as SupabaseTableClient;
-    try {
-      const nextTables = snapshotTables(state);
-      const previousTables = previousState ? snapshotTables(previousState) : null;
-      const changedTables = new Set<AppTable>();
-      for (const [table, rows] of Object.entries(nextTables) as Array<[AppTable, Record<string, unknown>[]]>) {
-        const previousRows = previousTables?.[table];
-        if (!previousRows || !sameJson(previousRows, rows)) changedTables.add(table);
-      }
-      await replaceChangedTables(supabase, nextTables, expandChangedTables(changedTables));
-    } catch (error) {
-      if (!isMissingRelationalSchema(error)) {
-        console.warn("Supabase relational save failed, falling back to snapshot.", error);
-      }
-    }
+  async save(state: OpsState) {
     await saveSnapshotState(state);
   }
 }
@@ -292,96 +275,6 @@ async function saveSnapshotState(state: OpsState) {
   const supabase = createSupabaseBrowserClient() as unknown as SnapshotClient;
   const { error } = await supabase.from("ops_snapshots").upsert({ id: "default", state });
   if (error) throw new Error(`ops_snapshots: ${error.message}`);
-}
-
-async function replaceChangedTables(supabase: SupabaseTableClient, tables: Record<AppTable, Record<string, unknown>[]>, changedTables: Set<AppTable>) {
-  const deleteOrder: AppTable[] = [
-    "app_dispatch_assignments",
-    "app_payments",
-    "app_audit_events",
-    "app_dispatch_orders",
-    "app_company_contacts",
-    "app_drivers",
-    "app_vehicles",
-    "app_companies",
-    "app_customers"
-  ];
-  const insertOrder: AppTable[] = [
-    "app_customers",
-    "app_companies",
-    "app_company_contacts",
-    "app_vehicles",
-    "app_drivers",
-    "app_dispatch_orders",
-    "app_dispatch_assignments",
-    "app_payments",
-    "app_audit_events"
-  ];
-
-  for (const table of deleteOrder) {
-    if (!changedTables.has(table)) continue;
-    await deleteTable(supabase, table);
-  }
-
-  for (const table of insertOrder) {
-    if (!changedTables.has(table)) continue;
-    await insertTable(supabase, table, tables[table]);
-  }
-}
-
-function expandChangedTables(changedTables: Set<AppTable>) {
-  const expanded = new Set(changedTables);
-  if (changedTables.has("app_companies")) expanded.add("app_company_contacts");
-  const dispatchGroup: AppTable[] = ["app_vehicles", "app_drivers", "app_dispatch_orders", "app_dispatch_assignments", "app_payments"];
-  if (dispatchGroup.some((table) => changedTables.has(table))) {
-    for (const table of dispatchGroup) expanded.add(table);
-  }
-  return expanded;
-}
-
-async function deleteTable(supabase: SupabaseTableClient, table: AppTable) {
-  const { error: deleteError } = await supabase.from(table).delete().neq("id", "__never__");
-  if (deleteError) throw new Error(`${table}: ${deleteError.message}`);
-}
-
-async function insertTable(supabase: SupabaseTableClient, table: AppTable, rows: Record<string, unknown>[]) {
-  if (rows.length === 0) return;
-  let payload = rows;
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    const { error } = await supabase.from(table).upsert(payload);
-    if (!error) return;
-    const missingColumn = missingColumnFromError(error.message);
-    if (!missingColumn) throw new Error(`${table}: ${error.message}`);
-    payload = payload.map((row) => {
-      const next = { ...row };
-      delete next[missingColumn];
-      return next;
-    });
-  }
-  throw new Error(`${table}: failed to upsert after removing unsupported columns`);
-}
-
-function snapshotTables(state: OpsState) {
-  return {
-    app_customers: state.customers.map(fromCustomer),
-    app_companies: state.companies.map(fromCompany),
-    app_company_contacts: state.companyContacts.map(fromCompanyContact),
-    app_vehicles: state.vehicles.map(fromVehicle),
-    app_drivers: state.drivers.map(fromDriver),
-    app_dispatch_orders: state.orders.map(fromOrder),
-    app_dispatch_assignments: state.assignments.map(fromAssignment),
-    app_payments: state.payments.map(fromPayment),
-    app_audit_events: state.auditEvents.map(fromAuditEvent)
-  } satisfies Record<AppTable, Record<string, unknown>[]>;
-}
-
-function sameJson(a: unknown, b: unknown) {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
-
-function missingColumnFromError(message: string) {
-  const match = message.match(/Could not find the '([^']+)' column of '([^']+)' in the schema cache/);
-  return match?.[1] ?? null;
 }
 
 function text(row: Record<string, unknown>, key: string) {
