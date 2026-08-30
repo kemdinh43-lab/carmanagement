@@ -479,6 +479,18 @@ function makeId(prefix: string) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function makeTripAccessToken() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `${crypto.randomUUID()}-${crypto.randomUUID()}`;
+  }
+  return `${makeId("trip")}-${makeId("token")}`;
+}
+
+function tripAccessUrl(token?: string) {
+  if (!token || typeof window === "undefined") return "";
+  return `${window.location.origin}/trip/${token}`;
+}
+
 function formatDateTime(value: string) {
   return new Date(value).toLocaleString("vi-VN", {
     day: "2-digit",
@@ -1250,6 +1262,13 @@ export default function OpsApp() {
       driver_full_name: order.driverFullName ?? null,
       driver_cccd: order.driverCccd ?? null,
       driver_phone: order.driverPhone ?? null,
+      external_driver_name: order.externalDriverName ?? null,
+      external_driver_phone: order.externalDriverPhone ?? null,
+      external_vehicle_plate: order.externalVehiclePlate ?? null,
+      external_vehicle_type: order.externalVehicleType ?? null,
+      trip_access_token: order.tripAccessToken ?? null,
+      trip_access_expires_at: order.tripAccessExpiresAt ?? null,
+      trip_access_revoked: order.tripAccessRevoked ?? null,
       supplier_owner_name: order.supplierOwnerName ?? null,
       supplier_cccd: order.supplierCccd ?? null,
       supplier_invoice_required: order.supplierInvoiceRequired ?? null,
@@ -1863,78 +1882,151 @@ export default function OpsApp() {
     }
 
     const form = new FormData(event.currentTarget);
-    const vehicleId = String(form.get("vehicleId"));
-    const driverId = String(form.get("driverId"));
+    const assignmentMode = String(form.get("assignmentMode") || "company") as NonNullable<DispatchOrder["vehicleOwnership"]>;
+    const vehicleId = String(form.get("vehicleId") || "");
+    const driverId = String(form.get("driverId") || "");
+    const externalVehiclePlate = String(form.get("externalVehiclePlate") || "").trim();
+    const externalVehicleType = String(form.get("externalVehicleType") || "").trim();
+    const externalDriverName = String(form.get("externalDriverName") || "").trim();
+    const externalDriverPhone = String(form.get("externalDriverPhone") || "").trim();
+    const externalPurchaseAmount = Number(form.get("externalPurchaseAmount") || 0);
     const reason = String(form.get("reason") || "Assign resource").trim();
     const currentAssignment = state.assignments.find((assignment) => assignment.dispatchOrderId === selectedOrder.id && assignment.status === "active");
-
-    const conflict = findAssignmentConflict(
-      {
-        vehicleId,
-        driverId,
-        startAt: selectedOrder.startAt,
-        endAt: selectedOrder.endAt,
-        ignoreAssignmentId: currentAssignment?.id
-      },
-      state.assignments
-    );
-
-    if (conflict) {
-      const conflictOrder = state.orders.find((order) => order.id === conflict.dispatchOrderId);
-      setMessage(`Không thể phân: trùng xe hoặc tài xế với ${conflictOrder?.code ?? conflict.dispatchOrderId}.`);
-      return;
-    }
-
-    const assignment: Assignment = {
-      id: makeId("assign"),
-      dispatchOrderId: selectedOrder.id,
-      vehicleId,
-      driverId,
-      status: "active",
-      startAt: selectedOrder.startAt,
-      endAt: selectedOrder.endAt,
-      replaceReason: currentAssignment ? reason : undefined
-    };
 
     const actionKey = `dispatch:assign:${selectedOrder.id}`;
     if (!beginAction(actionKey, "Phân xe/tài xế")) return;
     try {
-    const saved = await runSupabaseRpc(
-      "assign_vehicle_driver",
-      {
-        p_order_id: selectedOrder.id,
-        p_assignment_id: assignment.id,
-        p_vehicle_id: vehicleId,
-        p_driver_id: driverId,
-        p_start_at: selectedOrder.startAt,
-        p_end_at: selectedOrder.endAt,
-        p_replace_assignment_id: currentAssignment?.id ?? null,
-        p_replace_reason: currentAssignment ? reason : null
-      },
-      `Không lưu được phân xe/tài xế cho ${selectedOrder.code}`
-    );
-    if (!saved) return;
+      if (assignmentMode === "rented") {
+        if (!externalVehiclePlate || !externalVehicleType || !externalDriverName || !externalDriverPhone || externalPurchaseAmount <= 0) {
+          setMessage("Xe thuê ngoài cần biển số, loại xe, tên tài xế, SĐT và giá mua dự kiến.");
+          return;
+        }
+        const tripToken = selectedOrder.tripAccessToken || makeTripAccessToken();
+        const tripExpiresAt = selectedOrder.tripAccessExpiresAt || new Date(new Date(selectedOrder.endAt).getTime() + 1000 * 60 * 60 * 24).toISOString();
+        const saved = await runSupabaseRpc(
+          "assign_external_vehicle_driver",
+          {
+            p_order_id: selectedOrder.id,
+            p_external_vehicle_plate: externalVehiclePlate,
+            p_external_vehicle_type: externalVehicleType,
+            p_external_driver_name: externalDriverName,
+            p_external_driver_phone: externalDriverPhone,
+            p_estimated_purchase_amount: externalPurchaseAmount,
+            p_trip_access_token: tripToken,
+            p_trip_access_expires_at: tripExpiresAt,
+            p_replace_assignment_id: currentAssignment?.id ?? null,
+            p_reason: reason
+          },
+          `Không lưu được xe thuê ngoài cho ${selectedOrder.code}`
+        );
+        if (!saved) return;
 
-    runCommand(
-      "dispatch.assign_vehicle_driver",
-      (current) => assignVehicleDriver(current, selectedOrder.id, assignment, currentAssignment?.id, reason, audit, false),
-      currentAssignment ? `Đã đổi xe/tài xế cho ${selectedOrder.code}.` : `Đã phân xe/tài xế cho ${selectedOrder.code}.`
-    );
-    notify({ audience: "driver", eventType: "driver_assigned", title: "Bạn có chuyến mới", body: `${selectedOrder.code} / ${formatDateTime(selectedOrder.startAt)}`, entityId: selectedOrder.id, targetDriverId: driverId });
-    notify({
-      audience: "dispatcher",
-      eventType: currentAssignment ? "driver_assignment_replaced" : "driver_assigned",
-      title: currentAssignment ? "Đã đổi phân xe" : "Đã phân xe/tài xế",
-      body: `${selectedOrder.code} / ${vehicleId} / ${driverId}`,
-      entityId: selectedOrder.id
-    });
-    notify({
-      audience: "sale",
-      eventType: "dispatch_order_assigned",
-      title: "Đề xuất đã được triển khai",
-      body: `${selectedOrder.code} đã có xe và tài xế.`,
-      entityId: selectedOrder.id
-    });
+        setState((current) => ({
+          ...current,
+          assignments: currentAssignment
+            ? current.assignments.map((assignment) => assignment.id === currentAssignment.id ? { ...assignment, status: "replaced", replaceReason: reason } : assignment)
+            : current.assignments,
+          orders: current.orders.map((order) => order.id === selectedOrder.id ? {
+            ...order,
+            vehicleOwnership: "rented",
+            vehicleId: undefined,
+            driverId: undefined,
+            vehiclePlateNo: externalVehiclePlate,
+            driverFullName: externalDriverName,
+            driverPhone: externalDriverPhone,
+            externalVehiclePlate,
+            externalVehicleType,
+            externalDriverName,
+            externalDriverPhone,
+            supplierTotalWithVat: externalPurchaseAmount,
+            vehicleCost: externalPurchaseAmount,
+            dispatchStatus: "assigned",
+            tripAccessToken: tripToken,
+            tripAccessExpiresAt: tripExpiresAt,
+            tripAccessRevoked: false
+          } : order),
+          auditEvents: [
+            audit({
+              actor: "Dispatcher",
+              entityType: "assignment",
+              entityId: selectedOrder.id,
+              action: currentAssignment ? "assigned_external_driver_replaced_internal" : "assigned_external_driver",
+              reason
+            }),
+            ...current.auditEvents
+          ]
+        }));
+        const link = tripAccessUrl(tripToken);
+        setMessage(`Đã phân xe thuê ngoài cho ${selectedOrder.code}. Trip Link: ${link}`);
+        notify({ audience: "dispatcher", eventType: "external_driver_assigned", title: "Đã phân xe thuê ngoài", body: `${selectedOrder.code} / ${externalDriverName} / ${externalVehiclePlate}`, entityId: selectedOrder.id });
+        notify({ audience: "accountant", eventType: "supplier_profile_needed", title: "Cần hoàn thiện hồ sơ NCC", body: `${selectedOrder.code} đã dùng xe thuê ngoài.`, entityId: selectedOrder.id });
+        return;
+      }
+
+      const conflict = findAssignmentConflict(
+        {
+          vehicleId,
+          driverId,
+          startAt: selectedOrder.startAt,
+          endAt: selectedOrder.endAt,
+          ignoreAssignmentId: currentAssignment?.id
+        },
+        state.assignments
+      );
+
+      if (conflict) {
+        const conflictOrder = state.orders.find((order) => order.id === conflict.dispatchOrderId);
+        setMessage(`Không thể phân: trùng xe hoặc tài xế với ${conflictOrder?.code ?? conflict.dispatchOrderId}.`);
+        return;
+      }
+
+      const assignment: Assignment = {
+        id: makeId("assign"),
+        dispatchOrderId: selectedOrder.id,
+        vehicleId,
+        driverId,
+        status: "active",
+        startAt: selectedOrder.startAt,
+        endAt: selectedOrder.endAt,
+        replaceReason: currentAssignment ? reason : undefined
+      };
+
+      const saved = await runSupabaseRpc(
+        "assign_vehicle_driver",
+        {
+          p_order_id: selectedOrder.id,
+          p_assignment_id: assignment.id,
+          p_vehicle_id: vehicleId,
+          p_driver_id: driverId,
+          p_start_at: selectedOrder.startAt,
+          p_end_at: selectedOrder.endAt,
+          p_replace_assignment_id: currentAssignment?.id ?? null,
+          p_replace_reason: currentAssignment ? reason : null
+        },
+        `Không lưu được phân xe/tài xế cho ${selectedOrder.code}`
+      );
+      if (!saved) return;
+
+      runCommand(
+        "dispatch.assign_vehicle_driver",
+        (current) => assignVehicleDriver(current, selectedOrder.id, assignment, currentAssignment?.id, reason, audit, false),
+        currentAssignment ? `Đã đổi xe/tài xế cho ${selectedOrder.code}.` : `Đã phân xe/tài xế cho ${selectedOrder.code}.`
+      );
+      notify({ audience: "driver", eventType: "driver_assigned", title: "Bạn có chuyến mới", body: `${selectedOrder.code} / ${formatDateTime(selectedOrder.startAt)}`, entityId: selectedOrder.id, targetDriverId: driverId });
+      notify({
+        audience: "dispatcher",
+        eventType: currentAssignment ? "driver_assignment_replaced" : "driver_assigned",
+        title: currentAssignment ? "Đã đổi phân xe" : "Đã phân xe/tài xế",
+        body: `${selectedOrder.code} / ${vehicleId} / ${driverId}`,
+        entityId: selectedOrder.id
+      });
+      notify({
+        audience: "sale",
+        eventType: "dispatch_order_assigned",
+        title: "Đề xuất đã được triển khai",
+        body: `${selectedOrder.code} đã có xe và tài xế.`,
+        entityId: selectedOrder.id
+      });
     } finally {
       endAction(actionKey);
     }
@@ -4202,6 +4294,12 @@ function DispatchPanel({
   const canMarkInProgress = canUpdateDispatchStatus && canMoveDispatchStatus(selectedOrder.dispatchStatus, "in_progress");
   const canMarkCompleted = canUpdateDispatchStatus && canMoveDispatchStatus(selectedOrder.dispatchStatus, "completed");
   const canMarkCancelled = canUpdateDispatchStatus && canMoveDispatchStatus(selectedOrder.dispatchStatus, "cancelled");
+  const [assignmentModeState, setAssignmentModeState] = useState<{ orderId: string; mode: NonNullable<DispatchOrder["vehicleOwnership"]> }>(() => ({
+    orderId: selectedOrder.id,
+    mode: selectedOrder.vehicleOwnership ?? "company"
+  }));
+  const assignmentMode = assignmentModeState.orderId === selectedOrder.id ? assignmentModeState.mode : selectedOrder.vehicleOwnership ?? "company";
+  const externalTripLink = tripAccessUrl(selectedOrder.tripAccessToken);
 
   return (
     <section className="space-y-4">
@@ -4236,9 +4334,22 @@ function DispatchPanel({
             </div>
             <div className="border border-line bg-panel p-3">
               <p className="font-medium">Assignment hiện tại</p>
-              <p className="mt-1 text-slate-600">{vehicle ? `${vehicle.plateNo} / ${vehicle.type}` : "Chưa có xe"}</p>
-              <p className="text-slate-600">{driver ? `${driver.fullName} / ${driver.phone}` : "Chưa có tài xế"}</p>
+              <p className="mt-1 text-slate-600">Nguồn xe: {selectedOrder.vehicleOwnership === "rented" ? "Thuê ngoài" : "Xe công ty"}</p>
+              <p className="text-slate-600">{selectedOrder.vehicleOwnership === "rented" ? `${selectedOrder.externalVehiclePlate || selectedOrder.vehiclePlateNo || "Chưa có biển số"} / ${selectedOrder.externalVehicleType || "Chưa rõ loại xe"}` : vehicle ? `${vehicle.plateNo} / ${vehicle.type}` : "Chưa có xe"}</p>
+              <p className="text-slate-600">{selectedOrder.vehicleOwnership === "rented" ? `${selectedOrder.externalDriverName || selectedOrder.driverFullName || "Chưa có tài xế"} / ${selectedOrder.externalDriverPhone || selectedOrder.driverPhone || "Chưa có SĐT"}` : driver ? `${driver.fullName} / ${driver.phone}` : "Chưa có tài xế"}</p>
               {activeAssignment && <p className="mt-1 text-xs text-slate-500">Assignment ID: {activeAssignment.id}</p>}
+              {selectedOrder.vehicleOwnership === "rented" && (
+                <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                  <p className="font-semibold">Hồ sơ NCC: {selectedOrder.supplierTaxCode || selectedOrder.supplierBankAccount ? "Đang bổ sung" : "Chưa hoàn thiện"}</p>
+                  <p>Kế toán sẽ hoàn thiện NCC trước khi thanh toán/đóng hồ sơ.</p>
+                </div>
+              )}
+              {externalTripLink && (
+                <div className="mt-3">
+                  <p className="text-xs font-semibold text-slate-500">Trip Link tài xế ngoài</p>
+                  <input className={`${inputClass()} mt-1 text-xs`} readOnly value={externalTripLink} />
+                </div>
+              )}
             </div>
           </div>
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
@@ -4258,16 +4369,35 @@ function DispatchPanel({
             {selectedOrder.orderStatus !== "confirmed" && (
               <p className="border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 md:col-span-2">Lệnh này chưa được điều hành duyệt nên chưa thể phân xe/tài xế.</p>
             )}
-            <Field label="Xe">
-              <select className={inputClass()} defaultValue={selectedOrder.vehicleId} name="vehicleId" required>
-                {vehicles.map((item) => <option disabled={item.status !== "active"} key={item.id} value={item.id}>{item.plateNo} / {item.type} / {item.status}</option>)}
+            <Field label="Nguồn xe">
+              <select className={inputClass()} name="assignmentMode" onChange={(event) => setAssignmentModeState({ orderId: selectedOrder.id, mode: event.target.value as NonNullable<DispatchOrder["vehicleOwnership"]> })} value={assignmentMode}>
+                <option value="company">Xe công ty</option>
+                <option value="rented">Thuê ngoài</option>
               </select>
             </Field>
-            <Field label="Tài xế">
-              <select className={inputClass()} defaultValue={selectedOrder.driverId} name="driverId" required>
-                {drivers.map((item) => <option disabled={item.status !== "active"} key={item.id} value={item.id}>{item.fullName} / {item.status}</option>)}
-              </select>
-            </Field>
+            {assignmentMode === "company" ? (
+              <>
+                <Field label="Xe">
+                  <select className={inputClass()} defaultValue={selectedOrder.vehicleId} name="vehicleId" required>
+                    {vehicles.map((item) => <option disabled={item.status !== "active"} key={item.id} value={item.id}>{item.plateNo} / {item.type} / {item.status}</option>)}
+                  </select>
+                </Field>
+                <Field label="Tài xế">
+                  <select className={inputClass()} defaultValue={selectedOrder.driverId} name="driverId" required>
+                    {drivers.map((item) => <option disabled={item.status !== "active"} key={item.id} value={item.id}>{item.fullName} / {item.status}</option>)}
+                  </select>
+                </Field>
+              </>
+            ) : (
+              <>
+                <Field label="Biển số xe ngoài *"><input className={inputClass()} defaultValue={selectedOrder.externalVehiclePlate || selectedOrder.vehiclePlateNo || ""} name="externalVehiclePlate" required /></Field>
+                <Field label="Loại xe / số chỗ *"><input className={inputClass()} defaultValue={selectedOrder.externalVehicleType || ""} name="externalVehicleType" placeholder="7 chỗ, Limousine 9 chỗ..." required /></Field>
+                <Field label="Tên tài xế ngoài *"><input className={inputClass()} defaultValue={selectedOrder.externalDriverName || selectedOrder.driverFullName || ""} name="externalDriverName" required /></Field>
+                <Field label="SĐT tài xế ngoài *"><input className={inputClass()} defaultValue={selectedOrder.externalDriverPhone || selectedOrder.driverPhone || ""} name="externalDriverPhone" required /></Field>
+                <Field label="Giá mua dự kiến *"><input className={inputClass()} defaultValue={selectedOrder.supplierTotalWithVat ?? selectedOrder.vehicleCost ?? 0} min="0" name="externalPurchaseAmount" required type="number" /></Field>
+                <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">Không cần tạo account cho tài xế ngoài. Hệ thống sẽ tạo Trip Link tạm thời để gửi cho tài xế cập nhật chuyến.</p>
+              </>
+            )}
             <div className="md:col-span-2">
               <Field label="Lý do khi đổi/ghi chú phân công"><textarea className={textAreaClass()} name="reason" placeholder="Ví dụ: xe cũ bận, khách đổi giờ, ưu tiên tài xế quen tuyến..." /></Field>
             </div>

@@ -121,6 +121,13 @@ export interface DispatchOrder extends TimeWindow {
   driverFullName?: string;
   driverCccd?: string;
   driverPhone?: string;
+  externalDriverName?: string;
+  externalDriverPhone?: string;
+  externalVehiclePlate?: string;
+  externalVehicleType?: string;
+  tripAccessToken?: string;
+  tripAccessExpiresAt?: string;
+  tripAccessRevoked?: boolean;
   supplierOwnerName?: string;
   supplierCccd?: string;
   supplierInvoiceRequired?: boolean;
