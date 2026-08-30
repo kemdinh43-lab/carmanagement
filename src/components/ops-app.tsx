@@ -43,6 +43,7 @@ import {
 } from "@/data/demo";
 import { hasSupabaseBrowserConfig } from "@/lib/config";
 import { calculatePaymentStatus, canMoveDispatchStatus, findAssignmentConflict, getOperationalAlerts, money } from "@/lib/domain";
+import { emptyOpsState } from "@/lib/empty-ops-state";
 import {
   assignVehicleDriver,
   cancelOrder as cancelOrderCommand,
@@ -164,16 +165,24 @@ const initialState: OpsState = {
   notifications: []
 };
 
+const runtimeInitialState = supabaseConfigured ? emptyOpsState : initialState;
+
 function normalizeState(state: OpsState): OpsState {
+  const fallbackState = supabaseConfigured ? emptyOpsState : initialState;
+  const orders = state.orders ?? fallbackState.orders;
+
   return {
     ...state,
-    vehicles: state.vehicles ?? seedVehicles,
-    drivers: state.drivers ?? seedDrivers,
-    customers: state.customers ?? seedCustomers,
-    companies: state.companies ?? seedCompanies,
-    companyContacts: state.companyContacts ?? seedCompanyContacts,
+    vehicles: state.vehicles ?? fallbackState.vehicles,
+    drivers: state.drivers ?? fallbackState.drivers,
+    customers: state.customers ?? fallbackState.customers,
+    companies: state.companies ?? fallbackState.companies,
+    companyContacts: state.companyContacts ?? fallbackState.companyContacts,
+    assignments: state.assignments ?? fallbackState.assignments,
+    payments: state.payments ?? fallbackState.payments,
+    auditEvents: state.auditEvents ?? fallbackState.auditEvents,
     notifications: state.notifications ?? [],
-    orders: state.orders.map((order) => ({
+    orders: orders.map((order) => ({
       ...order,
       customerKind: order.customerKind ?? (order.companyName ? "company" : "individual"),
       customerName: order.customerName || order.companyName || "Khách chưa đặt tên",
@@ -776,13 +785,13 @@ export default function OpsApp() {
   const repository = useMemo(() => createOpsRepository(storageKey), []);
   const persistedStateRef = useRef<OpsState | null>(null);
   const [tab, setTab] = useState<Tab>("Dashboard");
-  const [state, setState] = useState<OpsState>(initialState);
-  const [selectedOrderId, setSelectedOrderId] = useState(seedOrders[2]?.id ?? seedOrders[0]?.id);
+  const [state, setState] = useState<OpsState>(runtimeInitialState);
+  const [selectedOrderId, setSelectedOrderId] = useState(supabaseConfigured ? "" : seedOrders[2]?.id ?? seedOrders[0]?.id);
   const [query, setQuery] = useState("");
   const [customerKind, setCustomerKind] = useState<DispatchOrder["customerKind"]>("individual");
-  const [calendarMonth, setCalendarMonth] = useState(() => new Date(2026, 7, 1));
-  const [calendarDay, setCalendarDay] = useState(() => new Date(2026, 7, 25));
-  const [mobileDriverId, setMobileDriverId] = useState(seedDrivers[0]?.id ?? "");
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date());
+  const [calendarDay, setCalendarDay] = useState(() => new Date());
+  const [mobileDriverId, setMobileDriverId] = useState(supabaseConfigured ? "" : seedDrivers[0]?.id ?? "");
   const [roleState, setRoleState] = useState<AppRole | null>(supabaseConfigured ? null : "manager");
   const [authLabel, setAuthLabel] = useState(supabaseConfigured ? "Đang kiểm tra đăng nhập..." : "Local demo");
   const [authUserId, setAuthUserId] = useState<string | null>(null);
@@ -2662,9 +2671,10 @@ export default function OpsApp() {
   }
 
   function resetPilot() {
-    setState(initialState);
-    setSelectedOrderId(seedOrders[2]?.id ?? seedOrders[0]?.id);
-    setMessage(repository.mode === "supabase" ? "Đã reset dữ liệu Supabase về seed ban đầu." : "Đã reset dữ liệu pilot về seed ban đầu.");
+    setState(runtimeInitialState);
+    setSelectedOrderId(supabaseConfigured ? "" : seedOrders[2]?.id ?? seedOrders[0]?.id);
+    setMobileDriverId(supabaseConfigured ? "" : seedDrivers[0]?.id ?? "");
+    setMessage(repository.mode === "supabase" ? "Đã reset màn hình về dữ liệu Supabase hiện tại." : "Đã reset dữ liệu pilot về seed ban đầu.");
   }
 
   if (supabaseConfigured && !authReady) {

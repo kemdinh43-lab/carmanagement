@@ -1,5 +1,6 @@
 import { initialOpsState } from "@/data/demo";
 import { hasSupabaseBrowserConfig } from "@/lib/config";
+import { emptyOpsState } from "@/lib/empty-ops-state";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import type { Assignment, AuditEvent, Company, CompanyContact, Customer, DispatchOrder, Driver, OpsState, Payment, Vehicle } from "@/lib/types";
 
@@ -207,10 +208,9 @@ export class SupabaseOpsRepository implements OpsRepository {
       0;
     if (!hasRelationalData) {
       const snapshotStartedAt = performance.now();
-      const snapshotState = await loadSnapshotFallback().catch(() => initialOpsState);
-      repositoryTiming("empty_relational_snapshot_loaded", snapshotStartedAt);
-      await this.save(snapshotState);
-      return snapshotState;
+      repositoryTiming("empty_relational_tables_loaded", snapshotStartedAt);
+      await this.save(emptyOpsState);
+      return emptyOpsState;
     }
 
     return {
@@ -276,8 +276,8 @@ function isMissingRelationalSchema(error: unknown) {
 async function loadSnapshotFallback() {
   const snapshot = await loadSnapshotState();
   if (snapshot) return snapshot;
-  await saveSnapshotState(initialOpsState);
-  return initialOpsState;
+  await saveSnapshotState(emptyOpsState);
+  return emptyOpsState;
 }
 
 async function loadSnapshotState() {
