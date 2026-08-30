@@ -780,6 +780,8 @@ export default function OpsApp() {
   const [message, setMessage] = useState(supabaseConfigured ? "Đang kết nối Supabase..." : "Dữ liệu pilot lưu trên trình duyệt máy này.");
   const [now, setNow] = useState(() => new Date());
   const [isMobileViewport, setIsMobileViewport] = useState(() => (typeof window !== "undefined" ? window.matchMedia("(max-width: 1023px)").matches : false));
+  const pendingActionsRef = useRef(new Set<string>());
+  const [pendingActions, setPendingActions] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 1023px)");
@@ -806,6 +808,25 @@ export default function OpsApp() {
   const visibleNotifications = (state.notifications ?? [])
     .filter(isVisibleNotification)
     .slice(0, 5);
+
+  function beginAction(key: string, label: string) {
+    if (pendingActionsRef.current.has(key)) {
+      setMessage(`${label} đang được xử lý, vui lòng chờ.`);
+      return false;
+    }
+    pendingActionsRef.current.add(key);
+    setPendingActions(new Set(pendingActionsRef.current));
+    return true;
+  }
+
+  function endAction(key: string) {
+    pendingActionsRef.current.delete(key);
+    setPendingActions(new Set(pendingActionsRef.current));
+  }
+
+  function isActionPending(key: string) {
+    return pendingActions.has(key);
+  }
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
@@ -1449,6 +1470,9 @@ export default function OpsApp() {
       return;
     }
 
+    const actionKey = "order:create";
+    if (!beginAction(actionKey, "Tạo lệnh")) return;
+    try {
     const orderCode = await reserveDispatchOrderCode(orderDate || startAt.slice(0, 10));
     if (!orderCode) return;
 
@@ -1532,6 +1556,9 @@ export default function OpsApp() {
     setTab("Lệnh điều xe");
     notifyMany(["dispatcher", "manager", "admin"], { eventType: "dispatch_proposal_submitted", title: "Đề xuất điều xe mới", body: `${order.code} / ${order.customerName}`, entityId: order.id });
     formElement.reset();
+    } finally {
+      endAction(actionKey);
+    }
   }
 
   async function submitDriverProposal(event: FormEvent<HTMLFormElement>): Promise<boolean> {
@@ -1572,6 +1599,9 @@ export default function OpsApp() {
       return false;
     }
 
+    const actionKey = "driver:proposal";
+    if (!beginAction(actionKey, "Gửi đề xuất tài xế")) return false;
+    try {
     const orderCode = await reserveDispatchOrderCode(startAt.slice(0, 10));
     if (!orderCode) return false;
 
@@ -1633,6 +1663,9 @@ export default function OpsApp() {
     }
     formElement.reset();
     return true;
+    } finally {
+      endAction(actionKey);
+    }
   }
 
   async function submitDriverTripReport(event: FormEvent<HTMLFormElement>): Promise<boolean> {
@@ -1683,6 +1716,9 @@ export default function OpsApp() {
       return false;
     }
 
+    const actionKey = `driver:report:${targetOrder.id}`;
+    if (!beginAction(actionKey, "Gửi báo cáo sau chuyến")) return false;
+    try {
     const saved = await runSupabaseRpc(
       "submit_driver_trip_report",
       {
@@ -1735,6 +1771,9 @@ export default function OpsApp() {
     });
     formElement.reset();
     return true;
+    } finally {
+      endAction(actionKey);
+    }
   }
 
   async function promoteDriverProposalToDispatch(orderId: string) {
@@ -1749,6 +1788,9 @@ export default function OpsApp() {
       return;
     }
 
+    const actionKey = `driver-proposal:promote:${orderId}`;
+    if (!beginAction(actionKey, "Chuyển đề xuất tài xế")) return;
+    try {
     const nextOrder: DispatchOrder = {
       ...targetOrder,
       salesOwner: authLabel || targetOrder.salesOwner,
@@ -1793,6 +1835,9 @@ export default function OpsApp() {
       entityId: orderId,
       targetDriverId: state.drivers.find((driver) => driver.fullName === targetOrder.sourceOwnerName)?.id
     });
+    } finally {
+      endAction(actionKey);
+    }
   }
 
   function updateQuoteStatus(nextStatus: QuoteStatus) {
@@ -1851,6 +1896,9 @@ export default function OpsApp() {
       replaceReason: currentAssignment ? reason : undefined
     };
 
+    const actionKey = `dispatch:assign:${selectedOrder.id}`;
+    if (!beginAction(actionKey, "Phân xe/tài xế")) return;
+    try {
     const saved = await runSupabaseRpc(
       "assign_vehicle_driver",
       {
@@ -1887,6 +1935,9 @@ export default function OpsApp() {
       body: `${selectedOrder.code} đã có xe và tài xế.`,
       entityId: selectedOrder.id
     });
+    } finally {
+      endAction(actionKey);
+    }
   }
 
   async function reviewDispatchProposal(orderId: string, decision: "approved" | "rejected", reason: string) {
@@ -1903,6 +1954,9 @@ export default function OpsApp() {
       return;
     }
 
+    const actionKey = `dispatch:review:${orderId}:${decision}`;
+    if (!beginAction(actionKey, decision === "approved" ? "Duyệt đề xuất" : "Từ chối đề xuất")) return;
+    try {
     const saved = await runSupabaseRpc(
       "review_dispatch_proposal",
       {
@@ -1926,6 +1980,9 @@ export default function OpsApp() {
       body: decision === "approved" ? `${targetOrder.code} chuyển sang chờ phân xe/tài xế.` : `${targetOrder.code} / ${cleanReason}`,
       entityId: orderId
     });
+    } finally {
+      endAction(actionKey);
+    }
   }
 
   async function updateOrderDispatchStatus(orderId: string, nextStatus: DispatchStatus, reason: string, actor = "Dispatcher") {
@@ -1939,6 +1996,9 @@ export default function OpsApp() {
       setMessage(`Không thể chuyển ${targetOrder.code} từ ${dispatchLabels[targetOrder.dispatchStatus]} sang ${dispatchLabels[nextStatus]}.`);
       return;
     }
+    const actionKey = `dispatch:status:${orderId}:${nextStatus}`;
+    if (!beginAction(actionKey, "Cập nhật trạng thái chuyến")) return;
+    try {
     const saved = await runSupabaseRpc(
       "update_dispatch_status",
       {
@@ -1963,6 +2023,9 @@ export default function OpsApp() {
       notify({ audience: "dispatcher", eventType: "driver_accepted_trip", title: "Tài xế đã nhận chuyến", body: `${targetOrder.code} chờ xuất phát.`, entityId: orderId });
     } else if (nextStatus === "in_progress") {
       notify({ audience: "dispatcher", eventType: "trip_started", title: "Chuyến đang chạy", body: `${targetOrder.code} đang trên đường.`, entityId: orderId });
+    }
+    } finally {
+      endAction(actionKey);
     }
   }
 
@@ -2218,6 +2281,9 @@ export default function OpsApp() {
       return;
     }
 
+    const actionKey = `order:cancel:${selectedOrder.id}`;
+    if (!beginAction(actionKey, "Hủy lệnh")) return;
+    try {
     const saved = await runSupabaseRpc(
       "cancel_dispatch_order",
       {
@@ -2234,6 +2300,9 @@ export default function OpsApp() {
       `Đã hủy lệnh ${selectedOrder.code}.`
     );
     event.currentTarget.reset();
+    } finally {
+      endAction(actionKey);
+    }
   }
 
   async function updateActualCosts(event: FormEvent<HTMLFormElement>) {
@@ -2252,6 +2321,9 @@ export default function OpsApp() {
       return;
     }
     const actualCostNote = String(form.get("actualCostNote") || "").trim();
+    const actionKey = `finance:actual-costs:${selectedOrder.id}`;
+    if (!beginAction(actionKey, "Lưu chi phí thực tế")) return;
+    try {
     const saved = await runSupabaseRpc(
       "update_actual_costs",
       {
@@ -2270,6 +2342,9 @@ export default function OpsApp() {
       (current) => updateActualCostsCommand(current, selectedOrder.id, { actualDriverCost, actualVehicleCost, actualOtherCost, actualCostNote: actualCostNote || undefined }, audit, false),
       `Đã cập nhật chi phí thực tế cho ${selectedOrder.code}.`
     );
+    } finally {
+      endAction(actionKey);
+    }
   }
 
   async function recordPayment(event: FormEvent<HTMLFormElement>) {
@@ -2301,6 +2376,9 @@ export default function OpsApp() {
     const orderPayments = nextPayments.filter((item) => item.orderId === selectedOrder.id);
     const paymentStatus = calculatePaymentStatus(selectedOrder.amountDue, orderPayments);
 
+    const actionKey = `finance:payment:${selectedOrder.id}`;
+    if (!beginAction(actionKey, "Ghi payment")) return;
+    try {
     const saved = await runSupabaseRpc(
       "record_payment",
       {
@@ -2324,6 +2402,9 @@ export default function OpsApp() {
       `Đã ghi nhận ${money(amount)} cho ${selectedOrder.code}.`
     );
     event.currentTarget.reset();
+    } finally {
+      endAction(actionKey);
+    }
   }
 
   async function updateInvoiceStatus(nextStatus: InvoiceStatus) {
@@ -2332,6 +2413,9 @@ export default function OpsApp() {
       setMessage(`${roleLabels[currentRole]} không có quyền cập nhật hóa đơn.`);
       return;
     }
+    const actionKey = `finance:invoice:${selectedOrder.id}:${nextStatus}`;
+    if (!beginAction(actionKey, "Cập nhật hóa đơn")) return;
+    try {
     const saved = await runSupabaseRpc(
       "update_invoice_status",
       {
@@ -2347,6 +2431,9 @@ export default function OpsApp() {
       (current) => updateInvoiceStatusCommand(current, selectedOrder.id, nextStatus, audit, false),
       `Đã cập nhật hóa đơn ${selectedOrder.code}: ${invoiceLabels[nextStatus]}.`
     );
+    } finally {
+      endAction(actionKey);
+    }
   }
 
   async function reconcileOrder() {
@@ -2363,6 +2450,9 @@ export default function OpsApp() {
       setMessage("Lệnh còn công nợ. Cần thanh toán đủ hoặc thêm luồng close_with_debt có duyệt.");
       return;
     }
+    const actionKey = `finance:close:${selectedOrder.id}`;
+    if (!beginAction(actionKey, "Đóng hồ sơ")) return;
+    try {
     const saved = await runSupabaseRpc(
       "close_dispatch_order",
       {
@@ -2377,6 +2467,9 @@ export default function OpsApp() {
       (current) => closeOrder(current, selectedOrder.id, audit, false),
       `Đã đối soát và đóng ${selectedOrder.code}.`
     );
+    } finally {
+      endAction(actionKey);
+    }
   }
 
   function createVehicle(event: FormEvent<HTMLFormElement>) {
@@ -2600,6 +2693,7 @@ export default function OpsApp() {
               calendarMonth={calendarMonth}
               drivers={state.drivers}
               currentRole={currentRole}
+              isActionPending={isActionPending}
               notifications={visibleNotifications}
               orders={state.orders}
               reviewDispatchProposal={reviewDispatchProposal}
@@ -2625,6 +2719,7 @@ export default function OpsApp() {
               drivers={state.drivers}
               payments={state.payments}
               query={query}
+              isActionPending={isActionPending}
               selectedOrderId={selectedOrder?.id}
               selectedOrder={selectedOrder}
               setCustomerKind={setCustomerKind}
@@ -2659,6 +2754,7 @@ export default function OpsApp() {
               payments={state.payments}
               selectedOrder={selectedOrder}
               currentRole={currentRole}
+              isActionPending={isActionPending}
               assignOrder={assignOrder}
               auditEvents={state.auditEvents}
               cancelOrder={cancelOrder}
@@ -2680,6 +2776,7 @@ export default function OpsApp() {
               notifications={visibleNotifications}
               orders={state.orders}
               now={now}
+              isActionPending={isActionPending}
               selectedOrderId={selectedOrder?.id}
               authDriverId={authDriverId}
               setMobileDriverId={setMobileDriverId}
@@ -2698,6 +2795,7 @@ export default function OpsApp() {
               orders={state.orders}
               payments={state.payments}
               selectedOrder={selectedOrder}
+              isActionPending={isActionPending}
               setSelectedOrderId={setSelectedOrderId}
               recordPayment={recordPayment}
               updateActualCosts={updateActualCosts}
@@ -3456,6 +3554,7 @@ function DashboardPanel({
   calendarMonth,
   drivers,
   currentRole,
+  isActionPending,
   notifications,
   orders,
   reviewDispatchProposal,
@@ -3471,6 +3570,7 @@ function DashboardPanel({
   calendarMonth: Date;
   drivers: Driver[];
   currentRole: AppRole;
+  isActionPending: (key: string) => boolean;
   notifications: AppNotification[];
   orders: DispatchOrder[];
   reviewDispatchProposal: (orderId: string, decision: "approved" | "rejected", reason: string) => void;
@@ -3502,6 +3602,7 @@ function DashboardPanel({
         </div>
         <DispatchReviewQueue
           canReview={can(currentRole, "assign_vehicle")}
+          isActionPending={isActionPending}
           orders={pendingReviewOrders}
           reviewDispatchProposal={reviewDispatchProposal}
           selectedOrderId=""
@@ -3546,6 +3647,7 @@ function DashboardPanel({
     <section className="space-y-4">
       <DispatchReviewQueue
         canReview={can(currentRole, "assign_vehicle")}
+        isActionPending={isActionPending}
         orders={pendingReviewOrders}
         reviewDispatchProposal={reviewDispatchProposal}
         selectedOrderId=""
@@ -3658,6 +3760,7 @@ function OrdersPanel({
   customers,
   drivers,
   filteredOrders,
+  isActionPending,
   payments,
   query,
   selectedOrderId,
@@ -3681,6 +3784,7 @@ function OrdersPanel({
   customers: Customer[];
   drivers: Driver[];
   filteredOrders: DispatchOrder[];
+  isActionPending: (key: string) => boolean;
   payments: Payment[];
   query: string;
   selectedOrderId?: string;
@@ -3878,8 +3982,8 @@ function OrdersPanel({
             <Field label="Ghi chú cho điều hành"><textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="salesNote" placeholder="Yêu cầu loại xe, khách VIP, cần xác nhận sớm..." /></Field>
           </SectionDetails>
 
-          <button className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canCreateOrder} type="submit">
-            <Save size={16} /> Tạo lệnh
+          <button className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canCreateOrder || isActionPending("order:create")} type="submit">
+            <Save size={16} /> {isActionPending("order:create") ? "Đang tạo..." : "Tạo lệnh"}
           </button>
         </div>
       </form>
@@ -3908,11 +4012,12 @@ function OrdersPanel({
                   {order.quoteNote && <p className="mt-1 text-sm text-amber-800">Ghi chú: {order.quoteNote}</p>}
                 </button>
                 <button
-                  className="h-10 self-center rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800"
+                  className="h-10 self-center rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  disabled={isActionPending(`driver-proposal:promote:${order.id}`)}
                   onClick={() => void promoteDriverProposalToDispatch(order.id)}
                   type="button"
                 >
-                  Chuyển điều hành
+                  {isActionPending(`driver-proposal:promote:${order.id}`) ? "Đang chuyển..." : "Chuyển điều hành"}
                 </button>
               </article>
             ))}
@@ -4050,6 +4155,7 @@ function DispatchPanel({
   calendarMonth,
   currentRole,
   drivers,
+  isActionPending,
   orders,
   payments,
   selectedOrder,
@@ -4070,6 +4176,7 @@ function DispatchPanel({
   calendarMonth: Date;
   currentRole: AppRole;
   drivers: Driver[];
+  isActionPending: (key: string) => boolean;
   orders: DispatchOrder[];
   payments: Payment[];
   selectedOrder: DispatchOrder;
@@ -4100,6 +4207,7 @@ function DispatchPanel({
     <section className="space-y-4">
       <DispatchReviewQueue
         canReview={canAssignVehicle}
+        isActionPending={isActionPending}
         orders={pendingReviewOrders}
         reviewDispatchProposal={reviewDispatchProposal}
         selectedOrderId={selectedOrder.id}
@@ -4134,9 +4242,9 @@ function DispatchPanel({
             </div>
           </div>
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" disabled={!canMarkDriverAccepted} onClick={() => updateDispatchStatus("driver_accepted", "Driver confirmed by dispatcher")} type="button">Tài xế nhận</button>
-            <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" disabled={!canMarkInProgress} onClick={() => updateDispatchStatus("in_progress", "Trip started")} type="button">Bắt đầu chạy</button>
-            <button className="h-10 rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canMarkCompleted} onClick={() => updateDispatchStatus("completed", "Trip completed")} type="button">Hoàn thành</button>
+            <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" disabled={!canMarkDriverAccepted || isActionPending(`dispatch:status:${selectedOrder.id}:driver_accepted`)} onClick={() => updateDispatchStatus("driver_accepted", "Driver confirmed by dispatcher")} type="button">Tài xế nhận</button>
+            <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" disabled={!canMarkInProgress || isActionPending(`dispatch:status:${selectedOrder.id}:in_progress`)} onClick={() => updateDispatchStatus("in_progress", "Trip started")} type="button">Bắt đầu chạy</button>
+            <button className="h-10 rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canMarkCompleted || isActionPending(`dispatch:status:${selectedOrder.id}:completed`)} onClick={() => updateDispatchStatus("completed", "Trip completed")} type="button">Hoàn thành</button>
             <button className="h-10 rounded-md border border-rose-200 bg-rose-50 px-3 text-sm font-medium text-rose-800 hover:bg-rose-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400" disabled={!canMarkCancelled} onClick={() => updateDispatchStatus("cancelled", "Cancelled with required reason")} type="button">Hủy lệnh</button>
           </div>
         </div>
@@ -4164,8 +4272,8 @@ function DispatchPanel({
               <Field label="Lý do khi đổi/ghi chú phân công"><textarea className={textAreaClass()} name="reason" placeholder="Ví dụ: xe cũ bận, khách đổi giờ, ưu tiên tài xế quen tuyến..." /></Field>
             </div>
           </div>
-          <button className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canAssignSelectedOrder} type="submit">
-            <Save size={16} /> Lưu phân công
+          <button className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canAssignSelectedOrder || isActionPending(`dispatch:assign:${selectedOrder.id}`)} type="submit">
+            <Save size={16} /> {isActionPending(`dispatch:assign:${selectedOrder.id}`) ? "Đang lưu..." : "Lưu phân công"}
           </button>
           <div className="mt-4 border border-line bg-panel p-3 text-sm">
             <p className="font-medium">Assignment history</p>
@@ -4210,6 +4318,7 @@ function DispatchPanel({
 
 function DispatchReviewQueue({
   canReview,
+  isActionPending,
   onReviewed,
   orders,
   reviewDispatchProposal,
@@ -4217,6 +4326,7 @@ function DispatchReviewQueue({
   setSelectedOrderId
 }: {
   canReview: boolean;
+  isActionPending: (key: string) => boolean;
   onReviewed?: (orderId: string, decision: "approved" | "rejected") => void;
   orders: DispatchOrder[];
   reviewDispatchProposal: (orderId: string, decision: "approved" | "rejected", reason: string) => void;
@@ -4274,25 +4384,25 @@ function DispatchReviewQueue({
               <div className="grid grid-cols-2 gap-2">
                 <button
                   className="h-10 rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                  disabled={!canReview}
+                  disabled={!canReview || isActionPending(`dispatch:review:${order.id}:approved`)}
                   onClick={() => {
                     reviewDispatchProposal(order.id, "approved", rejectReasons[order.id] ?? "");
                     onReviewed?.(order.id, "approved");
                   }}
                   type="button"
                 >
-                  Duyệt
+                  {isActionPending(`dispatch:review:${order.id}:approved`) ? "Đang duyệt..." : "Duyệt"}
                 </button>
                 <button
                   className="h-10 rounded-md border border-rose-200 bg-rose-50 px-3 text-sm font-semibold text-rose-800 hover:bg-rose-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
-                  disabled={!canReview}
+                  disabled={!canReview || isActionPending(`dispatch:review:${order.id}:rejected`)}
                   onClick={() => {
                     reviewDispatchProposal(order.id, "rejected", rejectReasons[order.id] ?? "");
                     onReviewed?.(order.id, "rejected");
                   }}
                   type="button"
                 >
-                  Từ chối
+                  {isActionPending(`dispatch:review:${order.id}:rejected`) ? "Đang từ chối..." : "Từ chối"}
                 </button>
               </div>
             </div>
@@ -4420,6 +4530,7 @@ function DriverMobilePanel({
   authDriverId,
   currentRole,
   drivers,
+  isActionPending,
   mobileDriverId,
   notifications,
   orders,
@@ -4435,6 +4546,7 @@ function DriverMobilePanel({
   authDriverId?: string;
   currentRole: AppRole;
   drivers: Driver[];
+  isActionPending: (key: string) => boolean;
   mobileDriverId: string;
   notifications: AppNotification[];
   orders: DispatchOrder[];
@@ -4574,8 +4686,8 @@ function DriverMobilePanel({
               <input className={inputClass()} name="urgentReason" placeholder="Ví dụ: khách vừa báo lên xe ngay, chờ sân bay..." />
             </Field>
           )}
-          <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!can(currentRole, "submit_driver_proposal")} type="submit">
-            <Save size={16} /> Gửi đề xuất
+            <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!can(currentRole, "submit_driver_proposal") || isActionPending("driver:proposal")} type="submit">
+              <Save size={16} /> {isActionPending("driver:proposal") ? "Đang gửi..." : "Gửi đề xuất"}
           </button>
         </form>
       </section>
@@ -4609,11 +4721,11 @@ function DriverMobilePanel({
           {selectedTrip === nextTrip && nextDriverStatus && (
             <button
               className="mt-3 h-10 w-full rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-              disabled={!canUpdate}
+              disabled={!canUpdate || isActionPending(`dispatch:status:${selectedTrip.id}:${nextDriverStatus}`)}
               onClick={() => updateOrderDispatchStatus(selectedTrip.id, nextDriverStatus, driverActionLabel(selectedTrip), "Driver")}
               type="button"
             >
-              {driverActionLabel(selectedTrip)}
+              {isActionPending(`dispatch:status:${selectedTrip.id}:${nextDriverStatus}`) ? "Đang cập nhật..." : driverActionLabel(selectedTrip)}
             </button>
           )}
         </section>
@@ -4733,8 +4845,8 @@ function DriverMobilePanel({
               <p>Chi phí: <span className="font-semibold text-ink">{money(reportTripExpenseTotal)}</span></p>
               <p>Cần nộp/đối soát: <span className="font-semibold text-ink">{money(Math.max(reportTripCollectedAmount - reportTripExpenseTotal, 0))}</span></p>
             </div>
-            <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!can(currentRole, "submit_driver_report")} type="submit">
-              <Save size={16} /> Gửi báo cáo
+            <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!can(currentRole, "submit_driver_report") || isActionPending(`driver:report:${reportTrip.id}`)} type="submit">
+              <Save size={16} /> {isActionPending(`driver:report:${reportTrip.id}`) ? "Đang gửi..." : "Gửi báo cáo"}
             </button>
           </form>
         </section>
@@ -4868,6 +4980,7 @@ function MasterDataPanel({
 
 function FinancePanel({
   currentRole,
+  isActionPending,
   orders,
   payments,
   selectedOrder,
@@ -4878,6 +4991,7 @@ function FinancePanel({
   reconcileOrder
 }: {
   currentRole: AppRole;
+  isActionPending: (key: string) => boolean;
   orders: DispatchOrder[];
   payments: Payment[];
   selectedOrder: DispatchOrder;
@@ -5071,8 +5185,8 @@ function FinancePanel({
               <Field label="Mã tham chiếu"><input className={inputClass()} name="reference" placeholder="Mã GD ngân hàng nếu có" /></Field>
               <Field label="Ghi chú thanh toán"><textarea className={textAreaClass()} name="note" placeholder="Thu lần 1, khách chuyển thiếu, tài xế thu hộ..." /></Field>
             </div>
-            <button className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canRecordPayment} type="submit">
-              <Banknote size={16} /> Ghi payment
+            <button className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canRecordPayment || isActionPending(`finance:payment:${selectedOrder.id}`)} type="submit">
+              <Banknote size={16} /> {isActionPending(`finance:payment:${selectedOrder.id}`) ? "Đang ghi..." : "Ghi payment"}
             </button>
           </form>
         </div>
@@ -5126,8 +5240,8 @@ function FinancePanel({
             <Badge tone={selectedOrder.reconciliationStatus === "closed" ? "good" : "info"}>{selectedOrder.reconciliationStatus}</Badge>
           </div>
           <div className="mt-4 grid gap-2 sm:grid-cols-3">
-            <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" disabled={!canUpdateInvoice} onClick={() => updateInvoiceStatus("ready_to_issue")} type="button">Sẵn sàng HĐ</button>
-            <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" disabled={!canUpdateInvoice} onClick={() => updateInvoiceStatus("issued")} type="button">Đã xuất HĐ</button>
+            <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" disabled={!canUpdateInvoice || isActionPending(`finance:invoice:${selectedOrder.id}:ready_to_issue`)} onClick={() => updateInvoiceStatus("ready_to_issue")} type="button">Sẵn sàng HĐ</button>
+            <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" disabled={!canUpdateInvoice || isActionPending(`finance:invoice:${selectedOrder.id}:issued`)} onClick={() => updateInvoiceStatus("issued")} type="button">Đã xuất HĐ</button>
           </div>
         </section>
         <form className="border border-line bg-white p-4 shadow-sm" onSubmit={updateActualCosts}>
@@ -5140,7 +5254,7 @@ function FinancePanel({
               <Field label="Ghi chú chi phí"><textarea className={textAreaClass()} defaultValue={selectedOrder.actualCostNote ?? ""} name="actualCostNote" placeholder="Cầu đường, gửi xe, phát sinh, tài xế ứng..." /></Field>
             </div>
           </div>
-          <button className="mt-4 h-10 w-full rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canUpdateActualCosts} type="submit">Lưu chi phí thực tế</button>
+          <button className="mt-4 h-10 w-full rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canUpdateActualCosts || isActionPending(`finance:actual-costs:${selectedOrder.id}`)} type="submit">{isActionPending(`finance:actual-costs:${selectedOrder.id}`) ? "Đang lưu..." : "Lưu chi phí thực tế"}</button>
         </form>
         <section className="border border-line bg-white p-4 shadow-sm">
           <h3 className="font-semibold text-ink">Các lần thanh toán</h3>
@@ -5182,7 +5296,7 @@ function FinancePanel({
           ) : (
             <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">Hồ sơ đủ điều kiện đóng.</p>
           )}
-          <button className="mt-4 h-10 w-full rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canCloseSelectedOrder} onClick={reconcileOrder} type="button">Đóng hồ sơ</button>
+          <button className="mt-4 h-10 w-full rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canCloseSelectedOrder || isActionPending(`finance:close:${selectedOrder.id}`)} onClick={reconcileOrder} type="button">{isActionPending(`finance:close:${selectedOrder.id}`) ? "Đang đóng..." : "Đóng hồ sơ"}</button>
         </section>
       </div>
       </section>
