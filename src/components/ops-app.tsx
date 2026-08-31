@@ -6244,6 +6244,7 @@ function FinancePanel({
           )}
           <button className="mt-4 h-10 w-full rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canCloseSelectedOrder || isActionPending(`finance:close:${selectedOrder.id}`)} onClick={reconcileOrder} type="button">{isActionPending(`finance:close:${selectedOrder.id}`) ? "Đang đóng..." : "Đóng hồ sơ"}</button>
         </section>
+        <FinalDispatchOrderSheet order={selectedOrder} payments={selectedPayments} />
       </div>
       </section>
     </section>
