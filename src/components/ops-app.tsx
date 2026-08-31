@@ -2824,6 +2824,7 @@ export default function OpsApp() {
     const form = new FormData(event.currentTarget);
     const canEditSales = can(currentRole, "create_order");
     const canEditDispatch = can(currentRole, "assign_vehicle");
+    const canEditVehicleSupplier = canEditDispatch || can(currentRole, "record_payment");
     const canEditFinance = can(currentRole, "record_payment") || can(currentRole, "update_invoice") || can(currentRole, "close_order");
     const startAt = canEditSales ? String(form.get("startAt") ?? "") : toDateTimeInput(selectedOrder.startAt);
     const endAt = canEditSales ? String(form.get("endAt") ?? "") : toDateTimeInput(selectedOrder.endAt);
@@ -2858,21 +2859,21 @@ export default function OpsApp() {
     const sourceOwnerName = readMaybeText("sourceOwnerName", selectedOrder.sourceOwnerName, canEditSales);
     const source = readText("source", selectedOrder.source, canEditSales);
     const invoiceRequired = readBoolean("invoiceRequired", selectedOrder.invoiceRequired, canEditSales);
-    const vehicleOwnership = readMaybeText("vehicleOwnership", selectedOrder.vehicleOwnership, canEditDispatch) as DispatchOrder["vehicleOwnership"] | null;
-    const vehiclePlateNo = readMaybeText("vehiclePlateNo", selectedOrder.vehiclePlateNo, canEditDispatch);
-    const driverFullName = readMaybeText("driverFullName", selectedOrder.driverFullName, canEditDispatch);
-    const driverCccd = readMaybeText("driverCccd", selectedOrder.driverCccd, canEditDispatch);
-    const driverPhone = readMaybeText("driverPhone", selectedOrder.driverPhone, canEditDispatch);
-    const supplierOwnerName = readMaybeText("supplierOwnerName", selectedOrder.supplierOwnerName, canEditDispatch);
-    const supplierCccd = readMaybeText("supplierCccd", selectedOrder.supplierCccd, canEditDispatch);
-    const supplierInvoiceRequired = readBoolean("supplierInvoiceRequired", selectedOrder.supplierInvoiceRequired, canEditDispatch);
-    const supplierCompanyName = readMaybeText("supplierCompanyName", selectedOrder.supplierCompanyName, canEditDispatch);
-    const supplierTaxCode = readMaybeText("supplierTaxCode", selectedOrder.supplierTaxCode, canEditDispatch);
-    const supplierAddress = readMaybeText("supplierAddress", selectedOrder.supplierAddress, canEditDispatch);
-    const supplierPhone = readMaybeText("supplierPhone", selectedOrder.supplierPhone, canEditDispatch);
-    const supplierTotalWithVat = readMaybeNumber("supplierTotalWithVat", selectedOrder.supplierTotalWithVat, canEditDispatch);
-    const supplierBankAccount = readMaybeText("supplierBankAccount", selectedOrder.supplierBankAccount, canEditDispatch);
-    const supplierBankName = readMaybeText("supplierBankName", selectedOrder.supplierBankName, canEditDispatch);
+    const vehicleOwnership = readMaybeText("vehicleOwnership", selectedOrder.vehicleOwnership, canEditVehicleSupplier) as DispatchOrder["vehicleOwnership"] | null;
+    const vehiclePlateNo = readMaybeText("vehiclePlateNo", selectedOrder.vehiclePlateNo, canEditVehicleSupplier);
+    const driverFullName = readMaybeText("driverFullName", selectedOrder.driverFullName, canEditVehicleSupplier);
+    const driverCccd = readMaybeText("driverCccd", selectedOrder.driverCccd, canEditVehicleSupplier);
+    const driverPhone = readMaybeText("driverPhone", selectedOrder.driverPhone, canEditVehicleSupplier);
+    const supplierOwnerName = readMaybeText("supplierOwnerName", selectedOrder.supplierOwnerName, canEditVehicleSupplier);
+    const supplierCccd = readMaybeText("supplierCccd", selectedOrder.supplierCccd, canEditVehicleSupplier);
+    const supplierInvoiceRequired = readBoolean("supplierInvoiceRequired", selectedOrder.supplierInvoiceRequired, canEditVehicleSupplier);
+    const supplierCompanyName = readMaybeText("supplierCompanyName", selectedOrder.supplierCompanyName, canEditVehicleSupplier);
+    const supplierTaxCode = readMaybeText("supplierTaxCode", selectedOrder.supplierTaxCode, canEditVehicleSupplier);
+    const supplierAddress = readMaybeText("supplierAddress", selectedOrder.supplierAddress, canEditVehicleSupplier);
+    const supplierPhone = readMaybeText("supplierPhone", selectedOrder.supplierPhone, canEditVehicleSupplier);
+    const supplierTotalWithVat = readMaybeNumber("supplierTotalWithVat", selectedOrder.supplierTotalWithVat, canEditVehicleSupplier);
+    const supplierBankAccount = readMaybeText("supplierBankAccount", selectedOrder.supplierBankAccount, canEditVehicleSupplier);
+    const supplierBankName = readMaybeText("supplierBankName", selectedOrder.supplierBankName, canEditVehicleSupplier);
     const vatValues = canEditSales ? vatFromForm(form) : {
       subtotalAmount: selectedOrder.subtotalAmount,
       vatRate: selectedOrder.vatRate,
@@ -4096,9 +4097,9 @@ function OrderDetailPanel({
   const profit = orderProfit(order);
   const margin = orderMargin(order);
   const salesEditable = can(currentRole, "create_order");
-  const dispatchEditable = can(currentRole, "assign_vehicle");
+  const dispatchEditable = can(currentRole, "assign_vehicle") || can(currentRole, "record_payment");
   const financeEditable = can(currentRole, "record_payment") || can(currentRole, "update_invoice") || can(currentRole, "close_order");
-  const notesEditable = salesEditable || dispatchEditable;
+  const notesEditable = salesEditable || can(currentRole, "assign_vehicle");
   const readiness = orderReadiness(order);
 
   return (
@@ -4118,7 +4119,7 @@ function OrderDetailPanel({
       </div>
       <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
         <Badge tone={salesEditable ? "good" : "neutral"}>Sale {salesEditable ? "được sửa" : "chỉ xem"}</Badge>
-        <Badge tone={dispatchEditable ? "good" : "neutral"}>Điều hành {dispatchEditable ? "được sửa" : "chỉ xem"}</Badge>
+        <Badge tone={dispatchEditable ? "good" : "neutral"}>Xe/NCC {dispatchEditable ? "được sửa" : "chỉ xem"}</Badge>
         <Badge tone={financeEditable ? "good" : "neutral"}>Kế toán {financeEditable ? "được sửa" : "chỉ xem"}</Badge>
       </div>
       {updateQuoteStatus && (
@@ -4300,7 +4301,7 @@ function OrderDetailPanel({
 
               <fieldset className="space-y-4" disabled={!dispatchEditable}>
                 <SectionDetails
-                  badge={dispatchEditable ? "Điều hành" : "Chỉ xem"}
+                  badge={dispatchEditable ? "Điều hành/Kế toán" : "Chỉ xem"}
                   description="Bổ sung xe, tài xế, nhà cung cấp thuê ngoài và ghi chú vận hành."
                   title="4. Xe / tài xế / nhà cung cấp"
                 >
