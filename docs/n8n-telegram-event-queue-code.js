@@ -105,9 +105,34 @@ function formatDateTime(value) {
   }).format(date);
 }
 
+function orderRouteLegs(order) {
+  if (Array.isArray(order?.route_legs) && order.route_legs.length > 0) return order.route_legs;
+  if (!order?.pickup && !order?.dropoff) return [];
+  return [{ pickup: order.pickup, dropoff: order.dropoff, startAt: order.start_at, endAt: order.end_at }];
+}
+
+function legStartAt(leg) {
+  return leg?.startAt || leg?.start_at || "";
+}
+
+function legEndAt(leg) {
+  return leg?.endAt || leg?.end_at || "";
+}
+
 function mapsUrl(order) {
-  if (!order?.pickup || !order?.dropoff) return "";
-  return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(order.pickup)}&destination=${encodeURIComponent(order.dropoff)}&travelmode=driving`;
+  const legs = orderRouteLegs(order);
+  const origin = legs[0]?.pickup || order?.pickup;
+  const destination = legs[legs.length - 1]?.dropoff || order?.dropoff;
+  if (!origin || !destination) return "";
+  const params = new URLSearchParams({
+    api: "1",
+    origin,
+    destination,
+    travelmode: "driving"
+  });
+  const waypoints = legs.slice(0, -1).map((leg) => leg.dropoff).filter(Boolean);
+  if (waypoints.length > 0) params.set("waypoints", waypoints.join("|"));
+  return `https://www.google.com/maps/dir/?${params.toString()}`;
 }
 
 function actionUrl(event, order) {
@@ -139,7 +164,7 @@ async function getOrderDetails(event) {
   if (!orderId) return { order: null, vehicle: null, driver: null };
   try {
     const select = [
-      "id", "code", "customer_name", "contact_phone", "pickup", "dropoff",
+      "id", "code", "customer_name", "contact_phone", "pickup", "dropoff", "route_legs",
       "service_label", "start_at", "end_at", "amount_due", "driver_cost",
       "vehicle_id", "driver_id", "driver_full_name", "driver_phone",
       "vehicle_plate_no", "external_vehicle_plate", "external_vehicle_type",
@@ -165,7 +190,20 @@ async function getOrderDetails(event) {
 }
 
 function orderRoute(order) {
-  return order ? [order.pickup, order.dropoff].filter(Boolean).join(" -> ") : "";
+  const legs = orderRouteLegs(order);
+  if (legs.length === 0) return "";
+  const points = [legs[0]?.pickup, ...legs.map((leg) => leg.dropoff)].filter(Boolean);
+  return points.filter((point, index) => index === 0 || point !== points[index - 1]).join(" -> ");
+}
+
+function orderRouteDetails(order) {
+  const legs = orderRouteLegs(order);
+  if (legs.length <= 1) return [];
+  return legs.map((leg, index) => {
+    const time = [legStartAt(leg) ? formatDateTime(legStartAt(leg)) : "", legEndAt(leg) ? formatDateTime(legEndAt(leg)) : ""].filter(Boolean).join(" - ");
+    const note = leg.note ? ` / ${leg.note}` : "";
+    return `Chặng ${index + 1}: ${time ? `${time} / ` : ""}${leg.pickup || "-"} -> ${leg.dropoff || "-"}${note}`;
+  });
 }
 
 function orderVehicleLabel(order, vehicle) {
@@ -186,6 +224,7 @@ function eventRule(event, details) {
   const { order, vehicle, driver: driverProfile } = details;
   const type = event.event_type || "";
   const route = orderRoute(order);
+  const routeDetails = orderRouteDetails(order);
   const vehicleLabel = orderVehicleLabel(order, vehicle);
   const driver = orderDriverLabel(order, driverProfile);
   const assignment = [vehicleLabel ? `Xe: ${vehicleLabel}` : "", driver ? `Tài xế: ${driver}` : ""].filter(Boolean);
@@ -196,12 +235,12 @@ function eventRule(event, details) {
     dispatch_proposal_submitted: {
       title: "🟠 Lệnh chờ điều hành duyệt",
       action: "Kiểm tra thông tin lệnh và duyệt hoặc từ chối.",
-      info: [route ? `Tuyến: ${route}` : "", order?.amount_due ? `Giá bán: ${money(order.amount_due)}` : ""].filter(Boolean)
+      info: [route ? `Tuyến: ${route}` : "", ...routeDetails, order?.amount_due ? `Giá bán: ${money(order.amount_due)}` : ""].filter(Boolean)
     },
     dispatch_proposal_approved: {
       title: event.audience === "sale" ? "✅ Đề xuất đã được duyệt" : "🚗 Lệnh cần phân xe/tài xế",
       action: event.audience === "sale" ? "Theo dõi lệnh đã duyệt và bổ sung thông tin thương mại nếu còn thiếu." : "Chọn xe và tài xế phù hợp để phát hành chuyến.",
-      info: [route ? `Tuyến: ${route}` : "", "Trạng thái: chờ phân xe/tài xế"].filter(Boolean)
+      info: [route ? `Tuyến: ${route}` : "", ...routeDetails, "Trạng thái: chờ phân xe/tài xế"].filter(Boolean)
     },
     dispatch_proposal_rejected: {
       title: "🔴 Đề xuất bị từ chối",
@@ -211,17 +250,17 @@ function eventRule(event, details) {
     driver_assigned: {
       title: event.audience === "driver" ? "🚗 Bạn được phân chuyến mới" : "✅ Đã phân xe/tài xế",
       action: event.audience === "driver" ? "Kiểm tra thông tin chuyến, bấm Nhận chuyến và xem Google Maps." : "Theo dõi tài xế nhận chuyến trước giờ chạy.",
-      info: [route ? `Tuyến: ${route}` : "", ...assignment].filter(Boolean)
+      info: [route ? `Tuyến: ${route}` : "", ...routeDetails, ...assignment].filter(Boolean)
     },
     driver_assignment_replaced: {
       title: "🔄 Điều chỉnh xe/tài xế",
       action: event.audience === "driver" ? "Kiểm tra lại chuyến vì xe hoặc tài xế vừa được điều chỉnh." : "Theo dõi phân công mới và báo tài xế nếu sát giờ chạy.",
-      info: [route ? `Tuyến: ${route}` : "", ...assignment].filter(Boolean)
+      info: [route ? `Tuyến: ${route}` : "", ...routeDetails, ...assignment].filter(Boolean)
     },
     trip_completed: {
       title: event.audience === "accountant" ? "💰 Chuyến chờ đối soát" : "✅ Chuyến đã hoàn thành",
       action: event.audience === "accountant" ? "Kiểm tra payment, thu hộ, chi phí phát sinh, hóa đơn và công nợ để chốt lệnh." : "Kiểm tra kết thúc chuyến và ghi nhận phát sinh vận hành nếu có.",
-      info: [route ? `Tuyến: ${route}` : "", order?.amount_due ? `Giá bán: ${money(order.amount_due)}` : ""].filter(Boolean)
+      info: [route ? `Tuyến: ${route}` : "", ...routeDetails, order?.amount_due ? `Giá bán: ${money(order.amount_due)}` : ""].filter(Boolean)
     },
     driver_trip_report_submitted: {
       title: "🧾 Tài xế đã gửi báo cáo chuyến",
@@ -235,22 +274,22 @@ function eventRule(event, details) {
     urgent_driver_proposal_submitted: {
       title: "🔴 CHUYẾN GẤP TỪ TÀI XẾ",
       action: "Xử lý ngay, gọi xác nhận và duyệt nhanh nếu đủ điều kiện chạy.",
-      info: [route ? `Tuyến: ${route}` : "", order?.source_owner_name ? `Tài xế báo: ${order.source_owner_name}` : "", event.payload?.body || ""].filter(Boolean)
+      info: [route ? `Tuyến: ${route}` : "", ...routeDetails, order?.source_owner_name ? `Tài xế báo: ${order.source_owner_name}` : "", event.payload?.body || ""].filter(Boolean)
     },
     urgent_driver_proposal_needs_sales_completion: {
       title: "🟠 Chuyến gấp cần bổ sung thương mại",
       action: "Bổ sung giá bán, nguồn khách, hóa đơn và điều khoản thanh toán sau khi điều hành xử lý vận hành.",
-      info: [route ? `Tuyến: ${route}` : "", order?.source_owner_name ? `Tạo bởi: ${order.source_owner_name}` : ""].filter(Boolean)
+      info: [route ? `Tuyến: ${route}` : "", ...routeDetails, order?.source_owner_name ? `Tạo bởi: ${order.source_owner_name}` : ""].filter(Boolean)
     },
     driver_proposal_submitted: {
       title: "🟡 Cuốc mới từ tài xế",
       action: "Kiểm tra khách, giá bán, nguồn khách và chuyển thành đề xuất điều xe nếu phù hợp.",
-      info: [route ? `Tuyến: ${route}` : "", order?.source_owner_name ? `Tài xế báo: ${order.source_owner_name}` : ""].filter(Boolean)
+      info: [route ? `Tuyến: ${route}` : "", ...routeDetails, order?.source_owner_name ? `Tài xế báo: ${order.source_owner_name}` : ""].filter(Boolean)
     },
     driver_proposal_promoted_to_dispatch: {
       title: "🟠 Lệnh mới từ cuốc tài xế",
       action: "Kiểm tra và duyệt hoặc từ chối đề xuất.",
-      info: [route ? `Tuyến: ${route}` : "", order?.source_owner_name ? `Nguồn: ${order.source_owner_name}` : ""].filter(Boolean)
+      info: [route ? `Tuyến: ${route}` : "", ...routeDetails, order?.source_owner_name ? `Nguồn: ${order.source_owner_name}` : ""].filter(Boolean)
     }
   };
   return rules[type] || {
