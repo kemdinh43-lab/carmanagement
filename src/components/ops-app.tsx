@@ -78,6 +78,7 @@ import type {
   CompanyContact,
   Customer,
   DispatchOrder,
+  DispatchRouteLeg,
   DispatchStatus,
   Driver,
   InvoiceStatus,
@@ -134,6 +135,12 @@ const invoiceLabels: Record<InvoiceStatus, string> = {
   ready_to_issue: "Chờ xuất",
   issued: "Đã xuất",
   voided: "HĐ hủy"
+};
+
+const contractTypeLabels: Record<NonNullable<DispatchOrder["contractType"]>, string> = {
+  simple: "Hợp đồng giản đơn",
+  template: "Hợp đồng mẫu",
+  terms: "Hợp đồng điều khoản"
 };
 
 const tabs = ["Dashboard", "Lệnh điều xe", "Điều hành", "Màn làm việc", "Users", "Khách hàng", "Tài chính", "Master data", "Audit"] as const;
@@ -341,6 +348,150 @@ function SectionDetails({
       </summary>
       <div className="mt-3">{children}</div>
     </details>
+  );
+}
+
+function RouteLegFields({ initialLegs }: { initialLegs?: DispatchRouteLeg[] }) {
+  function normalizeDateTimeInput(value?: string) {
+    if (!value) return "";
+    return value.length > 16 ? toDateTimeInput(value) : value;
+  }
+
+  const [legs, setLegs] = useState<DispatchRouteLeg[]>(() => {
+    const normalized = initialLegs?.length ? initialLegs : [{ pickup: "", dropoff: "", startAt: defaultOrderTimes.startAt, endAt: defaultOrderTimes.endAt }];
+    return normalized.map((leg) => ({
+      ...leg,
+      startAt: normalizeDateTimeInput(leg.startAt),
+      endAt: normalizeDateTimeInput(leg.endAt)
+    }));
+  });
+  const firstLeg = legs[0];
+  const lastLeg = legs[legs.length - 1] ?? firstLeg;
+
+  function updateLeg(index: number, patch: Partial<DispatchRouteLeg>) {
+    setLegs((current) => current.map((leg, legIndex) => (legIndex === index ? { ...leg, ...patch } : leg)));
+  }
+
+  function addLeg() {
+    setLegs((current) => {
+      const previous = current[current.length - 1];
+      return [...current, { pickup: previous?.dropoff ?? "", dropoff: "", startAt: previous?.endAt ?? "", endAt: "", note: "" }];
+    });
+  }
+
+  function removeLeg(index: number) {
+    setLegs((current) => current.filter((_, legIndex) => legIndex !== index));
+  }
+
+  return (
+    <div className="space-y-3 md:col-span-full">
+      <input name="pickup" type="hidden" value={firstLeg?.pickup ?? ""} />
+      <input name="dropoff" type="hidden" value={lastLeg?.dropoff ?? ""} />
+      <input name="startAt" type="hidden" value={firstLeg?.startAt ?? ""} />
+      <input name="endAt" type="hidden" value={lastLeg?.endAt ?? ""} />
+      {legs.map((leg, index) => (
+        <div className="border border-line bg-white p-3" key={index}>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-ink">Chặng {index + 1}</p>
+            {legs.length > 1 && (
+              <button className="h-8 rounded-md border border-line bg-white px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50" onClick={() => removeLeg(index)} type="button">
+                Xóa
+              </button>
+            )}
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Field label="Ngày/giờ bắt đầu"><input className={inputClass()} name="routeLegStartAt" onChange={(event) => updateLeg(index, { startAt: event.target.value })} required={index === 0} type="datetime-local" value={leg.startAt ?? ""} /></Field>
+            <Field label="Ngày/giờ kết thúc dự kiến"><input className={inputClass()} name="routeLegEndAt" onChange={(event) => updateLeg(index, { endAt: event.target.value })} required={index === legs.length - 1} type="datetime-local" value={leg.endAt ?? ""} /></Field>
+            <Field label="Điểm đi"><input className={inputClass()} name="routeLegPickup" onChange={(event) => updateLeg(index, { pickup: event.target.value })} required value={leg.pickup} /></Field>
+            <Field label="Điểm đến"><input className={inputClass()} name="routeLegDropoff" onChange={(event) => updateLeg(index, { dropoff: event.target.value })} required value={leg.dropoff} /></Field>
+            <div className="md:col-span-2">
+              <Field label="Ghi chú chặng"><input className={inputClass()} name="routeLegNote" onChange={(event) => updateLeg(index, { note: event.target.value })} placeholder="Flight, điểm chờ, khách lên/xuống, yêu cầu riêng..." value={leg.note ?? ""} /></Field>
+            </div>
+          </div>
+        </div>
+      ))}
+      <button className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-brand hover:bg-teal-50" onClick={addLeg} type="button">
+        <Plus size={16} /> Thêm chặng
+      </button>
+    </div>
+  );
+}
+
+function VatCalculatorFields({ initialSubtotal = 0, initialVatRate = 0, initialTotal = 0 }: { initialSubtotal?: number; initialVatRate?: number; initialTotal?: number }) {
+  const startingTotal = initialTotal || (initialSubtotal ? Math.round(initialSubtotal * (1 + initialVatRate / 100)) : 0);
+  const startingSubtotal = initialSubtotal || (startingTotal ? Math.round(startingTotal / (1 + initialVatRate / 100)) : 0);
+  const [subtotal, setSubtotal] = useState(startingSubtotal);
+  const [vatRate, setVatRate] = useState(initialVatRate);
+  const [total, setTotal] = useState(startingTotal);
+  const [basis, setBasis] = useState<"subtotal" | "total">("total");
+  const vatAmount = Math.max(0, total - subtotal);
+
+  function changeSubtotal(value: number) {
+    const nextSubtotal = Number.isFinite(value) ? value : 0;
+    setBasis("subtotal");
+    setSubtotal(nextSubtotal);
+    setTotal(Math.round(nextSubtotal * (1 + vatRate / 100)));
+  }
+
+  function changeVatRate(value: number) {
+    const nextRate = Number.isFinite(value) ? value : 0;
+    setVatRate(nextRate);
+    if (basis === "subtotal") {
+      setTotal(Math.round(subtotal * (1 + nextRate / 100)));
+      return;
+    }
+    setSubtotal(Math.round(total / (1 + nextRate / 100)));
+  }
+
+  function changeTotal(value: number) {
+    const nextTotal = Number.isFinite(value) ? value : 0;
+    setBasis("total");
+    setTotal(nextTotal);
+    setSubtotal(Math.round(nextTotal / (1 + vatRate / 100)));
+  }
+
+  return (
+    <>
+      <Field label="Tiền trước thuế"><input className={inputClass()} min="0" name="subtotalAmount" onChange={(event) => changeSubtotal(Number(event.target.value))} type="number" value={subtotal} /></Field>
+      <Field label="VAT">
+        <select className={inputClass()} name="vatRate" onChange={(event) => changeVatRate(Number(event.target.value))} value={vatRate}>
+          <option value={0}>0% / Không VAT</option>
+          <option value={5}>5%</option>
+          <option value={8}>8%</option>
+          <option value={10}>10%</option>
+        </select>
+      </Field>
+      <Field label="Tiền thuế"><input className={inputClass()} min="0" name="vatAmount" readOnly type="number" value={vatAmount} /></Field>
+      <Field label="Tổng thanh toán"><input className={inputClass()} min="0" name="amountDue" onChange={(event) => changeTotal(Number(event.target.value))} required type="number" value={total} /></Field>
+    </>
+  );
+}
+
+function DocumentPreview({ title, body }: { title: string; body: string }) {
+  return (
+    <section className="border border-line bg-panel p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="font-semibold text-ink">{title}</p>
+        <Badge tone="info">Preview</Badge>
+      </div>
+      <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md border border-line bg-white p-3 text-xs leading-5 text-slate-700">{body}</pre>
+    </section>
+  );
+}
+
+function OrderDocumentPreviews({ order }: { order: DispatchOrder }) {
+  return (
+    <SectionDetails
+      badge="Sale/Kế toán"
+      defaultOpen={false}
+      description="Cùng một bộ dữ liệu lệnh, nhưng xuất thành phiếu gửi khách và lệnh điều xe final."
+      title="Phiếu xác nhận & lệnh final"
+    >
+      <div className="grid gap-3 lg:grid-cols-2">
+        <DocumentPreview body={customerConfirmationText(order)} title="Phiếu gửi khách xác nhận" />
+        <DocumentPreview body={finalDispatchOrderText(order)} title="Lệnh điều xe final" />
+      </div>
+    </SectionDetails>
   );
 }
 
@@ -632,6 +783,122 @@ function toDateTimeInput(value: string) {
   const date = new Date(value);
   const offsetMs = date.getTimezoneOffset() * 60_000;
   return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function parseRouteLegs(form: FormData): DispatchRouteLeg[] {
+  const starts = form.getAll("routeLegStartAt").map((value) => String(value || ""));
+  const ends = form.getAll("routeLegEndAt").map((value) => String(value || ""));
+  const pickups = form.getAll("routeLegPickup").map((value) => String(value || "").trim());
+  const dropoffs = form.getAll("routeLegDropoff").map((value) => String(value || "").trim());
+  const notes = form.getAll("routeLegNote").map((value) => String(value || "").trim());
+
+  return pickups
+    .map((pickup, index) => ({
+      startAt: starts[index] ? toIsoFromInput(starts[index]) : undefined,
+      endAt: ends[index] ? toIsoFromInput(ends[index]) : undefined,
+      pickup,
+      dropoff: dropoffs[index] || "",
+      note: notes[index] || undefined
+    }))
+    .filter((leg) => leg.pickup || leg.dropoff);
+}
+
+function primaryLegValues(routeLegs: DispatchRouteLeg[], fallbackStartAt: string, fallbackEndAt: string) {
+  const first = routeLegs[0];
+  const last = routeLegs[routeLegs.length - 1] ?? first;
+  return {
+    startAt: first?.startAt ?? toIsoFromInput(fallbackStartAt),
+    endAt: last?.endAt ?? toIsoFromInput(fallbackEndAt),
+    pickup: first?.pickup ?? "",
+    dropoff: last?.dropoff ?? ""
+  };
+}
+
+function vatFromForm(form: FormData) {
+  const subtotalAmount = Number(form.get("subtotalAmount") || 0);
+  const vatRate = Number(form.get("vatRate") || 0);
+  const totalAmount = Number(form.get("amountDue") || 0);
+  const vatAmount = Number(form.get("vatAmount") || 0);
+  return {
+    subtotalAmount: Number.isFinite(subtotalAmount) ? subtotalAmount : 0,
+    vatRate: Number.isFinite(vatRate) ? vatRate : 0,
+    vatAmount: Number.isFinite(vatAmount) ? vatAmount : 0,
+    amountDue: Number.isFinite(totalAmount) ? totalAmount : 0
+  };
+}
+
+function routeLegsForOrder(order: DispatchOrder): DispatchRouteLeg[] {
+  return order.routeLegs?.length ? order.routeLegs : [{ pickup: order.pickup, dropoff: order.dropoff, startAt: order.startAt, endAt: order.endAt }];
+}
+
+function routeLinesForOrder(order: DispatchOrder) {
+  return routeLegsForOrder(order).map((leg, index) => {
+    const time = [leg.startAt ? formatDateTime(leg.startAt) : "", leg.endAt ? formatDateTime(leg.endAt) : ""].filter(Boolean).join(" - ");
+    const note = leg.note ? ` (${leg.note})` : "";
+    return `Chặng ${index + 1}: ${time ? `${time} / ` : ""}${leg.pickup || "-"} -> ${leg.dropoff || "-"}${note}`;
+  });
+}
+
+function customerConfirmationText(order: DispatchOrder) {
+  return [
+    "CÔNG TY TNHH ANGEL ONE TRAVEL",
+    "",
+    "PHIẾU THÔNG TIN KHÁCH HÀNG",
+    `Loại hợp đồng: ${contractTypeLabels[order.contractType ?? "simple"]}`,
+    `Tên khách hàng / người sử dụng: ${order.customerName}`,
+    `SĐT: ${order.contactPhone}`,
+    order.customerCccd ? `Số CCCD: ${order.customerCccd}` : "Số CCCD: Không cung cấp",
+    order.invoiceRequired ? `Tên công ty: ${order.companyName || "-"}` : "",
+    order.invoiceRequired ? `MST: ${order.taxCode || "-"}` : "",
+    order.invoiceRequired ? `Địa chỉ: ${order.companyAddress || "-"}` : "",
+    order.invoiceRequired ? `STK: ${order.companyBankAccount || order.customerBankAccount || "-"}` : "",
+    order.invoiceRequired ? `Tên ngân hàng: ${order.companyBankName || order.customerBankName || "-"}` : "",
+    "",
+    "Thông tin dịch vụ:",
+    `Mã dịch vụ: ${order.serviceCode || "-"}`,
+    `Dịch vụ: ${order.serviceLabel}`,
+    `Đơn vị tính: ${order.unit || "Chuyến"}`,
+    ...routeLinesForOrder(order),
+    order.serviceClarification ? `Nội dung làm rõ: ${order.serviceClarification}` : "",
+    "",
+    "Thanh toán:",
+    `Tiền trước thuế: ${money(order.subtotalAmount ?? order.amountDue)}`,
+    `VAT: ${order.vatRate ?? 0}% / ${money(order.vatAmount ?? 0)}`,
+    `Tổng thanh toán: ${money(order.amountDue)}`,
+    order.customerConfirmationNote ? `Lưu ý xác nhận: ${order.customerConfirmationNote}` : ""
+  ].filter(Boolean).join("\n");
+}
+
+function finalDispatchOrderText(order: DispatchOrder) {
+  return [
+    `LỆNH ĐIỀU XE ${order.code}`,
+    `Ngày lệnh: ${order.orderDate || "-"}`,
+    `Nguồn: ${order.sourceOwnerName || order.salesOwner} / ${order.source}`,
+    `Loại hợp đồng: ${contractTypeLabels[order.contractType ?? "simple"]}`,
+    "",
+    "Khách hàng:",
+    `${order.customerName} / ${order.contactPhone}`,
+    `Công ty: ${order.companyName || "-"}`,
+    `MST: ${order.taxCode || "-"}`,
+    "",
+    "Hành trình:",
+    ...routeLinesForOrder(order),
+    `Dịch vụ: ${order.serviceCode || "-"} / ${order.serviceLabel} / ${order.unit || "Chuyến"}`,
+    "",
+    "Xe / tài xế:",
+    `Hình thức xe: ${order.vehicleOwnership === "rented" ? "Thuê ngoài" : "Xe công ty"}`,
+    `Biển số: ${order.externalVehiclePlate || order.vehiclePlateNo || order.vehicleId || "-"}`,
+    `Tài xế: ${order.externalDriverName || order.driverFullName || order.driverId || "-"} / ${order.externalDriverPhone || order.driverPhone || "-"}`,
+    "",
+    "Tài chính:",
+    `Tiền trước thuế: ${money(order.subtotalAmount ?? order.amountDue)}`,
+    `VAT: ${order.vatRate ?? 0}% / ${money(order.vatAmount ?? 0)}`,
+    `Tổng thanh toán: ${money(order.amountDue)}`,
+    `Thu hộ tài xế: ${money(order.driverCollectedAmount ?? 0)}`,
+    `Chi phí dự kiến: ${money(orderCost(order))}`,
+    `Chi phí thực tế: ${money(orderActualCost(order))}`,
+    `Công nợ/đối soát: ${paymentLabels[order.paymentStatus]} / ${invoiceLabels[order.invoiceStatus]}`
+  ].join("\n");
 }
 
 function buildCode(index: number, orderDate = vietnamDateKey()) {
@@ -1430,15 +1697,18 @@ export default function OpsApp() {
     const form = new FormData(formElement);
     const startAt = String(form.get("startAt") || "");
     const endAt = String(form.get("endAt") || "");
-    const amountDue = Number(form.get("amountDue"));
+    const { subtotalAmount, vatRate, vatAmount, amountDue } = vatFromForm(form);
     const driverCost = Number(form.get("driverCost") || 0);
     const vehicleCost = Number(form.get("vehicleCost") || 0);
     const otherCost = Number(form.get("otherCost") || 0);
+    const routeLegs = parseRouteLegs(form);
+    const primaryRoute = primaryLegValues(routeLegs, startAt, endAt);
     const kind = String(form.get("customerKind")) as DispatchOrder["customerKind"];
     const customerId = String(form.get("customerId") || "");
     const companyId = String(form.get("companyId") || "");
     const contactId = String(form.get("contactId") || "");
     const orderDate = String(form.get("orderDate") || "").trim();
+    const contractType = String(form.get("contractType") || "simple") as DispatchOrder["contractType"];
     const contactName = String(form.get("contactName") || "").trim();
     const companyName = String(form.get("companyName") || "").trim();
     const taxCode = String(form.get("taxCode") || "").trim();
@@ -1479,6 +1749,11 @@ export default function OpsApp() {
       return;
     }
 
+    if (!primaryRoute.pickup || !primaryRoute.dropoff) {
+      setMessage("Hành trình cần ít nhất một chặng có điểm đi và điểm đến.");
+      return;
+    }
+
     if (amountDue < 0 || driverCost < 0 || vehicleCost < 0 || otherCost < 0) {
       setMessage("Giá bán và chi phí không được âm.");
       return;
@@ -1514,6 +1789,7 @@ export default function OpsApp() {
       id: makeId("order"),
       code: orderCode,
       orderDate: orderDate || undefined,
+      contractType,
       customerKind: kind,
       customerName: kind === "company" ? selectedCompanyProfile?.legalName ?? companyName : selectedCustomerProfile?.fullName ?? String(form.get("customerName") || "").trim(),
       customerCccd: kind === "individual" ? customerCccd || undefined : undefined,
@@ -1529,8 +1805,9 @@ export default function OpsApp() {
       taxCode: kind === "company" ? ((selectedCompanyProfile?.taxCode ?? taxCode) || undefined) : undefined,
       billingEmail: kind === "company" ? ((selectedCompanyProfile?.billingEmail ?? billingEmail) || undefined) : undefined,
       serviceCode: serviceCode || undefined,
-      pickup: String(form.get("pickup") || "").trim(),
-      dropoff: String(form.get("dropoff") || "").trim(),
+      pickup: primaryRoute.pickup,
+      dropoff: primaryRoute.dropoff,
+      routeLegs,
       serviceLabel: String(form.get("serviceLabel") || "Private transfer").trim(),
       serviceClarification: serviceClarification || undefined,
       unit: unit || undefined,
@@ -1553,8 +1830,11 @@ export default function OpsApp() {
       supplierTotalWithVat: Number.isFinite(supplierTotalWithVat) ? supplierTotalWithVat : undefined,
       supplierBankAccount: supplierBankAccount || undefined,
       supplierBankName: supplierBankName || undefined,
-      startAt: toIsoFromInput(startAt),
-      endAt: toIsoFromInput(endAt),
+      startAt: primaryRoute.startAt,
+      endAt: primaryRoute.endAt,
+      subtotalAmount,
+      vatRate,
+      vatAmount,
       amountDue,
       driverCost,
       vehicleCost,
@@ -1565,6 +1845,7 @@ export default function OpsApp() {
       collectionBankAccount: String(form.get("collectionBankAccount") || "").trim() || undefined,
       collectionBankName: String(form.get("collectionBankName") || "").trim() || undefined,
       quoteNote: String(form.get("quoteNote") || "").trim() || undefined,
+      customerConfirmationNote: String(form.get("customerConfirmationNote") || "").trim() || undefined,
       priority: String(form.get("priority") || "normal") as DispatchPriority,
       salesNote: String(form.get("salesNote") || "").trim() || undefined,
       quoteStatus: "draft",
@@ -2157,14 +2438,17 @@ export default function OpsApp() {
     const endAt = canEditSales ? String(form.get("endAt") ?? "") : toDateTimeInput(selectedOrder.endAt);
     const nextStartAt = toIsoFromInput(startAt);
     const nextEndAt = toIsoFromInput(endAt);
+    const routeLegs = canEditSales ? parseRouteLegs(form) : selectedOrder.routeLegs;
+    const primaryRoute = canEditSales && routeLegs?.length ? primaryLegValues(routeLegs, startAt, endAt) : { startAt: nextStartAt, endAt: nextEndAt, pickup: selectedOrder.pickup, dropoff: selectedOrder.dropoff };
     const readText = (name: string, fallback: string, editable: boolean) => (editable ? String(form.get(name) ?? "").trim() : fallback);
     const readMaybeText = (name: string, fallback: string | null | undefined, editable: boolean) => (editable ? String(form.get(name) ?? "").trim() || null : fallback ?? null);
     const readNumber = (name: string, fallback: number, editable: boolean) => (editable ? Number(form.get(name) || 0) : fallback);
     const readMaybeNumber = (name: string, fallback: number | null | undefined, editable: boolean) => (editable ? Number(form.get(name) || 0) : fallback ?? null);
-    const readBoolean = (name: string, fallback: boolean, editable: boolean) => (editable ? form.get(name) === "yes" : fallback);
+    const readBoolean = (name: string, fallback: boolean | null | undefined, editable: boolean) => (editable ? form.get(name) === "yes" : fallback ?? null);
 
     const kind = (canEditSales ? String(form.get("customerKind") || selectedOrder.customerKind) : selectedOrder.customerKind) as DispatchOrder["customerKind"];
     const orderDate = readText("orderDate", selectedOrder.orderDate ?? "", canEditSales);
+    const contractType = readMaybeText("contractType", selectedOrder.contractType, canEditSales) as DispatchOrder["contractType"] | null;
     const customerName = readText("customerName", selectedOrder.customerName, canEditSales);
     const customerCccd = readMaybeText("customerCccd", selectedOrder.customerCccd, canEditSales);
     const customerAddress = readMaybeText("customerAddress", selectedOrder.customerAddress, canEditSales);
@@ -2182,7 +2466,7 @@ export default function OpsApp() {
     const salesOwner = readText("salesOwner", selectedOrder.salesOwner, canEditSales);
     const sourceOwnerName = readMaybeText("sourceOwnerName", selectedOrder.sourceOwnerName, canEditSales);
     const source = readText("source", selectedOrder.source, canEditSales);
-    const invoiceRequired = readBoolean("invoiceRequired", Boolean(selectedOrder.invoiceRequired), canEditSales);
+    const invoiceRequired = readBoolean("invoiceRequired", selectedOrder.invoiceRequired, canEditSales);
     const vehicleOwnership = readMaybeText("vehicleOwnership", selectedOrder.vehicleOwnership, canEditDispatch) as DispatchOrder["vehicleOwnership"] | null;
     const vehiclePlateNo = readMaybeText("vehiclePlateNo", selectedOrder.vehiclePlateNo, canEditDispatch);
     const driverFullName = readMaybeText("driverFullName", selectedOrder.driverFullName, canEditDispatch);
@@ -2190,7 +2474,7 @@ export default function OpsApp() {
     const driverPhone = readMaybeText("driverPhone", selectedOrder.driverPhone, canEditDispatch);
     const supplierOwnerName = readMaybeText("supplierOwnerName", selectedOrder.supplierOwnerName, canEditDispatch);
     const supplierCccd = readMaybeText("supplierCccd", selectedOrder.supplierCccd, canEditDispatch);
-    const supplierInvoiceRequired = readBoolean("supplierInvoiceRequired", Boolean(selectedOrder.supplierInvoiceRequired), canEditDispatch);
+    const supplierInvoiceRequired = readBoolean("supplierInvoiceRequired", selectedOrder.supplierInvoiceRequired, canEditDispatch);
     const supplierCompanyName = readMaybeText("supplierCompanyName", selectedOrder.supplierCompanyName, canEditDispatch);
     const supplierTaxCode = readMaybeText("supplierTaxCode", selectedOrder.supplierTaxCode, canEditDispatch);
     const supplierAddress = readMaybeText("supplierAddress", selectedOrder.supplierAddress, canEditDispatch);
@@ -2198,7 +2482,13 @@ export default function OpsApp() {
     const supplierTotalWithVat = readMaybeNumber("supplierTotalWithVat", selectedOrder.supplierTotalWithVat, canEditDispatch);
     const supplierBankAccount = readMaybeText("supplierBankAccount", selectedOrder.supplierBankAccount, canEditDispatch);
     const supplierBankName = readMaybeText("supplierBankName", selectedOrder.supplierBankName, canEditDispatch);
-    const amountDue = readNumber("amountDue", selectedOrder.amountDue, canEditSales);
+    const vatValues = canEditSales ? vatFromForm(form) : {
+      subtotalAmount: selectedOrder.subtotalAmount,
+      vatRate: selectedOrder.vatRate,
+      vatAmount: selectedOrder.vatAmount,
+      amountDue: selectedOrder.amountDue
+    };
+    const amountDue = vatValues.amountDue;
     const driverCost = readNumber("driverCost", selectedOrder.driverCost ?? 0, canEditSales);
     const vehicleCost = readNumber("vehicleCost", selectedOrder.vehicleCost ?? 0, canEditSales);
     const otherCost = readNumber("otherCost", selectedOrder.otherCost ?? 0, canEditSales);
@@ -2208,11 +2498,16 @@ export default function OpsApp() {
     const collectionBankAccount = readMaybeText("collectionBankAccount", selectedOrder.collectionBankAccount, canEditFinance);
     const collectionBankName = readMaybeText("collectionBankName", selectedOrder.collectionBankName, canEditFinance);
     const quoteNote = readMaybeText("quoteNote", selectedOrder.quoteNote, canEditSales);
+    const customerConfirmationNote = readMaybeText("customerConfirmationNote", selectedOrder.customerConfirmationNote, canEditSales);
     const priority = readText("priority", selectedOrder.priority ?? "normal", canEditSales) as DispatchPriority;
     const salesNote = readMaybeText("salesNote", selectedOrder.salesNote, canEditSales || canEditDispatch);
 
-    if (!startAt || !endAt || new Date(nextEndAt) <= new Date(nextStartAt)) {
+    if (!startAt || !endAt || new Date(primaryRoute.endAt) <= new Date(primaryRoute.startAt)) {
       setMessage("Giờ kết thúc phải sau giờ bắt đầu.");
+      return;
+    }
+    if (canEditSales && (!primaryRoute.pickup || !primaryRoute.dropoff)) {
+      setMessage("Hành trình cần ít nhất một chặng có điểm đi và điểm đến.");
       return;
     }
     if (amountDue < 0 || driverCost < 0 || vehicleCost < 0 || otherCost < 0) {
@@ -2226,8 +2521,8 @@ export default function OpsApp() {
         {
           vehicleId: activeAssignment.vehicleId,
           driverId: activeAssignment.driverId,
-          startAt: nextStartAt,
-          endAt: nextEndAt,
+          startAt: primaryRoute.startAt,
+          endAt: primaryRoute.endAt,
           ignoreAssignmentId: activeAssignment.id
         },
         state.assignments
@@ -2243,6 +2538,7 @@ export default function OpsApp() {
     const rpcArgs = {
       p_order_id: selectedOrder.id,
       p_order_date: orderDate || null,
+      p_contract_type: contractType || null,
       p_customer_kind: kind,
       p_customer_name: customerName,
       p_customer_cccd: kind === "individual" ? customerCccd || null : null,
@@ -2258,8 +2554,9 @@ export default function OpsApp() {
       p_tax_code: kind === "company" ? taxCode || null : null,
       p_billing_email: kind === "company" ? billingEmail || null : null,
       p_service_code: serviceCode || null,
-      p_pickup: readText("pickup", selectedOrder.pickup, canEditSales),
-      p_dropoff: readText("dropoff", selectedOrder.dropoff, canEditSales),
+      p_pickup: primaryRoute.pickup,
+      p_dropoff: primaryRoute.dropoff,
+      p_route_legs: routeLegs ?? null,
       p_service_label: readText("serviceLabel", selectedOrder.serviceLabel, canEditSales),
       p_service_clarification: serviceClarification || null,
       p_unit: unit || null,
@@ -2282,8 +2579,11 @@ export default function OpsApp() {
       p_supplier_total_with_vat: Number.isFinite(supplierTotalWithVat) ? supplierTotalWithVat : null,
       p_supplier_bank_account: supplierBankAccount || null,
       p_supplier_bank_name: supplierBankName || null,
-      p_start_at: nextStartAt,
-      p_end_at: nextEndAt,
+      p_subtotal_amount: vatValues.subtotalAmount ?? null,
+      p_vat_rate: vatValues.vatRate ?? null,
+      p_vat_amount: vatValues.vatAmount ?? null,
+      p_start_at: primaryRoute.startAt,
+      p_end_at: primaryRoute.endAt,
       p_amount_due: amountDue,
       p_driver_cost: driverCost,
       p_vehicle_cost: vehicleCost,
@@ -2294,6 +2594,7 @@ export default function OpsApp() {
       p_collection_bank_account: collectionBankAccount || null,
       p_collection_bank_name: collectionBankName || null,
       p_quote_note: quoteNote || null,
+      p_customer_confirmation_note: customerConfirmationNote || null,
       p_priority: priority,
       p_sales_note: salesNote || null,
       p_active_assignment_id: activeAssignment?.id ?? null,
@@ -2310,6 +2611,7 @@ export default function OpsApp() {
           selectedOrder.id,
           {
             orderDate: orderDate || undefined,
+            contractType: contractType || undefined,
             customerKind: kind,
             customerName,
             customerCccd: customerCccd || undefined,
@@ -2325,15 +2627,16 @@ export default function OpsApp() {
             taxCode: taxCode || undefined,
             billingEmail: billingEmail || undefined,
             serviceCode: serviceCode || undefined,
-            pickup: readText("pickup", selectedOrder.pickup, canEditSales),
-            dropoff: readText("dropoff", selectedOrder.dropoff, canEditSales),
+            pickup: primaryRoute.pickup,
+            dropoff: primaryRoute.dropoff,
+            routeLegs,
             serviceLabel: readText("serviceLabel", selectedOrder.serviceLabel, canEditSales),
             serviceClarification: serviceClarification || undefined,
             unit: unit || undefined,
             salesOwner,
             sourceOwnerName: sourceOwnerName || undefined,
             source,
-            invoiceRequired,
+            invoiceRequired: invoiceRequired ?? undefined,
             vehicleOwnership: vehicleOwnership ?? undefined,
             vehiclePlateNo: vehiclePlateNo || undefined,
             driverFullName: driverFullName || undefined,
@@ -2341,7 +2644,7 @@ export default function OpsApp() {
             driverPhone: driverPhone || undefined,
             supplierOwnerName: supplierOwnerName || undefined,
             supplierCccd: supplierCccd || undefined,
-            supplierInvoiceRequired,
+            supplierInvoiceRequired: supplierInvoiceRequired ?? undefined,
             supplierCompanyName: supplierCompanyName || undefined,
             supplierTaxCode: supplierTaxCode || undefined,
             supplierAddress: supplierAddress || undefined,
@@ -2349,8 +2652,11 @@ export default function OpsApp() {
             supplierTotalWithVat: supplierTotalWithVat == null ? undefined : supplierTotalWithVat,
             supplierBankAccount: supplierBankAccount || undefined,
             supplierBankName: supplierBankName || undefined,
-            startAt: nextStartAt,
-            endAt: nextEndAt,
+            startAt: primaryRoute.startAt,
+            endAt: primaryRoute.endAt,
+            subtotalAmount: vatValues.subtotalAmount,
+            vatRate: vatValues.vatRate,
+            vatAmount: vatValues.vatAmount,
             amountDue,
             driverCost: driverCost ?? 0,
             vehicleCost: vehicleCost ?? 0,
@@ -2361,6 +2667,7 @@ export default function OpsApp() {
             collectionBankAccount: collectionBankAccount || undefined,
             collectionBankName: collectionBankName || undefined,
             quoteNote: quoteNote || undefined,
+            customerConfirmationNote: customerConfirmationNote || undefined,
             priority,
             salesNote: salesNote || undefined
           },
@@ -3505,6 +3812,9 @@ function OrderDetailPanel({
       <div className="mt-4">
         <StaticPinMap order={order} />
       </div>
+      <div className="mt-4">
+        <OrderDocumentPreviews order={order} />
+      </div>
       {updateOrder && cancelOrder && (
         <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_360px]">
           <form className="border border-line bg-panel p-4" onSubmit={updateOrder}>
@@ -3518,6 +3828,13 @@ function OrderDetailPanel({
                 >
                   <div className="grid gap-3 md:grid-cols-3">
                     <Field label="Ngày lệnh"><input className={inputClass()} defaultValue={order.orderDate ?? ""} name="orderDate" placeholder="2026-08-25" /></Field>
+                    <Field label="Loại hợp đồng">
+                      <select className={inputClass()} defaultValue={order.contractType ?? "simple"} name="contractType">
+                        <option value="simple">Hợp đồng giản đơn</option>
+                        <option value="template">Hợp đồng mẫu</option>
+                        <option value="terms">Hợp đồng điều khoản</option>
+                      </select>
+                    </Field>
                     <Field label="Loại khách">
                       <select className={inputClass()} defaultValue={order.customerKind} name="customerKind">
                         <option value="individual">Cá nhân</option>
@@ -3560,20 +3877,35 @@ function OrderDetailPanel({
                 >
                   <div className="grid gap-3 md:grid-cols-3">
                     <Field label="Mã dịch vụ"><input className={inputClass()} defaultValue={order.serviceCode ?? ""} name="serviceCode" /></Field>
-                    <Field label="Dịch vụ"><input className={inputClass()} defaultValue={order.serviceLabel} name="serviceLabel" required /></Field>
+                    <Field label="Dịch vụ">
+                      <select className={inputClass()} defaultValue={order.serviceLabel} name="serviceLabel" required>
+                        <option>Dịch vụ vận tải</option>
+                        <option>Dịch vụ lữ hành</option>
+                        <option>Hợp tác</option>
+                        <option>Cho thuê</option>
+                        <option>Private transfer</option>
+                      </select>
+                    </Field>
                     <Field label="Diễn giải"><input className={inputClass()} defaultValue={order.serviceClarification ?? ""} name="serviceClarification" /></Field>
-                    <Field label="Đơn vị tính"><input className={inputClass()} defaultValue={order.unit ?? ""} name="unit" /></Field>
-                    <Field label="Điểm đón"><input className={inputClass()} defaultValue={order.pickup} name="pickup" required /></Field>
-                    <Field label="Điểm trả"><input className={inputClass()} defaultValue={order.dropoff} name="dropoff" required /></Field>
-                    <Field label="Bắt đầu"><input className={inputClass()} defaultValue={toDateTimeInput(order.startAt)} name="startAt" required type="datetime-local" /></Field>
-                    <Field label="Kết thúc"><input className={inputClass()} defaultValue={toDateTimeInput(order.endAt)} name="endAt" required type="datetime-local" /></Field>
+                    <Field label="Đơn vị tính">
+                      <select className={inputClass()} defaultValue={order.unit ?? "Chuyến"} name="unit">
+                        <option>Chuyến</option>
+                        <option>Ngày</option>
+                        <option>Kỳ</option>
+                        <option>Tháng</option>
+                      </select>
+                    </Field>
+                    <RouteLegFields initialLegs={order.routeLegs?.length ? order.routeLegs : [{ pickup: order.pickup, dropoff: order.dropoff, startAt: order.startAt, endAt: order.endAt }]} />
                     <Field label="Ưu tiên"><select className={inputClass()} defaultValue={order.priority ?? "normal"} name="priority"><option value="normal">Thường</option><option value="high">Cao</option><option value="urgent">Gấp</option></select></Field>
-                    <Field label="Giá bán"><input className={inputClass()} defaultValue={order.amountDue} min="0" name="amountDue" required type="number" /></Field>
+                    <VatCalculatorFields initialSubtotal={order.subtotalAmount ?? 0} initialVatRate={order.vatRate ?? 0} initialTotal={order.amountDue} />
                     <Field label="Chi phí tài xế"><input className={inputClass()} defaultValue={order.driverCost ?? 0} min="0" name="driverCost" type="number" /></Field>
                     <Field label="Chi phí xe"><input className={inputClass()} defaultValue={order.vehicleCost ?? 0} min="0" name="vehicleCost" type="number" /></Field>
                     <Field label="Phụ phí"><input className={inputClass()} defaultValue={order.otherCost ?? 0} min="0" name="otherCost" type="number" /></Field>
                     <div className="md:col-span-3">
                       <Field label="Ghi chú báo giá"><textarea className={`${inputClass()} min-h-20 resize-none py-2`} defaultValue={order.quoteNote ?? ""} name="quoteNote" placeholder="Bao gồm/chưa gồm phí cầu đường, giờ chờ, VAT..." /></Field>
+                    </div>
+                    <div className="md:col-span-3">
+                      <Field label="Nội dung gửi khách xác nhận"><textarea className={`${inputClass()} min-h-20 resize-none py-2`} defaultValue={order.customerConfirmationNote ?? ""} name="customerConfirmationNote" placeholder="Điều khoản thanh toán, thông tin cần khách kiểm tra, ghi chú xác nhận..." /></Field>
                     </div>
                   </div>
                 </SectionDetails>
@@ -3960,6 +4292,13 @@ function OrdersPanel({
           >
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
               <Field label="Ngày lệnh"><input className={inputClass()} name="orderDate" placeholder="2026-08-25" /></Field>
+              <Field label="Loại hợp đồng">
+                <select className={inputClass()} name="contractType">
+                  <option value="simple">Hợp đồng giản đơn</option>
+                  <option value="template">Hợp đồng mẫu</option>
+                  <option value="terms">Hợp đồng điều khoản</option>
+                </select>
+              </Field>
               <Field label="Người tạo nguồn"><input className={inputClass()} name="sourceOwnerName" /></Field>
               <Field label="Xuất hóa đơn"><select className={inputClass()} name="invoiceRequired"><option value="no">Không</option><option value="yes">Có</option></select></Field>
               <Field label="Sale"><select className={inputClass()} name="salesOwner"><option>Sale A</option><option>Sale B</option><option>Sale C</option></select></Field>
@@ -4019,20 +4358,35 @@ function OrdersPanel({
           >
             <div className="grid gap-3 md:grid-cols-2">
               <Field label="Mã dịch vụ"><input className={inputClass()} name="serviceCode" /></Field>
-              <Field label="Dịch vụ"><input className={inputClass()} defaultValue="Private transfer" name="serviceLabel" required /></Field>
+              <Field label="Dịch vụ">
+                <select className={inputClass()} defaultValue="Dịch vụ vận tải" name="serviceLabel" required>
+                  <option>Dịch vụ vận tải</option>
+                  <option>Dịch vụ lữ hành</option>
+                  <option>Hợp tác</option>
+                  <option>Cho thuê</option>
+                  <option>Private transfer</option>
+                </select>
+              </Field>
               <Field label="Diễn giải"><input className={inputClass()} name="serviceClarification" /></Field>
-              <Field label="Đơn vị tính"><input className={inputClass()} name="unit" /></Field>
-              <Field label="Điểm đón"><input className={inputClass()} name="pickup" required /></Field>
-              <Field label="Điểm trả"><input className={inputClass()} name="dropoff" required /></Field>
-              <Field label="Bắt đầu"><input className={inputClass()} defaultValue={defaultOrderTimes.startAt} name="startAt" required type="datetime-local" /></Field>
-              <Field label="Kết thúc"><input className={inputClass()} defaultValue={defaultOrderTimes.endAt} name="endAt" required type="datetime-local" /></Field>
+              <Field label="Đơn vị tính">
+                <select className={inputClass()} defaultValue="Chuyến" name="unit">
+                  <option>Chuyến</option>
+                  <option>Ngày</option>
+                  <option>Kỳ</option>
+                  <option>Tháng</option>
+                </select>
+              </Field>
+              <RouteLegFields />
               <Field label="Ưu tiên"><select className={inputClass()} name="priority"><option value="normal">Thường</option><option value="high">Cao</option><option value="urgent">Gấp</option></select></Field>
-              <Field label="Giá bán"><input className={inputClass()} defaultValue="1200000" min="0" name="amountDue" required type="number" /></Field>
+              <VatCalculatorFields initialTotal={1200000} />
               <Field label="Chi phí tài xế"><input className={inputClass()} defaultValue="350000" min="0" name="driverCost" type="number" /></Field>
               <Field label="Chi phí xe"><input className={inputClass()} defaultValue="350000" min="0" name="vehicleCost" type="number" /></Field>
               <Field label="Phụ phí"><input className={inputClass()} defaultValue="0" min="0" name="otherCost" type="number" /></Field>
               <div className="md:col-span-2">
                 <Field label="Ghi chú báo giá"><textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="quoteNote" placeholder="Bao gồm/chưa gồm phí cầu đường, giờ chờ, VAT..." /></Field>
+              </div>
+              <div className="md:col-span-2">
+                <Field label="Nội dung gửi khách xác nhận"><textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="customerConfirmationNote" placeholder="Điều khoản thanh toán, thông tin cần khách kiểm tra, ghi chú xác nhận..." /></Field>
               </div>
             </div>
           </SectionDetails>

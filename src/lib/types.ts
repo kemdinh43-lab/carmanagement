@@ -92,6 +92,7 @@ export interface DispatchOrder extends TimeWindow {
   id: string;
   code: string;
   orderDate?: string;
+  contractType?: "template" | "terms" | "simple";
   customerKind: "individual" | "company";
   customerName: string;
   customerCccd?: string;
@@ -108,6 +109,7 @@ export interface DispatchOrder extends TimeWindow {
   companyBankName?: string;
   pickup: string;
   dropoff: string;
+  routeLegs?: DispatchRouteLeg[];
   serviceCode?: string;
   serviceLabel: string;
   serviceClarification?: string;
@@ -138,6 +140,9 @@ export interface DispatchOrder extends TimeWindow {
   supplierTotalWithVat?: number;
   supplierBankAccount?: string;
   supplierBankName?: string;
+  subtotalAmount?: number;
+  vatRate?: number;
+  vatAmount?: number;
   amountDue: number;
   driverCost?: number;
   vehicleCost?: number;
@@ -148,6 +153,7 @@ export interface DispatchOrder extends TimeWindow {
   collectionBankAccount?: string;
   collectionBankName?: string;
   quoteNote?: string;
+  customerConfirmationNote?: string;
   quoteStatus?: QuoteStatus;
   quoteSentAt?: string;
   quoteApprovedAt?: string;
@@ -174,6 +180,14 @@ export interface DispatchOrder extends TimeWindow {
   driverExpenseNote?: string;
   driverReportStatus?: DriverReportStatus;
   driverReportedAt?: string;
+}
+
+export interface DispatchRouteLeg {
+  startAt?: string;
+  endAt?: string;
+  pickup: string;
+  dropoff: string;
+  note?: string;
 }
 
 export interface AuditEvent {

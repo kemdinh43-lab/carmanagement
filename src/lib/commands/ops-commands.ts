@@ -221,6 +221,7 @@ export function updateOrderDetails(
   orderId: string,
   patch: {
     orderDate?: string;
+    contractType?: DispatchOrder["contractType"];
     customerKind: DispatchOrder["customerKind"];
     customerName: string;
     customerCccd?: string;
@@ -237,6 +238,7 @@ export function updateOrderDetails(
     companyBankName?: string;
     pickup: string;
     dropoff: string;
+    routeLegs?: DispatchOrder["routeLegs"];
     serviceCode?: string;
     serviceLabel: string;
     serviceClarification?: string;
@@ -260,6 +262,9 @@ export function updateOrderDetails(
     supplierTotalWithVat?: number;
     supplierBankAccount?: string;
     supplierBankName?: string;
+    subtotalAmount?: number;
+    vatRate?: number;
+    vatAmount?: number;
     startAt: string;
     endAt: string;
     amountDue: number;
@@ -272,6 +277,7 @@ export function updateOrderDetails(
     collectionBankAccount?: string;
     collectionBankName?: string;
     quoteNote?: string;
+    customerConfirmationNote?: string;
     priority: DispatchPriority;
     salesNote?: string;
   },
