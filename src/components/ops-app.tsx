@@ -143,6 +143,22 @@ const contractTypeLabels: Record<NonNullable<DispatchOrder["contractType"]>, str
   terms: "Hợp đồng điều khoản"
 };
 
+const ownerCompanyProfile = {
+  legalName: "CÔNG TY TNHH ANGEL ONE TRAVEL",
+  taxCode: "",
+  address: "",
+  phone: "",
+  bankAccount: "",
+  bankName: ""
+};
+
+const paymentMethodLabels: Record<Payment["method"], string> = {
+  cash: "Tiền mặt",
+  bank_transfer: "Chuyển khoản",
+  card: "Thẻ",
+  other: "Khác"
+};
+
 const tabs = ["Dashboard", "Lệnh điều xe", "Điều hành", "Màn làm việc", "Users", "Khách hàng", "Tài chính", "Master data", "Audit"] as const;
 type Tab = (typeof tabs)[number];
 
@@ -479,17 +495,54 @@ function DocumentPreview({ title, body }: { title: string; body: string }) {
   );
 }
 
-function FinalDispatchOrderSheet({ order }: { order: DispatchOrder }) {
+function FinalDispatchOrderSheet({ order, payments }: { order: DispatchOrder; payments: Payment[] }) {
   const startDate = dateOnly(order.startAt);
   const startTime = timeOnly(order.startAt);
   const endDate = dateOnly(order.endAt);
   const endTime = timeOnly(order.endAt);
   const routeText = routeLegsForOrder(order).map((leg) => `${leg.pickup} -> ${leg.dropoff}`).join(" / ");
-  const driverCollected = order.driverCollectedAmount ?? 0;
-  const remainingPayment = Math.max(order.amountDue - driverCollected, 0);
+  const validPayments = payments
+    .filter((payment) => payment.orderId === order.id && payment.status === "valid")
+    .sort((a, b) => new Date(a.paidAt).getTime() - new Date(b.paidAt).getTime());
+  const paid = validPayments.reduce((sum, payment) => sum + payment.amount, 0);
+  const debt = Math.max(order.amountDue - paid, 0);
   const vehicleLabel = order.externalVehiclePlate || order.vehiclePlateNo || order.vehicleId || "-";
   const driverLabel = order.externalDriverName || order.driverFullName || order.driverId || "-";
   const driverPhone = order.externalDriverPhone || order.driverPhone || "-";
+  const isRentedVehicle = order.vehicleOwnership === "rented";
+  const ownerName = isRentedVehicle
+    ? order.supplierOwnerName || order.supplierCompanyName || "-"
+    : ownerCompanyProfile.legalName;
+  const supplierCompanyName = isRentedVehicle
+    ? order.supplierCompanyName || ownerName
+    : ownerCompanyProfile.legalName;
+  const supplierTaxCode = isRentedVehicle ? order.supplierTaxCode || "-" : ownerCompanyProfile.taxCode || "-";
+  const supplierAddress = isRentedVehicle ? order.supplierAddress || "-" : ownerCompanyProfile.address || "-";
+  const supplierPhone = isRentedVehicle ? order.supplierPhone || "-" : ownerCompanyProfile.phone || "-";
+  const supplierBankAccount = isRentedVehicle ? order.supplierBankAccount || "-" : ownerCompanyProfile.bankAccount || "-";
+  const supplierBankName = isRentedVehicle ? order.supplierBankName || "-" : ownerCompanyProfile.bankName || "-";
+  const supplierTotal = isRentedVehicle ? order.supplierTotalWithVat ?? orderCost(order) : orderActualCost(order) || orderCost(order);
+  const paymentRows = (validPayments.length > 0
+    ? validPayments.flatMap((payment, index) => [
+        { group: `Thanh toán lần ${index + 1}`, label: "Đối tượng thu: Công ty thu; tài xế thu; Ban điều hành", value: payment.collector || order.payer || "Công ty thu" },
+        { group: `Thanh toán lần ${index + 1}`, label: "Tên người thu", value: payment.collector || order.collectionAccountOwner || ownerCompanyProfile.legalName },
+        { group: `Thanh toán lần ${index + 1}`, label: "Số tiền thu", value: money(payment.amount) },
+        { group: `Thanh toán lần ${index + 1}`, label: "Hình thức thu", value: paymentMethodLabels[payment.method] },
+        { group: `Thanh toán lần ${index + 1}`, label: "Thời gian thu", value: formatDateTime(payment.paidAt) },
+        { group: `Thanh toán lần ${index + 1}`, label: "Số tài khoản thu (Công ty; Khác; tài xế)", value: order.collectionBankAccount || "-" },
+        { group: `Thanh toán lần ${index + 1}`, label: "Ngân hàng thu", value: order.collectionBankName || "-" },
+        { group: `Thanh toán lần ${index + 1}`, label: "Mã tham chiếu / ghi chú", value: [payment.reference, payment.note].filter(Boolean).join(" / ") || "-" }
+      ])
+    : [
+        { group: "Thanh toán lần 1", label: "Đối tượng thu: Công ty thu; tài xế thu; Ban điều hành", value: "Chưa ghi nhận thanh toán" },
+        { group: "Thanh toán lần 1", label: "Tên người thu", value: order.collectionAccountOwner || ownerCompanyProfile.legalName },
+        { group: "Thanh toán lần 1", label: "Số tiền thu", value: money(0) },
+        { group: "Thanh toán lần 1", label: "Hình thức thu", value: order.paymentMethod || "-" },
+        { group: "Thanh toán lần 1", label: "Thời gian thu", value: "-" },
+        { group: "Thanh toán lần 1", label: "Số tài khoản thu (Công ty; Khác; tài xế)", value: order.collectionBankAccount || "-" },
+        { group: "Thanh toán lần 1", label: "Ngân hàng thu", value: order.collectionBankName || "-" },
+        { group: "Thanh toán lần 1", label: "Mã tham chiếu / ghi chú", value: debt > 0 ? `Còn phải thu ${money(debt)}` : "-" }
+      ]) satisfies Array<{ group: string; label: string; value: string }>;
 
   const rows: Array<{ group: string; label: string; value: string; tone?: "yellow" | "blue" }> = [
     { group: "Quản lý 1", label: "Số", value: order.code },
@@ -503,16 +556,16 @@ function FinalDispatchOrderSheet({ order }: { order: DispatchOrder }) {
     { group: "Thông tin xe", label: "Họ và tên tài xế", value: driverLabel },
     { group: "Thông tin xe", label: "CCCD", value: order.driverCccd || "-" },
     { group: "Thông tin xe", label: "Số điện thoại tài xế", value: driverPhone },
-    { group: "Thông tin nhà cung cấp", label: "Họ và tên chủ sở hữu xe", value: order.supplierOwnerName || "-", tone: "blue" },
-    { group: "Thông tin nhà cung cấp", label: "Số CCCD", value: order.supplierCccd || "-", tone: "blue" },
-    { group: "Thông tin nhà cung cấp", label: "Có xuất hóa đơn đầu vào được không (Có; không)", value: order.supplierInvoiceRequired ? "Có" : "Không", tone: "blue" },
-    { group: "Thông tin nhà cung cấp", label: "Tên đơn vị thuê ngoài", value: order.supplierCompanyName || "-", tone: "blue" },
-    { group: "Thông tin nhà cung cấp", label: "Mã số thuế", value: order.supplierTaxCode || "-", tone: "blue" },
-    { group: "Thông tin nhà cung cấp", label: "Địa chỉ", value: order.supplierAddress || "-", tone: "blue" },
-    { group: "Thông tin nhà cung cấp", label: "Số điện thoại nhà cung cấp", value: order.supplierPhone || "-", tone: "blue" },
-    { group: "Thông tin nhà cung cấp", label: "Tổng tiền mua", value: money(order.supplierTotalWithVat ?? 0), tone: "blue" },
-    { group: "Thông tin nhà cung cấp", label: "Số tài khoản ngân hàng", value: order.supplierBankAccount || "-", tone: "blue" },
-    { group: "Thông tin nhà cung cấp", label: "Tên ngân hàng", value: order.supplierBankName || "-", tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Họ và tên chủ sở hữu xe", value: ownerName, tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Số CCCD", value: isRentedVehicle ? order.supplierCccd || "-" : "-", tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Có xuất hóa đơn đầu vào được không (Có; không)", value: isRentedVehicle && order.supplierInvoiceRequired ? "Có" : "Không", tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Tên đơn vị thuê ngoài", value: supplierCompanyName, tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Mã số thuế", value: supplierTaxCode, tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Địa chỉ", value: supplierAddress, tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Số điện thoại nhà cung cấp", value: supplierPhone, tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Tổng tiền mua", value: money(supplierTotal), tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Số tài khoản ngân hàng", value: supplierBankAccount, tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Tên ngân hàng", value: supplierBankName, tone: "blue" },
     { group: "Thông tin khách hàng", label: "Họ và tên khách hàng", value: order.customerName },
     { group: "Thông tin khách hàng", label: "Số CCCD", value: order.customerCccd || "Không cung cấp" },
     { group: "Thông tin khách hàng", label: "Số điện thoại", value: order.contactPhone },
@@ -535,17 +588,11 @@ function FinalDispatchOrderSheet({ order }: { order: DispatchOrder }) {
     { group: "Hành trình", label: "Tiền thuế", value: money(order.vatAmount ?? 0) },
     { group: "Hành trình", label: "Tổng thanh toán", value: money(order.amountDue) },
     { group: "Hành trình", label: "Hình thức thanh toán (TM/CK/TMCK/Đối trừ)", value: order.paymentMethod || "-" },
-    { group: "Hành trình", label: "Số lần thanh toán", value: remainingPayment > 0 && driverCollected > 0 ? "2" : "1" },
-    { group: "Thanh toán lần 1", label: "Đối tượng thu: Công ty thu; tài xế thu; Ban điều hành", value: driverCollected > 0 ? "Tài xế thu" : order.payer || "Công ty thu" },
-    { group: "Thanh toán lần 1", label: "Tên người thu", value: driverCollected > 0 ? driverLabel : order.collectionAccountOwner || "CÔNG TY TNHH ANGEL ONE TRAVEL" },
-    { group: "Thanh toán lần 1", label: "Số tiền thu", value: money(driverCollected > 0 ? driverCollected : order.amountDue) },
-    { group: "Thanh toán lần 1", label: "Số tài khoản thu (Công ty; Khác; tài xế)", value: driverCollected > 0 ? "-" : order.collectionBankAccount || "-" },
-    { group: "Thanh toán lần 1", label: "Ngân hàng thu", value: driverCollected > 0 ? "-" : order.collectionBankName || "-" },
-    { group: "Thanh toán lần 2 (Nếu có)", label: "Đối tượng thu: Công ty thu; tài xế thu; Ban điều hành", value: remainingPayment > 0 && driverCollected > 0 ? "Công ty thu" : "-" },
-    { group: "Thanh toán lần 2 (Nếu có)", label: "Tên người thu", value: remainingPayment > 0 && driverCollected > 0 ? order.collectionAccountOwner || "CÔNG TY TNHH ANGEL ONE TRAVEL" : "-" },
-    { group: "Thanh toán lần 2 (Nếu có)", label: "Số tiền thu", value: remainingPayment > 0 && driverCollected > 0 ? money(remainingPayment) : "-" },
-    { group: "Thanh toán lần 2 (Nếu có)", label: "Số tài khoản thu (Công ty; Khác; tài xế)", value: remainingPayment > 0 && driverCollected > 0 ? order.collectionBankAccount || "-" : "-" },
-    { group: "Thanh toán lần 2 (Nếu có)", label: "Ngân hàng thu", value: remainingPayment > 0 && driverCollected > 0 ? order.collectionBankName || "-" : "-" }
+    { group: "Hành trình", label: "Số lần thanh toán", value: String(validPayments.length) },
+    { group: "Hành trình", label: "Tổng đã thu", value: money(paid) },
+    { group: "Hành trình", label: "Còn phải thu", value: money(debt) },
+    { group: "Hành trình", label: "Trạng thái thanh toán", value: paymentLabels[order.paymentStatus] },
+    ...paymentRows
   ];
 
   return (
@@ -581,7 +628,7 @@ function FinalDispatchOrderSheet({ order }: { order: DispatchOrder }) {
   );
 }
 
-function OrderDocumentPreviews({ order }: { order: DispatchOrder }) {
+function OrderDocumentPreviews({ order, payments }: { order: DispatchOrder; payments: Payment[] }) {
   return (
     <SectionDetails
       badge="Sale/Kế toán"
@@ -591,7 +638,7 @@ function OrderDocumentPreviews({ order }: { order: DispatchOrder }) {
     >
       <div className="grid gap-3 lg:grid-cols-2">
         <DocumentPreview body={customerConfirmationText(order)} title="Phiếu gửi khách xác nhận" />
-        <FinalDispatchOrderSheet order={order} />
+        <FinalDispatchOrderSheet order={order} payments={payments} />
       </div>
     </SectionDetails>
   );
@@ -2971,10 +3018,6 @@ export default function OpsApp() {
       setMessage("Chỉ đối soát/đóng lệnh sau khi chuyến hoàn thành.");
       return;
     }
-    if (selectedOrder.paymentStatus !== "paid") {
-      setMessage("Lệnh còn công nợ. Cần thanh toán đủ hoặc thêm luồng close_with_debt có duyệt.");
-      return;
-    }
     const actionKey = `finance:close:${selectedOrder.id}`;
     if (!beginAction(actionKey, "Đóng hồ sơ")) return;
     try {
@@ -3924,7 +3967,7 @@ function OrderDetailPanel({
         <StaticPinMap order={order} />
       </div>
       <div className="mt-4">
-        <OrderDocumentPreviews order={order} />
+        <OrderDocumentPreviews order={order} payments={payments} />
       </div>
       {updateOrder && cancelOrder && (
         <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_360px]">
@@ -5671,7 +5714,6 @@ function FinancePanel({
   const selectedDriverHeldAmount = selectedDriverReportCollectedAmount;
   const closeBlockers = [
     selectedOrder.dispatchStatus !== "completed" ? "Chuyến chưa hoàn thành" : "",
-    selectedOrder.paymentStatus !== "paid" ? "Chưa thu đủ tiền" : "",
     !invoiceReady ? "Hóa đơn/chứng từ chưa xong" : "",
     selectedOrder.dispatchStatus === "completed" && !["reported", "reviewed"].includes(selectedOrder.driverReportStatus ?? "not_reported") ? "Chưa có báo cáo tài xế" : ""
   ].filter(Boolean);
@@ -5888,7 +5930,7 @@ function FinancePanel({
           <div className="mt-4 grid gap-2 text-sm">
             {[
               ["Chuyến đã hoàn thành", selectedOrder.dispatchStatus === "completed"],
-              ["Khách đã xử lý thanh toán", selectedOrder.paymentStatus === "paid"],
+              ["Dòng tiền đã ghi nhận trạng thái", selectedOrder.paymentStatus !== "refunded"],
               ["Thu hộ đã nộp/không phát sinh", selectedDriverHeldAmount === 0 || selectedOrder.reconciliationStatus === "closed"],
               ["NCC đã xử lý/không phát sinh", selectedOrder.vehicleOwnership !== "rented" || selectedSupplierPayable >= 0],
               ["Hóa đơn/chứng từ đã xử lý", invoiceReady],
@@ -5903,6 +5945,10 @@ function FinancePanel({
           {closeBlockers.length > 0 ? (
             <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               Chưa thể đóng: {closeBlockers.join(", ")}.
+            </p>
+          ) : debt > 0 ? (
+            <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Hồ sơ đủ điều kiện đóng và còn công nợ {money(debt)} để kế toán theo dõi.
             </p>
           ) : (
             <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">Hồ sơ đủ điều kiện đóng.</p>
