@@ -500,12 +500,17 @@ function FinalDispatchOrderSheet({ order, payments }: { order: DispatchOrder; pa
   const startTime = timeOnly(order.startAt);
   const endDate = dateOnly(order.endAt);
   const endTime = timeOnly(order.endAt);
-  const routeText = routeLegsForOrder(order).map((leg) => `${leg.pickup} -> ${leg.dropoff}`).join(" / ");
+  const routeText = routeSummaryForOrder(order);
   const validPayments = payments
     .filter((payment) => payment.orderId === order.id && payment.status === "valid")
     .sort((a, b) => new Date(a.paidAt).getTime() - new Date(b.paidAt).getTime());
   const paid = validPayments.reduce((sum, payment) => sum + payment.amount, 0);
   const debt = Math.max(order.amountDue - paid, 0);
+  const routeLegRows = routeLegsForOrder(order).map((leg, index) => ({
+    group: "Hành trình",
+    label: `Chặng ${index + 1}`,
+    value: `${leg.startAt ? formatDateTime(leg.startAt) : "-"}${leg.endAt ? ` - ${formatDateTime(leg.endAt)}` : ""} / ${leg.pickup || "-"} -> ${leg.dropoff || "-"}${leg.note ? ` / ${leg.note}` : ""}`
+  }));
   const vehicleLabel = order.externalVehiclePlate || order.vehiclePlateNo || order.vehicleId || "-";
   const driverLabel = order.externalDriverName || order.driverFullName || order.driverId || "-";
   const driverPhone = order.externalDriverPhone || order.driverPhone || "-";
@@ -580,6 +585,7 @@ function FinalDispatchOrderSheet({ order, payments }: { order: DispatchOrder; pa
     { group: "Hành trình", label: "Giờ kết thúc dự kiến", value: endTime },
     { group: "Hành trình", label: "Điểm đi", value: order.pickup },
     { group: "Hành trình", label: "Điểm đến", value: routeText || order.dropoff },
+    ...routeLegRows,
     { group: "Hành trình", label: "Mã dịch vụ (DVVT; DVHL; DVHT; DVCT)", value: order.serviceCode || order.serviceLabel },
     { group: "Hành trình", label: "Nội dung làm rõ (Nếu có)", value: order.serviceClarification || order.customerConfirmationNote || "-", tone: "yellow" },
     { group: "Hành trình", label: "Đơn vị tính (Chuyến; Ngày; tháng; Kỳ)", value: order.unit || "Chuyến" },
@@ -594,12 +600,50 @@ function FinalDispatchOrderSheet({ order, payments }: { order: DispatchOrder; pa
     { group: "Hành trình", label: "Trạng thái thanh toán", value: paymentLabels[order.paymentStatus] },
     ...paymentRows
   ];
+  const exportStatus = order.reconciliationStatus === "closed" ? "Bản chính thức" : "Bản xem trước";
+
+  function exportFinalOrder() {
+    const bodyRows = rows.map((row) => {
+      const background = row.tone === "yellow" ? "#fef08a" : row.tone === "blue" ? "#67e8f9" : "#ffffff";
+      return `<tr style="background:${background}"><td>${escapeHtml(row.group)}</td><td>${escapeHtml(row.label)}</td><td><strong>${escapeHtml(row.value || "-")}</strong></td></tr>`;
+    }).join("");
+    const html = `<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <title>Lệnh điều xe ${escapeHtml(order.code)}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; color: #111827; }
+    h1 { text-align: center; font-size: 18px; margin: 0 0 12px; }
+    .meta { margin-bottom: 12px; font-size: 12px; color: #475569; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { border: 1px solid #94a3b8; padding: 6px 8px; vertical-align: top; text-align: left; }
+    th { background: #f8fafc; }
+    @media print { body { margin: 10mm; } }
+  </style>
+</head>
+<body>
+  <h1>LỆNH ĐIỀU XE</h1>
+  <div class="meta">${escapeHtml(exportStatus)} / ${escapeHtml(order.code)} / Xuất lúc ${escapeHtml(formatDateTime(new Date().toISOString()))}</div>
+  <table>
+    <thead><tr><th>Nhóm</th><th>Thông tin</th><th>Giá trị</th></tr></thead>
+    <tbody>${bodyRows}</tbody>
+  </table>
+</body>
+</html>`;
+    downloadTextFile(`lenh-dieu-xe-${order.code}.html`, html, "text/html;charset=utf-8");
+  }
 
   return (
     <section className="border border-line bg-panel p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <p className="font-semibold text-ink">Lệnh điều xe final</p>
-        <Badge tone="info">Excel format</Badge>
+        <div className="flex items-center gap-2">
+          <Badge tone={order.reconciliationStatus === "closed" ? "good" : "info"}>{exportStatus}</Badge>
+          <button className="h-8 rounded-md border border-line bg-white px-3 text-xs font-semibold text-brand hover:bg-teal-50" onClick={exportFinalOrder} type="button">
+            Xuất lệnh
+          </button>
+        </div>
       </div>
       <div className="max-h-[560px] overflow-auto border border-line bg-white">
         <table className="w-full min-w-[760px] border-collapse text-left text-xs text-slate-800">
@@ -688,11 +732,7 @@ function orderStatusTone(status: DispatchOrder["orderStatus"]): "neutral" | "inf
 
 function StaticPinMap({ compact = false, order }: { compact?: boolean; order: DispatchOrder }) {
   const points = useMemo(() => buildStaticPinPoints(order), [order]);
-  const routeUrl = useMemo(
-    () =>
-      `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(order.pickup)}&destination=${encodeURIComponent(order.dropoff)}&travelmode=driving`,
-    [order.dropoff, order.pickup]
-  );
+  const routeUrl = useMemo(() => mapsRouteUrlForOrder(order), [order]);
   const pickupUrl = useMemo(() => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.pickup)}`, [order.pickup]);
   const dropoffUrl = useMemo(() => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.dropoff)}`, [order.dropoff]);
   const estimatedDistance = Math.round(haversineKm(points[0], points[1]) * 10) / 10;
@@ -963,6 +1003,28 @@ function primaryLegValues(routeLegs: DispatchRouteLeg[], fallbackStartAt: string
   };
 }
 
+function routeSummaryForOrder(order: DispatchOrder) {
+  const legs = routeLegsForOrder(order);
+  if (legs.length === 0) return `${order.pickup} → ${order.dropoff}`;
+  const points = [legs[0]?.pickup, ...legs.map((leg) => leg.dropoff)].filter(Boolean);
+  return points.filter((point, index) => index === 0 || point !== points[index - 1]).join(" → ");
+}
+
+function mapsRouteUrlForOrder(order: DispatchOrder) {
+  const legs = routeLegsForOrder(order);
+  const origin = legs[0]?.pickup || order.pickup;
+  const destination = legs[legs.length - 1]?.dropoff || order.dropoff;
+  const waypoints = legs.slice(0, -1).map((leg) => leg.dropoff).filter(Boolean);
+  const params = new URLSearchParams({
+    api: "1",
+    origin,
+    destination,
+    travelmode: "driving"
+  });
+  if (waypoints.length > 0) params.set("waypoints", waypoints.join("|"));
+  return `https://www.google.com/maps/dir/?${params.toString()}`;
+}
+
 function vatFromForm(form: FormData) {
   const subtotalAmount = Number(form.get("subtotalAmount") || 0);
   const vatRate = Number(form.get("vatRate") || 0);
@@ -986,6 +1048,26 @@ function routeLinesForOrder(order: DispatchOrder) {
     const note = leg.note ? ` (${leg.note})` : "";
     return `Chặng ${index + 1}: ${time ? `${time} / ` : ""}${leg.pickup || "-"} -> ${leg.dropoff || "-"}${note}`;
   });
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function downloadTextFile(filename: string, content: string, type = "text/plain;charset=utf-8") {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 function dateOnly(value: string) {
@@ -3934,7 +4016,7 @@ function OrderDetailPanel({
         <div className="border border-line bg-panel p-3">
           <p className="font-medium text-ink">Hành trình</p>
           <p className="mt-2 text-slate-600">{formatDateTime(order.startAt)} - {formatDateTime(order.endAt)}</p>
-          <p className="mt-1 text-slate-600">{order.pickup} → {order.dropoff}</p>
+          <p className="mt-1 text-slate-600">{routeSummaryForOrder(order)}</p>
         </div>
         <div className="border border-line bg-panel p-3">
           <p className="font-medium text-ink">Báo giá</p>
@@ -3971,7 +4053,7 @@ function OrderDetailPanel({
       </div>
       {updateOrder && cancelOrder && (
         <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_360px]">
-          <form className="border border-line bg-panel p-4" onSubmit={updateOrder}>
+          <form className="border border-line bg-panel p-4" key={order.id} onSubmit={updateOrder}>
             <h3 className="font-semibold text-ink">Sửa lệnh</h3>
             <div className="mt-4 grid gap-4">
               <fieldset className="space-y-4" disabled={!salesEditable}>
@@ -4623,7 +4705,7 @@ function OrdersPanel({
                     <Badge tone="neutral">Chờ Sales</Badge>
                   </div>
                   <p className="mt-2 text-sm text-slate-700">{order.customerName} / {order.contactPhone}</p>
-                  <p className="mt-1 text-sm text-slate-600">{formatDateTime(order.startAt)} - {order.pickup} → {order.dropoff}</p>
+                  <p className="mt-1 text-sm text-slate-600">{formatDateTime(order.startAt)} - {routeSummaryForOrder(order)}</p>
                   <p className="mt-1 text-xs text-slate-500">Tài xế báo: {order.sourceOwnerName ?? order.salesOwner}</p>
                   {order.quoteNote && <p className="mt-1 text-sm text-amber-800">Ghi chú: {order.quoteNote}</p>}
                 </button>
@@ -4677,7 +4759,7 @@ function OrdersPanel({
               </div>
               <div className="mt-3 space-y-1 text-sm">
                 <p className="font-medium text-slate-800">{order.customerName}</p>
-                <p className="text-slate-600">{order.pickup} → {order.dropoff}</p>
+                <p className="text-slate-600">{routeSummaryForOrder(order)}</p>
                 <p className="text-xs text-slate-500">{formatDateTime(order.startAt)} - {formatDateTime(order.endAt)}</p>
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
@@ -4848,7 +4930,7 @@ function DispatchPanel({
           </div>
           <div className="mt-4 space-y-3 text-sm">
             <p className="font-medium">{selectedOrder.customerName}</p>
-            <p className="text-slate-600">{selectedOrder.pickup} → {selectedOrder.dropoff}</p>
+            <p className="text-slate-600">{routeSummaryForOrder(selectedOrder)}</p>
             <p className="text-slate-600">{formatDateTime(selectedOrder.startAt)} - {formatDateTime(selectedOrder.endAt)}</p>
             <div className="flex flex-wrap gap-2">
               <Badge tone={orderStatusTone(selectedOrder.orderStatus)}>{orderStatusLabels[selectedOrder.orderStatus]}</Badge>
@@ -5024,7 +5106,7 @@ function DispatchReviewQueue({
                 <Badge tone={(order.priority ?? "normal") === "urgent" ? "danger" : (order.priority ?? "normal") === "high" ? "warn" : "neutral"}>{priorityLabels[order.priority ?? "normal"]}</Badge>
               </div>
               <p className="mt-2 text-sm text-slate-700">{order.customerName} / {order.contactPhone}</p>
-              <p className="mt-1 text-sm text-slate-600">{formatDateTime(order.startAt)} - {order.pickup} → {order.dropoff}</p>
+              <p className="mt-1 text-sm text-slate-600">{formatDateTime(order.startAt)} - {routeSummaryForOrder(order)}</p>
               <p className="mt-1 text-sm font-semibold text-ink">{money(order.amountDue)} / lãi dự kiến {money(orderProfit(order))}</p>
               {order.salesNote && <p className="mt-1 text-sm text-amber-800">Sale note: {order.salesNote}</p>}
             </button>
@@ -5180,6 +5262,59 @@ function CustomersPanel({
   );
 }
 
+function DriverTripBrief({ driver, order, vehicle }: { driver?: Driver; order: DispatchOrder; vehicle?: Vehicle }) {
+  const expenseFuel = order.driverExpenseFuel ?? 0;
+  const expenseToll = order.driverExpenseToll ?? 0;
+  const expenseParking = order.driverExpenseParking ?? 0;
+  const expenseWater = order.driverExpenseWater ?? 0;
+  const expenseOther = order.driverExpenseOther ?? 0;
+  const expenseTotal = expenseFuel + expenseToll + expenseParking + expenseWater + expenseOther;
+  const collectedAmount = order.driverCollectedAmount ?? 0;
+
+  return (
+    <section className="mt-4 rounded-md border border-line bg-panel p-3 text-sm">
+      <p className="font-semibold uppercase text-ink">Thông tin chuyến xe</p>
+      <div className="mt-3 space-y-2 text-slate-700">
+        <p><span className="font-semibold text-ink">Khách hàng:</span> {order.companyName || ownerCompanyProfile.legalName}</p>
+        <p><span className="font-semibold text-ink">Người sử dụng:</span> {order.contactName || order.customerName}</p>
+        <p><span className="font-semibold text-ink">SĐT:</span> {order.contactPhone}</p>
+        <p><span className="font-semibold text-ink">Hành trình:</span> {routeSummaryForOrder(order)}</p>
+        <p><span className="font-semibold text-ink">Có mặt tại điểm đón:</span> {timeOnly(order.startAt)} - {dateOnly(order.startAt)}</p>
+      </div>
+      <div className="mt-3 border-t border-line pt-3">
+        <p className="font-semibold text-ink">Thông tin xe</p>
+        <div className="mt-2 space-y-1 text-slate-700">
+          <p>Biển số: <span className="font-medium text-ink">{order.externalVehiclePlate || order.vehiclePlateNo || vehicle?.plateNo || "-"}</span></p>
+          <p>Tài xế: <span className="font-medium text-ink">{order.externalDriverName || order.driverFullName || driver?.fullName || "-"}</span></p>
+          <p>SĐT tài xế: <span className="font-medium text-ink">{order.externalDriverPhone || order.driverPhone || driver?.phone || "-"}</span></p>
+        </div>
+      </div>
+      <div className="mt-3 border-t border-line pt-3">
+        <p className="font-semibold text-ink">Lưu ý</p>
+        <div className="mt-2 whitespace-pre-wrap text-slate-700">
+          {order.salesNote || order.customerConfirmationNote || "Xe sạch, có mặt trước giờ đón 15 phút.\nTài xế chủ động gọi khách trước khi đến.\nĐón đúng vị trí đã xác nhận."}
+        </div>
+      </div>
+      <div className="mt-3 grid gap-3 border-t border-line pt-3 sm:grid-cols-2">
+        <div>
+          <p className="font-semibold text-ink">Thông báo thu hộ</p>
+          <p className="mt-2 text-slate-700">Thu hộ khách: <span className="font-medium text-ink">{money(collectedAmount)}</span></p>
+          <p className="text-slate-700">Thu thêm: <span className="font-medium text-ink">{money(Math.max(order.amountDue - collectedAmount, 0))}</span></p>
+          <p className="text-slate-700">Tổng cần thu hộ: <span className="font-medium text-ink">{money(order.amountDue)}</span></p>
+        </div>
+        <div>
+          <p className="font-semibold text-ink">Chi phí</p>
+          <p className="mt-2 text-slate-700">Cầu đường: <span className="font-medium text-ink">{money(expenseToll)}</span></p>
+          <p className="text-slate-700">Bãi xe: <span className="font-medium text-ink">{money(expenseParking)}</span></p>
+          <p className="text-slate-700">Xăng/dầu: <span className="font-medium text-ink">{money(expenseFuel)}</span></p>
+          <p className="text-slate-700">Chi phí khác: <span className="font-medium text-ink">{money(expenseWater + expenseOther)}</span></p>
+          <p className="text-slate-700">Tổng chi phí: <span className="font-medium text-ink">{money(expenseTotal)}</span></p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function DriverMobilePanel({
   authDriverId,
   currentRole,
@@ -5234,7 +5369,7 @@ function DriverMobilePanel({
     id: `driver-assigned-${order.id}`,
     audience: "driver",
     title: "Bạn có chuyến được phân",
-    body: `${order.code} / ${timeOnly(order.startAt)} / ${order.pickup} → ${order.dropoff}`,
+    body: `${order.code} / ${timeOnly(order.startAt)} / ${routeSummaryForOrder(order)}`,
     entityId: order.id,
     createdAt: order.startAt,
     read: false
@@ -5252,9 +5387,10 @@ function DriverMobilePanel({
   const reportTripExpenseTotal = reportTrip
     ? (reportTrip.driverExpenseFuel ?? 0) + (reportTrip.driverExpenseToll ?? 0) + (reportTrip.driverExpenseParking ?? 0) + (reportTrip.driverExpenseWater ?? 0) + (reportTrip.driverExpenseOther ?? 0)
     : 0;
-  const reportTripCollectedAmount = reportTrip?.driverCollectedAmount ?? reportTrip?.amountDue ?? 0;
+  const reportTripCollectedAmount = reportTrip?.driverCollectedAmount ?? 0;
   const nextDriverStatus = selectedTrip ? driverNextDispatchStatus(selectedTrip) : null;
   const nextTrip = activeOrder ?? upcomingTrips[0] ?? driverOrders[0];
+  const nextTripVehicle = nextTrip ? vehicles.find((item) => item.id === nextTrip.vehicleId) : undefined;
   const canUpdate = can(currentRole, "update_dispatch_status");
 
   return (
@@ -5356,16 +5492,17 @@ function DriverMobilePanel({
             <Badge tone={statusTone(nextTrip)}>{dispatchLabels[nextTrip.dispatchStatus]}</Badge>
           </div>
           <p className="mt-2 text-sm text-slate-600">
-            {timeOnly(nextTrip.startAt)} - {timeOnly(nextTrip.endAt)} · {nextTrip.pickup} → {nextTrip.dropoff}
+            {timeOnly(nextTrip.startAt)} - {timeOnly(nextTrip.endAt)} · {routeSummaryForOrder(nextTrip)}
           </p>
           <p className="mt-1 text-xs text-slate-500">{driverActionDetail(nextTrip)}</p>
+          <DriverTripBrief driver={selectedDriver} order={nextTrip} vehicle={nextTripVehicle} />
           <div className="mt-3 flex flex-wrap gap-2">
             <a className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50" href={`tel:${nextTrip.contactPhone}`}>
               <PhoneCall size={16} /> Gọi khách
             </a>
             <a
               className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(nextTrip.pickup)}&destination=${encodeURIComponent(nextTrip.dropoff)}&travelmode=driving`}
+              href={mapsRouteUrlForOrder(nextTrip)}
               rel="noreferrer"
               target="_blank"
             >
@@ -5401,7 +5538,7 @@ function DriverMobilePanel({
                   </div>
                   <Badge tone={order.priority === "urgent" ? "warn" : "info"}>{order.priority === "urgent" ? "Khẩn" : "Ngắn"}</Badge>
                 </div>
-                <p className="mt-1 text-sm text-slate-600">{order.pickup} → {order.dropoff}</p>
+                <p className="mt-1 text-sm text-slate-600">{routeSummaryForOrder(order)}</p>
                 <p className="mt-1 text-xs text-slate-500">
                   {timeOnly(order.startAt)} · {order.orderStatus === "draft" ? "Chờ Sales tiếp nhận" : order.dispatchStatus === "waiting_assignment" ? "Chờ điều hành" : dispatchLabels[order.dispatchStatus]}
                 </p>
@@ -5437,7 +5574,7 @@ function DriverMobilePanel({
                     <Badge tone={statusTone(order)}>{dispatchLabels[order.dispatchStatus]}</Badge>
                   </div>
                   <p className="mt-2 text-sm text-slate-600">
-                    {order.pickup} → {order.dropoff}
+                    {routeSummaryForOrder(order)}
                   </p>
                   <p className="mt-1 text-xs text-slate-500">
                     {vehicle?.plateNo ?? "Chưa xe"} · {driverActionDetail(order)}
@@ -5456,7 +5593,7 @@ function DriverMobilePanel({
               <p className="text-sm text-slate-500">Báo cáo sau chuyến</p>
               <h4 className="font-semibold text-ink">{reportTrip.code}</h4>
               <p className="mt-1 text-xs text-slate-500">
-                {reportTrip.pickup} → {reportTrip.dropoff}
+                {routeSummaryForOrder(reportTrip)}
               </p>
             </div>
             <Badge tone={reportTrip.driverReportStatus === "reported" ? "good" : "warn"}>{reportTrip.driverReportStatus === "reported" ? "Đã báo" : "Cần báo"}</Badge>
@@ -5790,7 +5927,7 @@ function FinancePanel({
             <p className="mt-2 text-lg font-semibold text-ink">{selectedOrder.code}</p>
             <div className="mt-3 space-y-1 text-sm text-slate-600">
               <p className="font-medium text-ink">{selectedOrder.customerName}</p>
-              <p>{selectedOrder.pickup} → {selectedOrder.dropoff}</p>
+              <p>{routeSummaryForOrder(selectedOrder)}</p>
               <p>{formatDateTime(selectedOrder.startAt)} - {formatDateTime(selectedOrder.endAt)}</p>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2">
