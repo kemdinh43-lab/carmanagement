@@ -601,6 +601,7 @@ function FinalDispatchOrderSheet({ order, payments }: { order: DispatchOrder; pa
     ...paymentRows
   ];
   const exportStatus = order.reconciliationStatus === "closed" ? "Bản chính thức" : "Bản xem trước";
+  const [isSendingPdfPayload, setIsSendingPdfPayload] = useState(false);
 
   function exportFinalOrder() {
     const bodyRows = rows.map((row) => {
@@ -634,14 +635,15 @@ function FinalDispatchOrderSheet({ order, payments }: { order: DispatchOrder; pa
     downloadTextFile(`lenh-dieu-xe-${order.code}.html`, html, "text/html;charset=utf-8");
   }
 
-  function exportFinalPdfData() {
+  function buildFinalPdfData() {
     const driverExpenseTotal =
       (order.driverExpenseFuel ?? 0) +
       (order.driverExpenseToll ?? 0) +
       (order.driverExpenseParking ?? 0) +
       (order.driverExpenseWater ?? 0) +
       (order.driverExpenseOther ?? 0);
-    const pdfData = {
+
+    return {
       delivery: {
         schema: "aot_final_dispatch_order_pdf_v1",
         generated_at: new Date().toISOString(),
@@ -736,7 +738,34 @@ function FinalDispatchOrderSheet({ order, payments }: { order: DispatchOrder; pa
         accounting_closed_at: order.reconciliationStatus === "closed" ? formatDateTime(new Date().toISOString()) : "-"
       }
     };
+  }
+
+  function exportFinalPdfData() {
+    const pdfData = buildFinalPdfData();
     downloadTextFile(`lenh-dieu-xe-${order.code}-pdf-data.json`, JSON.stringify(pdfData, null, 2), "application/json;charset=utf-8");
+  }
+
+  async function sendFinalPdfPayload() {
+    setIsSendingPdfPayload(true);
+    try {
+      const response = await fetch("/api/final-order-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildFinalPdfData())
+      });
+      const result = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+
+      if (!response.ok) {
+        window.alert(result?.error || `Chưa gửi được n8n: HTTP ${response.status}`);
+        return;
+      }
+
+      window.alert(result?.message || "Đã gửi payload lệnh điều xe final sang n8n.");
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Chưa gửi được payload sang n8n.");
+    } finally {
+      setIsSendingPdfPayload(false);
+    }
   }
 
   return (
@@ -750,6 +779,14 @@ function FinalDispatchOrderSheet({ order, payments }: { order: DispatchOrder; pa
           </button>
           <button className="h-8 rounded-md border border-line bg-white px-3 text-xs font-semibold text-brand hover:bg-teal-50" onClick={exportFinalPdfData} type="button">
             Payload n8n
+          </button>
+          <button
+            className="h-8 rounded-md bg-brand px-3 text-xs font-semibold text-white hover:bg-brand-dark disabled:cursor-not-allowed disabled:bg-slate-300"
+            disabled={isSendingPdfPayload}
+            onClick={sendFinalPdfPayload}
+            type="button"
+          >
+            {isSendingPdfPayload ? "Đang gửi..." : "Gửi n8n"}
           </button>
         </div>
       </div>

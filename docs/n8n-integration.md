@@ -2,6 +2,12 @@
 
 Muc tieu: app chi ghi su kien vao Supabase, n8n doc hang doi va gui Telegram/Zalo.
 
+Rieng luong xuat `Lenh dieu xe final` thanh PDF va gui file qua Telegram/email xem them:
+
+```text
+docs/final-order-pdf-n8n.md
+```
+
 ## 1. Supabase
 
 Chay migration:
