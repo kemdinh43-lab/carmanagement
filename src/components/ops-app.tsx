@@ -479,6 +479,108 @@ function DocumentPreview({ title, body }: { title: string; body: string }) {
   );
 }
 
+function FinalDispatchOrderSheet({ order }: { order: DispatchOrder }) {
+  const startDate = dateOnly(order.startAt);
+  const startTime = timeOnly(order.startAt);
+  const endDate = dateOnly(order.endAt);
+  const endTime = timeOnly(order.endAt);
+  const routeText = routeLegsForOrder(order).map((leg) => `${leg.pickup} -> ${leg.dropoff}`).join(" / ");
+  const driverCollected = order.driverCollectedAmount ?? 0;
+  const remainingPayment = Math.max(order.amountDue - driverCollected, 0);
+  const vehicleLabel = order.externalVehiclePlate || order.vehiclePlateNo || order.vehicleId || "-";
+  const driverLabel = order.externalDriverName || order.driverFullName || order.driverId || "-";
+  const driverPhone = order.externalDriverPhone || order.driverPhone || "-";
+
+  const rows: Array<{ group: string; label: string; value: string; tone?: "yellow" | "blue" }> = [
+    { group: "Quản lý 1", label: "Số", value: order.code },
+    { group: "Quản lý 1", label: "Ngày", value: order.orderDate || dateOnly(order.startAt) },
+    { group: "Quản lý 1", label: "Nguồn (Sale; xe; ĐHXX; khác)", value: `${order.salesOwner} / ${order.source}` },
+    { group: "Quản lý 1", label: "Tên người giao xe", value: order.sourceOwnerName || order.salesOwner || "-" },
+    { group: "Quản lý 1", label: "Có xuất hóa đơn không (Có; Không)", value: order.invoiceRequired ? "Có" : "Không", tone: "yellow" },
+    { group: "Quản lý 1", label: "Hình thức xe (Công ty; Thuê ngoài)", value: order.vehicleOwnership === "rented" ? "Thuê ngoài" : "Công ty", tone: "blue" },
+    { group: "Quản lý 1", label: "Loại hợp đồng (Mẫu; Giản đơn; Điều khoản)", value: contractTypeLabels[order.contractType ?? "simple"] },
+    { group: "Thông tin xe", label: "Biển số xe", value: vehicleLabel },
+    { group: "Thông tin xe", label: "Họ và tên tài xế", value: driverLabel },
+    { group: "Thông tin xe", label: "CCCD", value: order.driverCccd || "-" },
+    { group: "Thông tin xe", label: "Số điện thoại tài xế", value: driverPhone },
+    { group: "Thông tin nhà cung cấp", label: "Họ và tên chủ sở hữu xe", value: order.supplierOwnerName || "-", tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Số CCCD", value: order.supplierCccd || "-", tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Có xuất hóa đơn đầu vào được không (Có; không)", value: order.supplierInvoiceRequired ? "Có" : "Không", tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Tên đơn vị thuê ngoài", value: order.supplierCompanyName || "-", tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Mã số thuế", value: order.supplierTaxCode || "-", tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Địa chỉ", value: order.supplierAddress || "-", tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Số điện thoại nhà cung cấp", value: order.supplierPhone || "-", tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Tổng tiền mua", value: money(order.supplierTotalWithVat ?? 0), tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Số tài khoản ngân hàng", value: order.supplierBankAccount || "-", tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Tên ngân hàng", value: order.supplierBankName || "-", tone: "blue" },
+    { group: "Thông tin khách hàng", label: "Họ và tên khách hàng", value: order.customerName },
+    { group: "Thông tin khách hàng", label: "Số CCCD", value: order.customerCccd || "Không cung cấp" },
+    { group: "Thông tin khách hàng", label: "Số điện thoại", value: order.contactPhone },
+    { group: "Thông tin khách hàng", label: "Tên công ty", value: order.companyName || "-", tone: "yellow" },
+    { group: "Thông tin khách hàng", label: "Mã số thuế", value: order.taxCode || "-", tone: "yellow" },
+    { group: "Thông tin khách hàng", label: "Địa chỉ", value: order.companyAddress || order.customerAddress || "-", tone: "yellow" },
+    { group: "Thông tin khách hàng", label: "Số tài khoản", value: order.companyBankAccount || order.customerBankAccount || "-", tone: "yellow" },
+    { group: "Thông tin khách hàng", label: "Tên ngân hàng", value: order.companyBankName || order.customerBankName || "-", tone: "yellow" },
+    { group: "Hành trình", label: "Ngày bắt đầu", value: startDate },
+    { group: "Hành trình", label: "Giờ bắt đầu", value: startTime },
+    { group: "Hành trình", label: "Ngày kết thúc", value: endDate },
+    { group: "Hành trình", label: "Giờ kết thúc dự kiến", value: endTime },
+    { group: "Hành trình", label: "Điểm đi", value: order.pickup },
+    { group: "Hành trình", label: "Điểm đến", value: routeText || order.dropoff },
+    { group: "Hành trình", label: "Mã dịch vụ (DVVT; DVHL; DVHT; DVCT)", value: order.serviceCode || order.serviceLabel },
+    { group: "Hành trình", label: "Nội dung làm rõ (Nếu có)", value: order.serviceClarification || order.customerConfirmationNote || "-", tone: "yellow" },
+    { group: "Hành trình", label: "Đơn vị tính (Chuyến; Ngày; tháng; Kỳ)", value: order.unit || "Chuyến" },
+    { group: "Hành trình", label: "Thuế suất %", value: `${order.vatRate ?? 0}%` },
+    { group: "Hành trình", label: "Tiền hàng", value: money(order.subtotalAmount ?? order.amountDue) },
+    { group: "Hành trình", label: "Tiền thuế", value: money(order.vatAmount ?? 0) },
+    { group: "Hành trình", label: "Tổng thanh toán", value: money(order.amountDue) },
+    { group: "Hành trình", label: "Hình thức thanh toán (TM/CK/TMCK/Đối trừ)", value: order.paymentMethod || "-" },
+    { group: "Hành trình", label: "Số lần thanh toán", value: remainingPayment > 0 && driverCollected > 0 ? "2" : "1" },
+    { group: "Thanh toán lần 1", label: "Đối tượng thu: Công ty thu; tài xế thu; Ban điều hành", value: driverCollected > 0 ? "Tài xế thu" : order.payer || "Công ty thu" },
+    { group: "Thanh toán lần 1", label: "Tên người thu", value: driverCollected > 0 ? driverLabel : order.collectionAccountOwner || "CÔNG TY TNHH ANGEL ONE TRAVEL" },
+    { group: "Thanh toán lần 1", label: "Số tiền thu", value: money(driverCollected > 0 ? driverCollected : order.amountDue) },
+    { group: "Thanh toán lần 1", label: "Số tài khoản thu (Công ty; Khác; tài xế)", value: driverCollected > 0 ? "-" : order.collectionBankAccount || "-" },
+    { group: "Thanh toán lần 1", label: "Ngân hàng thu", value: driverCollected > 0 ? "-" : order.collectionBankName || "-" },
+    { group: "Thanh toán lần 2 (Nếu có)", label: "Đối tượng thu: Công ty thu; tài xế thu; Ban điều hành", value: remainingPayment > 0 && driverCollected > 0 ? "Công ty thu" : "-" },
+    { group: "Thanh toán lần 2 (Nếu có)", label: "Tên người thu", value: remainingPayment > 0 && driverCollected > 0 ? order.collectionAccountOwner || "CÔNG TY TNHH ANGEL ONE TRAVEL" : "-" },
+    { group: "Thanh toán lần 2 (Nếu có)", label: "Số tiền thu", value: remainingPayment > 0 && driverCollected > 0 ? money(remainingPayment) : "-" },
+    { group: "Thanh toán lần 2 (Nếu có)", label: "Số tài khoản thu (Công ty; Khác; tài xế)", value: remainingPayment > 0 && driverCollected > 0 ? order.collectionBankAccount || "-" : "-" },
+    { group: "Thanh toán lần 2 (Nếu có)", label: "Ngân hàng thu", value: remainingPayment > 0 && driverCollected > 0 ? order.collectionBankName || "-" : "-" }
+  ];
+
+  return (
+    <section className="border border-line bg-panel p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="font-semibold text-ink">Lệnh điều xe final</p>
+        <Badge tone="info">Excel format</Badge>
+      </div>
+      <div className="max-h-[560px] overflow-auto border border-line bg-white">
+        <table className="w-full min-w-[760px] border-collapse text-left text-xs text-slate-800">
+          <thead>
+            <tr>
+              <th className="border border-slate-300 bg-white px-2 py-2 text-center text-base font-bold text-ink" colSpan={3}>LỆNH ĐIỀU XE</th>
+            </tr>
+            <tr className="bg-slate-50">
+              <th className="w-40 border border-slate-300 px-2 py-1 font-semibold">Nhóm</th>
+              <th className="w-80 border border-slate-300 px-2 py-1 font-semibold">Thông tin</th>
+              <th className="border border-slate-300 px-2 py-1 font-semibold">Giá trị</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr className={row.tone === "yellow" ? "bg-yellow-100" : row.tone === "blue" ? "bg-cyan-100" : "bg-white"} key={`${row.group}-${row.label}-${index}`}>
+                <td className="border border-slate-300 px-2 py-1 align-top text-slate-700">{row.group}</td>
+                <td className="border border-slate-300 px-2 py-1 align-top">{row.label}</td>
+                <td className="border border-slate-300 px-2 py-1 align-top font-medium text-ink">{row.value || "-"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function OrderDocumentPreviews({ order }: { order: DispatchOrder }) {
   return (
     <SectionDetails
@@ -489,7 +591,7 @@ function OrderDocumentPreviews({ order }: { order: DispatchOrder }) {
     >
       <div className="grid gap-3 lg:grid-cols-2">
         <DocumentPreview body={customerConfirmationText(order)} title="Phiếu gửi khách xác nhận" />
-        <DocumentPreview body={finalDispatchOrderText(order)} title="Lệnh điều xe final" />
+        <FinalDispatchOrderSheet order={order} />
       </div>
     </SectionDetails>
   );
@@ -836,6 +938,15 @@ function routeLinesForOrder(order: DispatchOrder) {
     const time = [leg.startAt ? formatDateTime(leg.startAt) : "", leg.endAt ? formatDateTime(leg.endAt) : ""].filter(Boolean).join(" - ");
     const note = leg.note ? ` (${leg.note})` : "";
     return `Chặng ${index + 1}: ${time ? `${time} / ` : ""}${leg.pickup || "-"} -> ${leg.dropoff || "-"}${note}`;
+  });
+}
+
+function dateOnly(value: string) {
+  return new Date(value).toLocaleDateString("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: vietnamTimeZone
   });
 }
 
