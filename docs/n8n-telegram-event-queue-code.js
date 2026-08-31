@@ -107,7 +107,7 @@ function formatDateTime(value) {
 
 function mapsUrl(order) {
   if (!order?.pickup || !order?.dropoff) return "";
-  return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(order.pickup)}&destination=${encodeURIComponent(order.dropoff)}`;
+  return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(order.pickup)}&destination=${encodeURIComponent(order.dropoff)}&travelmode=driving`;
 }
 
 function actionUrl(event, order) {
@@ -119,15 +119,31 @@ function actionUrl(event, order) {
   return `${APP_URL}/?view=orders&order=${orderId}`;
 }
 
-async function getOrder(event) {
+async function getRow(table, select, id) {
+  if (!id) return null;
+  try {
+    const rows = await httpRequest({
+      method: "GET",
+      url: `${SUPABASE_URL}/rest/v1/${table}?select=${encodeURIComponent(select)}&id=eq.${encodeURIComponent(id)}&limit=1`,
+      headers: supabaseHeaders,
+      json: true
+    });
+    return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function getOrderDetails(event) {
   const orderId = event.entity_id || event.payload?.entityId;
-  if (!orderId) return null;
+  if (!orderId) return { order: null, vehicle: null, driver: null };
   try {
     const select = [
-      "id", "code", "customer_name", "customer_phone", "pickup", "dropoff",
+      "id", "code", "customer_name", "contact_phone", "pickup", "dropoff",
       "service_label", "start_at", "end_at", "amount_due", "driver_cost",
       "vehicle_id", "driver_id", "driver_full_name", "driver_phone",
-      "external_vehicle_plate_no", "external_driver_name", "external_driver_phone",
+      "vehicle_plate_no", "external_vehicle_plate", "external_vehicle_type",
+      "external_driver_name", "external_driver_phone",
       "dispatch_status", "order_status", "payment_status", "invoice_status",
       "driver_collected_amount", "driver_expense_fuel", "driver_expense_toll",
       "driver_expense_parking", "driver_expense_water", "driver_expense_other",
@@ -139,20 +155,40 @@ async function getOrder(event) {
       headers: supabaseHeaders,
       json: true
     });
-    return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+    const order = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+    const vehicle = order?.vehicle_id ? await getRow("app_vehicles", "id,plate_no,vehicle_type,seats,status", order.vehicle_id) : null;
+    const driver = order?.driver_id ? await getRow("app_drivers", "id,full_name,phone,status", order.driver_id) : null;
+    return { order, vehicle, driver };
   } catch (error) {
-    return null;
+    return { order: null, vehicle: null, driver: null };
   }
 }
 
-function eventRule(event, order) {
+function orderRoute(order) {
+  return order ? [order.pickup, order.dropoff].filter(Boolean).join(" -> ") : "";
+}
+
+function orderVehicleLabel(order, vehicle) {
+  return [
+    order?.external_vehicle_plate || order?.vehicle_plate_no || vehicle?.plate_no || order?.vehicle_id,
+    order?.external_vehicle_type || vehicle?.vehicle_type
+  ].filter(Boolean).join(" / ");
+}
+
+function orderDriverLabel(order, driver) {
+  return [
+    order?.external_driver_name || order?.driver_full_name || driver?.full_name || order?.driver_id,
+    order?.external_driver_phone || order?.driver_phone || driver?.phone
+  ].filter(Boolean).join(" / ");
+}
+
+function eventRule(event, details) {
+  const { order, vehicle, driver: driverProfile } = details;
   const type = event.event_type || "";
-  const route = order ? [order.pickup, order.dropoff].filter(Boolean).join(" -> ") : "";
-  const driver = order ? [
-    order.external_vehicle_plate_no || order.vehicle_id,
-    order.driver_full_name || order.external_driver_name || order.driver_id,
-    order.driver_phone || order.external_driver_phone
-  ].filter(Boolean).join(" / ") : "";
+  const route = orderRoute(order);
+  const vehicleLabel = orderVehicleLabel(order, vehicle);
+  const driver = orderDriverLabel(order, driverProfile);
+  const assignment = [vehicleLabel ? `Xe: ${vehicleLabel}` : "", driver ? `Tài xế: ${driver}` : ""].filter(Boolean);
   const driverReportedCost = order
     ? Number(order.driver_expense_fuel || 0) + Number(order.driver_expense_toll || 0) + Number(order.driver_expense_parking || 0) + Number(order.driver_expense_water || 0) + Number(order.driver_expense_other || 0)
     : 0;
@@ -175,12 +211,12 @@ function eventRule(event, order) {
     driver_assigned: {
       title: event.audience === "driver" ? "🚗 Bạn được phân chuyến mới" : "✅ Đã phân xe/tài xế",
       action: event.audience === "driver" ? "Kiểm tra thông tin chuyến, bấm Nhận chuyến và xem Google Maps." : "Theo dõi tài xế nhận chuyến trước giờ chạy.",
-      info: [route ? `Tuyến: ${route}` : "", driver ? `Xe/Tài xế: ${driver}` : ""].filter(Boolean)
+      info: [route ? `Tuyến: ${route}` : "", ...assignment].filter(Boolean)
     },
     driver_assignment_replaced: {
       title: "🔄 Điều chỉnh xe/tài xế",
       action: event.audience === "driver" ? "Kiểm tra lại chuyến vì xe hoặc tài xế vừa được điều chỉnh." : "Theo dõi phân công mới và báo tài xế nếu sát giờ chạy.",
-      info: [route ? `Tuyến: ${route}` : "", driver ? `Phân công mới: ${driver}` : ""].filter(Boolean)
+      info: [route ? `Tuyến: ${route}` : "", ...assignment].filter(Boolean)
     },
     trip_completed: {
       title: event.audience === "accountant" ? "💰 Chuyến chờ đối soát" : "✅ Chuyến đã hoàn thành",
@@ -226,13 +262,14 @@ function eventRule(event, order) {
 
 async function formatMessage(event) {
   const payload = event.payload || {};
-  const order = await getOrder(event);
-  const rule = eventRule(event, order);
+  const details = await getOrderDetails(event);
+  const { order } = details;
+  const rule = eventRule(event, details);
   const code = order?.code || payload.orderCode || payload.code || "";
-  const customer = order ? [order.customer_name, order.customer_phone].filter(Boolean).join(" / ") : "";
+  const customer = order ? [order.customer_name, order.contact_phone].filter(Boolean).join(" / ") : "";
   const time = order?.start_at ? formatDateTime(order.start_at) + (order.end_at ? " - " + formatDateTime(order.end_at) : "") : "";
   const url = actionUrl(event, order);
-  const map = event.audience === "driver" ? mapsUrl(order) : "";
+  const map = mapsUrl(order);
   const lines = [
     `<b>${escapeHtml(rule.title)}</b>`,
     "",
