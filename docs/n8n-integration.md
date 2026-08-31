@@ -16,9 +16,16 @@ Migration nay them 3 RPC cho n8n:
 - `mark_integration_event_sent(p_event_id)` danh dau da gui.
 - `mark_integration_event_failed(p_event_id, p_error)` ghi loi va dua ve `pending` de retry, toi da 5 lan.
 
-## 2. n8n Environment Variables
+## 2. n8n Variables / Environment Variables
 
-Can dat cac bien nay trong n8n:
+Workflow doc config theo thu tu:
+
+1. n8n `Variables`
+2. server environment variables
+
+Neu n8n cua ban co muc `Variables`, co the nhap truc tiep trong UI, khong can SSH vao VPS.
+
+Can dat cac bien nay:
 
 ```text
 SUPABASE_URL=https://cyagfkfaclwhafocdqgy.supabase.co
