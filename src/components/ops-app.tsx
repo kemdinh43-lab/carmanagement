@@ -634,6 +634,111 @@ function FinalDispatchOrderSheet({ order, payments }: { order: DispatchOrder; pa
     downloadTextFile(`lenh-dieu-xe-${order.code}.html`, html, "text/html;charset=utf-8");
   }
 
+  function exportFinalPdfData() {
+    const driverExpenseTotal =
+      (order.driverExpenseFuel ?? 0) +
+      (order.driverExpenseToll ?? 0) +
+      (order.driverExpenseParking ?? 0) +
+      (order.driverExpenseWater ?? 0) +
+      (order.driverExpenseOther ?? 0);
+    const pdfData = {
+      delivery: {
+        schema: "aot_final_dispatch_order_pdf_v1",
+        generated_at: new Date().toISOString(),
+        status: order.reconciliationStatus === "closed" ? "official" : "preview",
+        filename: `Lenh_dieu_xe_${order.code}.pdf`,
+        telegram_caption: `Lệnh điều xe ${order.code} - ${order.customerName} - ${routeText}`,
+        email_subject: `Lệnh điều xe ${order.code} - ${order.customerName}`,
+        email_body: `Kính gửi,\n\nĐính kèm là lệnh điều xe ${order.code}.\n\nTrân trọng,\n${ownerCompanyProfile.legalName}`
+      },
+      order_no: order.code,
+      order_date: order.orderDate ? dateOnly(`${order.orderDate}T00:00:00`) : dateOnly(order.startAt),
+      city: "Đà Nẵng",
+      management: {
+        manager_1: order.sourceOwnerName || order.salesOwner || "-",
+        source: `${order.salesOwner} / ${order.source}`,
+        dispatcher: order.sourceOwnerName || "-",
+        output_invoice: order.invoiceRequired ? "Có" : "Không",
+        vehicle_form: isRentedVehicle ? "Thuê ngoài" : "Công ty",
+        contract_type: contractTypeLabels[order.contractType ?? "simple"]
+      },
+      vehicle: {
+        plate: vehicleLabel,
+        driver_name: driverLabel,
+        driver_cccd: order.driverCccd || "-",
+        driver_phone: driverPhone
+      },
+      supplier: {
+        owner_name: ownerName,
+        owner_cccd: isRentedVehicle ? order.supplierCccd || "-" : "-",
+        input_invoice: isRentedVehicle && order.supplierInvoiceRequired ? "Có" : "Không",
+        supplier_name: supplierCompanyName,
+        tax_code: supplierTaxCode,
+        address: supplierAddress,
+        phone: supplierPhone,
+        purchase_total: money(supplierTotal),
+        bank_account: supplierBankAccount,
+        bank_name: supplierBankName
+      },
+      customer: {
+        name: order.customerName,
+        cccd: order.customerCccd || "Không cung cấp",
+        phone: order.contactPhone,
+        company: order.companyName || "-",
+        tax_code: order.taxCode || "-",
+        address: order.companyAddress || order.customerAddress || "-",
+        bank_account: order.companyBankAccount || order.customerBankAccount || "-",
+        bank_name: order.companyBankName || order.customerBankName || "-"
+      },
+      trip: {
+        start_date: startDate,
+        start_time: startTime,
+        end_date: endDate,
+        end_time_expected: endTime,
+        pickup: order.pickup,
+        dropoff: routeText || order.dropoff,
+        service_code: order.serviceCode || order.serviceLabel,
+        clarification: order.serviceClarification || order.customerConfirmationNote || "-",
+        unit: order.unit || "Chuyến",
+        tax_rate: `${order.vatRate ?? 0}%`,
+        subtotal: money(order.subtotalAmount ?? order.amountDue),
+        tax_amount: money(order.vatAmount ?? 0),
+        total: money(order.amountDue),
+        payment_method: order.paymentMethod || "-",
+        route_legs: routeLegsForOrder(order).map((leg) => ({
+          time: [leg.startAt ? timeOnly(leg.startAt) : "", leg.endAt ? timeOnly(leg.endAt) : ""].filter(Boolean).join("-") || "-",
+          from: leg.pickup || "-",
+          to: leg.dropoff || "-",
+          note: leg.note || "-"
+        }))
+      },
+      payments: validPayments.map((payment) => ({
+        collector_type: payment.collector || order.payer || "Công ty",
+        collector_name: payment.collector || order.collectionAccountOwner || ownerCompanyProfile.legalName,
+        amount: money(payment.amount),
+        bank_account: order.collectionBankAccount || "-",
+        bank_name: order.collectionBankName || "-",
+        note: [payment.reference, payment.note].filter(Boolean).join(" / ") || paymentMethodLabels[payment.method]
+      })),
+      reconciliation: {
+        receivable_total: money(order.amountDue),
+        received_total: money(paid),
+        receivable_remaining: money(debt),
+        customer_payment_status: paymentLabels[order.paymentStatus],
+        supplier_total: money(supplierTotal),
+        supplier_paid: "-",
+        supplier_remaining: isRentedVehicle ? money(supplierTotal) : "0 đ",
+        extra_cost: money(driverExpenseTotal),
+        actual_profit: money(orderActualProfit(order)),
+        output_invoice_status: invoiceLabels[order.invoiceStatus],
+        input_invoice_status: isRentedVehicle ? (order.supplierInvoiceRequired ? "Chưa nhận / cần đối soát" : "Không yêu cầu") : "Không áp dụng",
+        reconciliation_status: order.reconciliationStatus === "closed" ? "Đã chốt" : "Đang mở",
+        accounting_closed_at: order.reconciliationStatus === "closed" ? formatDateTime(new Date().toISOString()) : "-"
+      }
+    };
+    downloadTextFile(`lenh-dieu-xe-${order.code}-pdf-data.json`, JSON.stringify(pdfData, null, 2), "application/json;charset=utf-8");
+  }
+
   return (
     <section className="border border-line bg-panel p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -642,6 +747,9 @@ function FinalDispatchOrderSheet({ order, payments }: { order: DispatchOrder; pa
           <Badge tone={order.reconciliationStatus === "closed" ? "good" : "info"}>{exportStatus}</Badge>
           <button className="h-8 rounded-md border border-line bg-white px-3 text-xs font-semibold text-brand hover:bg-teal-50" onClick={exportFinalOrder} type="button">
             Xuất lệnh
+          </button>
+          <button className="h-8 rounded-md border border-line bg-white px-3 text-xs font-semibold text-brand hover:bg-teal-50" onClick={exportFinalPdfData} type="button">
+            Payload n8n
           </button>
         </div>
       </div>
