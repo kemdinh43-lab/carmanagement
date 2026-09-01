@@ -4179,8 +4179,11 @@ function OrderDetailPanel({
   const orderPayments = payments.filter((payment) => payment.orderId === order.id);
   const paid = orderPayments.filter((payment) => payment.status === "valid").reduce((sum, payment) => sum + payment.amount, 0);
   const activeAssignment = assignments.find((assignment) => assignment.dispatchOrderId === order.id && assignment.status === "active");
-  const vehicle = vehicles.find((item) => item.id === order.vehicleId);
-  const driver = drivers.find((item) => item.id === order.driverId);
+  const vehicle = vehicles.find((item) => item.id === (activeAssignment?.vehicleId || order.vehicleId));
+  const driver = drivers.find((item) => item.id === (activeAssignment?.driverId || order.driverId));
+  const transport = resolveOrderTransport(order, assignments, vehicles, drivers);
+  const editVehicleOwnership = order.vehicleOwnership ?? (transport.vehicleOwnership === "partner" || transport.vehicleOwnership === "rented" ? "rented" : "company");
+  const editSupplierInvoiceRequired = order.supplierInvoiceRequired ?? transport.supplierInvoiceRequired ?? false;
   const orderAudit = auditEvents.filter((event) => event.entityId === order.id || event.entityId === activeAssignment?.id).slice(0, 5);
   const cost = orderCost(order);
   const profit = orderProfit(order);
@@ -4395,21 +4398,21 @@ function OrderDetailPanel({
                   title="4. Xe / tài xế / nhà cung cấp"
                 >
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-                    <Field label="Hình thức xe"><select className={inputClass()} defaultValue={order.vehicleOwnership ?? "company"} name="vehicleOwnership"><option value="company">Công ty</option><option value="rented">Thuê ngoài</option></select></Field>
-                    <Field label="Biển số xe"><input className={inputClass()} defaultValue={order.vehiclePlateNo ?? ""} name="vehiclePlateNo" /></Field>
-                    <Field label="Họ tên tài xế"><input className={inputClass()} defaultValue={order.driverFullName ?? ""} name="driverFullName" /></Field>
-                    <Field label="CCCD tài xế"><input className={inputClass()} defaultValue={order.driverCccd ?? ""} name="driverCccd" /></Field>
-                    <Field label="SĐT tài xế"><input className={inputClass()} defaultValue={order.driverPhone ?? ""} name="driverPhone" /></Field>
-                    <Field label="Tên chủ xe / nhà cung cấp"><input className={inputClass()} defaultValue={order.supplierOwnerName ?? ""} name="supplierOwnerName" /></Field>
-                    <Field label="CCCD / MST NCC"><input className={inputClass()} defaultValue={order.supplierCccd ?? ""} name="supplierCccd" /></Field>
-                    <Field label="Xuất HĐ đầu vào"><select className={inputClass()} defaultValue={order.supplierInvoiceRequired ? "yes" : "no"} name="supplierInvoiceRequired"><option value="no">Không</option><option value="yes">Có</option></select></Field>
-                    <Field label="Tên đơn vị thuê ngoài"><input className={inputClass()} defaultValue={order.supplierCompanyName ?? ""} name="supplierCompanyName" /></Field>
-                    <Field label="MST NCC"><input className={inputClass()} defaultValue={order.supplierTaxCode ?? ""} name="supplierTaxCode" /></Field>
-                    <Field label="Địa chỉ NCC"><input className={inputClass()} defaultValue={order.supplierAddress ?? ""} name="supplierAddress" /></Field>
-                    <Field label="SĐT NCC"><input className={inputClass()} defaultValue={order.supplierPhone ?? ""} name="supplierPhone" /></Field>
+                    <Field label="Hình thức xe"><select className={inputClass()} defaultValue={editVehicleOwnership} name="vehicleOwnership"><option value="company">Công ty</option><option value="rented">Thuê ngoài/Hợp tác</option></select></Field>
+                    <Field label="Biển số xe"><input className={inputClass()} defaultValue={transport.vehiclePlate === "-" ? "" : transport.vehiclePlate} name="vehiclePlateNo" /></Field>
+                    <Field label="Họ tên tài xế"><input className={inputClass()} defaultValue={transport.driverName === "-" ? "" : transport.driverName} name="driverFullName" /></Field>
+                    <Field label="CCCD tài xế"><input className={inputClass()} defaultValue={transport.driverCccd === "-" ? "" : transport.driverCccd} name="driverCccd" /></Field>
+                    <Field label="SĐT tài xế"><input className={inputClass()} defaultValue={transport.driverPhone === "-" ? "" : transport.driverPhone} name="driverPhone" /></Field>
+                    <Field label="Tên chủ xe / nhà cung cấp"><input className={inputClass()} defaultValue={order.supplierOwnerName ?? transport.ownerName ?? ""} name="supplierOwnerName" /></Field>
+                    <Field label="CCCD / MST NCC"><input className={inputClass()} defaultValue={order.supplierCccd ?? transport.ownerCccd ?? ""} name="supplierCccd" /></Field>
+                    <Field label="Xuất HĐ đầu vào"><select className={inputClass()} defaultValue={editSupplierInvoiceRequired ? "yes" : "no"} name="supplierInvoiceRequired"><option value="no">Không</option><option value="yes">Có</option></select></Field>
+                    <Field label="Tên đơn vị thuê ngoài"><input className={inputClass()} defaultValue={order.supplierCompanyName ?? transport.supplierCompanyName ?? ""} name="supplierCompanyName" /></Field>
+                    <Field label="MST NCC"><input className={inputClass()} defaultValue={order.supplierTaxCode ?? transport.supplierTaxCode ?? ""} name="supplierTaxCode" /></Field>
+                    <Field label="Địa chỉ NCC"><input className={inputClass()} defaultValue={order.supplierAddress ?? transport.supplierAddress ?? ""} name="supplierAddress" /></Field>
+                    <Field label="SĐT NCC"><input className={inputClass()} defaultValue={order.supplierPhone ?? transport.supplierPhone ?? ""} name="supplierPhone" /></Field>
                     <Field label="Tổng tiền mua gồm VAT"><input className={inputClass()} defaultValue={order.supplierTotalWithVat ?? 0} min="0" name="supplierTotalWithVat" type="number" /></Field>
-                    <Field label="TK NCC"><input className={inputClass()} defaultValue={order.supplierBankAccount ?? ""} name="supplierBankAccount" /></Field>
-                    <Field label="Ngân hàng NCC"><input className={inputClass()} defaultValue={order.supplierBankName ?? ""} name="supplierBankName" /></Field>
+                    <Field label="TK NCC"><input className={inputClass()} defaultValue={order.supplierBankAccount ?? transport.supplierBankAccount ?? ""} name="supplierBankAccount" /></Field>
+                    <Field label="Ngân hàng NCC"><input className={inputClass()} defaultValue={order.supplierBankName ?? transport.supplierBankName ?? ""} name="supplierBankName" /></Field>
                   </div>
                 </SectionDetails>
               </fieldset>
