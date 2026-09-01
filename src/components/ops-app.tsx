@@ -153,6 +153,7 @@ const ownerCompanyProfile = {
 };
 
 const defaultOrderManagerName = "Nguyễn Quang Nam";
+const salesOwnerOptions = ["Phan Thị Bích Hà", "Đặng Thị Hồng Tiên", "Lê Hoàn Nin Hy"];
 
 const paymentMethodLabels: Record<Payment["method"], string> = {
   cash: "Tiền mặt",
@@ -2277,7 +2278,7 @@ export default function OpsApp() {
       serviceLabel: String(form.get("serviceLabel") || "Private transfer").trim(),
       serviceClarification: serviceClarification || undefined,
       unit: unit || undefined,
-      salesOwner: String(form.get("salesOwner") || "Sale A"),
+      salesOwner: String(form.get("salesOwner") || salesOwnerOptions[0]),
       sourceOwnerName: sourceOwnerName || undefined,
       source: String(form.get("source") || "Manual"),
       invoiceRequired,
@@ -4797,7 +4798,11 @@ function OrdersPanel({
               </Field>
               <Field label="Người tạo nguồn"><input className={inputClass()} name="sourceOwnerName" /></Field>
               <Field label="Xuất hóa đơn"><select className={inputClass()} name="invoiceRequired"><option value="no">Không</option><option value="yes">Có</option></select></Field>
-              <Field label="Sale"><select className={inputClass()} name="salesOwner"><option>Sale A</option><option>Sale B</option><option>Sale C</option></select></Field>
+              <Field label="Sale">
+                <select className={inputClass()} name="salesOwner">
+                  {salesOwnerOptions.map((name) => <option key={name}>{name}</option>)}
+                </select>
+              </Field>
               <Field label="Nguồn"><select className={inputClass()} name="source"><option>Manual</option><option>Website</option><option>Google Ads</option><option>Referral</option><option>Old customer</option></select></Field>
               {customerKind === "individual" ? (
                 <>
