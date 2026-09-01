@@ -252,7 +252,18 @@ export async function POST(request: Request) {
   const validationError = validatePayload(payload);
   if (validationError) return NextResponse.json({ error: validationError }, { status: 400 });
   const finalPayload = payload as FinalOrderPayload & { order_no: string };
-  const pdfBuffer = await renderFinalOrderPdf(finalPayload);
+  let pdfBuffer: Buffer;
+  try {
+    pdfBuffer = await renderFinalOrderPdf(finalPayload);
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: "Không tạo được PDF lệnh điều xe trên server.",
+        detail: error instanceof Error ? error.message : "unknown error"
+      },
+      { status: 500 }
+    );
+  }
   const payloadWithPdf: FinalOrderPayload & { order_no: string } = {
     ...finalPayload,
     delivery: {
