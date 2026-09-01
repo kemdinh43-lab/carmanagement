@@ -544,7 +544,7 @@ function FinalDispatchOrderSheet({
   const supplierPhone = isRentedVehicle ? order.supplierPhone || transport.supplierPhone || "-" : ownerCompanyProfile.phone || "-";
   const supplierBankAccount = isRentedVehicle ? order.supplierBankAccount || transport.supplierBankAccount || "-" : ownerCompanyProfile.bankAccount || "-";
   const supplierBankName = isRentedVehicle ? order.supplierBankName || transport.supplierBankName || "-" : ownerCompanyProfile.bankName || "-";
-  const supplierInvoiceRequired = isRentedVehicle ? order.supplierInvoiceRequired ?? transport.supplierInvoiceRequired ?? false : false;
+  const supplierInvoiceRequired = isRentedVehicle ? order.supplierInvoiceRequired ?? transport.supplierInvoiceRequired ?? true : true;
   const supplierTotal = isRentedVehicle ? order.supplierTotalWithVat ?? orderCost(order) : orderActualCost(order) || orderCost(order);
   const paymentRows = (validPayments.length > 0
     ? validPayments.flatMap((payment, index) => {
@@ -557,7 +557,7 @@ function FinalDispatchOrderSheet({
           { group: `Thanh toán lần ${index + 1}`, label: "Thời gian thu", value: formatDateTime(payment.paidAt) },
           { group: `Thanh toán lần ${index + 1}`, label: "Số tài khoản thu (Công ty; Khác; tài xế)", value: payment.bankAccount || order.collectionBankAccount || "-" },
           { group: `Thanh toán lần ${index + 1}`, label: "Ngân hàng thu", value: payment.bankName || order.collectionBankName || "-" },
-          { group: `Thanh toán lần ${index + 1}`, label: "Mã tham chiếu / ghi chú", value: [payment.reference, payment.note].filter(Boolean).join(" / ") || "-" }
+          { group: `Thanh toán lần ${index + 1}`, label: "Thời gian nhập", value: [payment.reference, payment.note].filter(Boolean).join(" / ") || "-" }
         ];
       })
     : [
@@ -568,7 +568,7 @@ function FinalDispatchOrderSheet({
         { group: "Thanh toán lần 1", label: "Thời gian thu", value: "-" },
         { group: "Thanh toán lần 1", label: "Số tài khoản thu (Công ty; Khác; tài xế)", value: order.collectionBankAccount || "-" },
         { group: "Thanh toán lần 1", label: "Ngân hàng thu", value: order.collectionBankName || "-" },
-        { group: "Thanh toán lần 1", label: "Mã tham chiếu / ghi chú", value: debt > 0 ? `Còn phải thu ${money(debt)}` : "-" }
+        { group: "Thanh toán lần 1", label: "Thời gian nhập", value: debt > 0 ? `Còn phải thu ${money(debt)}` : "-" }
       ]) satisfies Array<{ group: string; label: string; value: string }>;
 
   const rows: Array<{ group: string; label: string; value: string; tone?: "yellow" | "blue" }> = [
@@ -747,6 +747,7 @@ function FinalDispatchOrderSheet({
         paid_at: formatDateTime(payment.paidAt),
         bank_account: payment.bankAccount || order.collectionBankAccount || "-",
         bank_name: payment.bankName || order.collectionBankName || "-",
+        entry_time_note: [payment.reference, payment.note].filter(Boolean).join(" / ") || "-",
         reference_note: [payment.reference, payment.note].filter(Boolean).join(" / ") || "-",
         note: [payment.reference, payment.note].filter(Boolean).join(" / ") || paymentMethodLabels[payment.method]
       };
@@ -6398,7 +6399,7 @@ function FinancePanel({
               <Field label="Đối tượng thu tiền"><input className={inputClass()} defaultValue={selectedOrder.collectionAccountOwner ?? "Công ty thu"} name="collector" placeholder="Công ty thu / Tài xế thu / Ban điều hành" /></Field>
               <Field label="Số tài khoản thu"><input className={inputClass()} defaultValue={selectedOrder.collectionBankAccount ?? ""} name="bankAccount" placeholder="STK nhận tiền của lần thu này" /></Field>
               <Field label="Ngân hàng thu"><input className={inputClass()} defaultValue={selectedOrder.collectionBankName ?? ""} name="bankName" placeholder="MB / Techcombank / tiền mặt..." /></Field>
-              <Field label="Mã tham chiếu"><input className={inputClass()} name="reference" placeholder="Mã GD ngân hàng nếu có" /></Field>
+              <Field label="Thời gian nhập"><input className={inputClass()} name="reference" placeholder="Nhập thủ công thời gian ghi nhận nếu cần" /></Field>
               <Field label="Ghi chú thanh toán"><textarea className={textAreaClass()} name="note" placeholder="Thu lần 1, khách chuyển thiếu, tài xế thu hộ..." /></Field>
             </div>
             <button className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canRecordPayment || isActionPending(`finance:payment:${selectedOrder.id}`)} type="submit">
