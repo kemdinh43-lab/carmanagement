@@ -515,6 +515,7 @@ function FinalDispatchOrderSheet({
   const endDate = dateOnly(order.endAt);
   const endTime = timeOnly(order.endAt);
   const routeText = routeSummaryForOrder(order);
+  const pdfRouteText = routeText.replaceAll("→", "->");
   const validPayments = payments
     .filter((payment) => payment.orderId === order.id && payment.status === "valid")
     .sort((a, b) => new Date(a.paidAt).getTime() - new Date(b.paidAt).getTime());
@@ -605,7 +606,7 @@ function FinalDispatchOrderSheet({
     { group: "Hành trình", label: "Ngày kết thúc", value: endDate },
     { group: "Hành trình", label: "Giờ kết thúc dự kiến", value: endTime },
     { group: "Hành trình", label: "Điểm đi", value: order.pickup },
-    { group: "Hành trình", label: "Điểm đến", value: routeText || order.dropoff },
+    { group: "Hành trình", label: "Điểm đến", value: pdfRouteText || order.dropoff },
     ...routeLegRows,
     { group: "Hành trình", label: "Mã dịch vụ (DVVT; DVHL; DVHT; DVCT)", value: order.serviceCode || order.serviceLabel },
     { group: "Hành trình", label: "Nội dung làm rõ (Nếu có)", value: order.serviceClarification || order.customerConfirmationNote || "-", tone: "yellow" },
@@ -670,7 +671,7 @@ function FinalDispatchOrderSheet({
         generated_at: new Date().toISOString(),
         status: order.reconciliationStatus === "closed" ? "official" : "preview",
         filename: `Lenh_dieu_xe_${order.code}.pdf`,
-        telegram_caption: `Lệnh điều xe ${order.code} - ${order.customerName} - ${routeText}`,
+        telegram_caption: `Lệnh điều xe ${order.code} - ${order.customerName} - ${pdfRouteText}`,
         email_subject: `Lệnh điều xe ${order.code} - ${order.customerName}`,
         email_body: `Kính gửi,\n\nĐính kèm là lệnh điều xe ${order.code}.\n\nTrân trọng,\n${ownerCompanyProfile.legalName}`
       },
@@ -719,7 +720,7 @@ function FinalDispatchOrderSheet({
         end_date: endDate,
         end_time_expected: endTime,
         pickup: order.pickup,
-        dropoff: routeText || order.dropoff,
+        dropoff: pdfRouteText || order.dropoff,
         service_code: order.serviceCode || order.serviceLabel,
         clarification: order.serviceClarification || order.customerConfirmationNote || "-",
         unit: order.unit || "Chuyến",
@@ -732,7 +733,7 @@ function FinalDispatchOrderSheet({
           time: [leg.startAt ? timeOnly(leg.startAt) : "", leg.endAt ? timeOnly(leg.endAt) : ""].filter(Boolean).join("-") || "-",
           from: leg.pickup || "-",
           to: leg.dropoff || "-",
-          note: leg.note || "-"
+          note: leg.note || ""
         }))
       },
       payments: validPayments.map((payment) => {

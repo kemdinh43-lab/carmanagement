@@ -211,7 +211,8 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
       doc.rect(left, y, width, h).lineWidth(0.28).strokeColor(line).stroke();
       write("Chi tiết chặng:", left + mm(2), y + mm(1.1), 6.1, true, { width: mm(24) });
       visibleRouteLegs.forEach((leg, index) => {
-        const legText = `${index + 1}) ${text(leg.time)} ${text(leg.from)} -> ${text(leg.to)} | ${text(leg.note)}`;
+        const note = text(leg.note, "");
+        const legText = `${index + 1}) ${text(leg.time)} ${text(leg.from)} -> ${text(leg.to)}${note ? ` ${note}` : ""}`;
         write(legText, left + mm(26), y + mm(1.2 + index * 3.3), 5.8, false, { width: width - mm(29) });
       });
       if (routeLegs.length > visibleRouteLegs.length) {
