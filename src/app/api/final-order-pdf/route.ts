@@ -176,7 +176,7 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
     section("I. THÔNG TIN QUẢN LÝ");
     kvRow([["Quản lý lệnh", management.manager_1], ["Số", payload.order_no]]);
     kvRow([["Ngày", payload.order_date], ["Nguồn", management.source]]);
-    kvRow([["Tên người giao xe", management.dispatcher], ["Có xuất hóa đơn", management.output_invoice]]);
+    kvRow([["Tên người giao nguồn", management.dispatcher], ["Có xuất hóa đơn", management.output_invoice]]);
     kvRow([["Hình thức xe", management.vehicle_form], ["Loại hợp đồng", management.contract_type]]);
 
     y += mm(0.9);

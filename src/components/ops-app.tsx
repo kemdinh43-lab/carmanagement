@@ -152,6 +152,8 @@ const ownerCompanyProfile = {
   bankName: "MB"
 };
 
+const defaultOrderManagerName = "Nguyễn Quang Nam";
+
 const paymentMethodLabels: Record<Payment["method"], string> = {
   cash: "Tiền mặt",
   bank_transfer: "Chuyển khoản",
@@ -568,10 +570,11 @@ function FinalDispatchOrderSheet({
       ]) satisfies Array<{ group: string; label: string; value: string }>;
 
   const rows: Array<{ group: string; label: string; value: string; tone?: "yellow" | "blue" }> = [
+    { group: "Quản lý lệnh", label: "Quản lý lệnh", value: defaultOrderManagerName },
     { group: "Quản lý lệnh", label: "Số", value: order.code },
     { group: "Quản lý lệnh", label: "Ngày", value: order.orderDate || dateOnly(order.startAt) },
     { group: "Quản lý lệnh", label: "Nguồn (Sale; xe; ĐHXX; khác)", value: `${order.salesOwner} / ${order.source}` },
-    { group: "Quản lý lệnh", label: "Tên người giao xe", value: order.sourceOwnerName || order.salesOwner || "-" },
+    { group: "Quản lý lệnh", label: "Tên người giao nguồn", value: order.sourceOwnerName || order.salesOwner || "-" },
     { group: "Quản lý lệnh", label: "Có xuất hóa đơn không (Có; Không)", value: order.invoiceRequired ? "Có" : "Không", tone: "yellow" },
     { group: "Quản lý lệnh", label: "Hình thức xe (Công ty; Thuê ngoài)", value: order.vehicleOwnership === "rented" ? "Thuê ngoài" : "Công ty", tone: "blue" },
     { group: "Quản lý lệnh", label: "Loại hợp đồng (Mẫu; Giản đơn; Điều khoản)", value: contractTypeLabels[order.contractType ?? "simple"] },
@@ -675,7 +678,7 @@ function FinalDispatchOrderSheet({
       order_date: order.orderDate ? dateOnly(`${order.orderDate}T00:00:00`) : dateOnly(order.startAt),
       city: "Đà Nẵng",
       management: {
-        manager_1: order.sourceOwnerName || order.salesOwner || "-",
+        manager_1: defaultOrderManagerName,
         source: `${order.salesOwner} / ${order.source}`,
         dispatcher: order.sourceOwnerName || "-",
         output_invoice: order.invoiceRequired ? "Có" : "Không",
