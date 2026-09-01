@@ -1531,6 +1531,10 @@ export default function OpsApp() {
   const [isMobileViewport, setIsMobileViewport] = useState(() => (typeof window !== "undefined" ? window.matchMedia("(max-width: 1023px)").matches : false));
   const pendingActionsRef = useRef(new Set<string>());
   const [pendingActions, setPendingActions] = useState<Set<string>>(() => new Set());
+  const notificationsRef = useRef<HTMLDivElement | null>(null);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [showTripCleanupConfirm, setShowTripCleanupConfirm] = useState(false);
+  const [tripCleanupConfirmText, setTripCleanupConfirmText] = useState("");
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 1023px)");
@@ -1557,6 +1561,8 @@ export default function OpsApp() {
   const visibleNotifications = (state.notifications ?? [])
     .filter(isVisibleNotification)
     .slice(0, 5);
+  const canCleanTripData = currentRole === "admin" || currentRole === "manager";
+  const tripCleanupPhrase = "XOA CHUYEN";
 
   function beginAction(key: string, label: string) {
     if (pendingActionsRef.current.has(key)) {
@@ -1581,6 +1587,17 @@ export default function OpsApp() {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!showNotifications) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (notificationsRef.current && !notificationsRef.current.contains(event.target as Node)) {
+        setShowNotifications(false);
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [showNotifications]);
 
   useEffect(() => {
     if (supabaseConfigured && (!authReady || !roleState)) return;
@@ -3466,11 +3483,38 @@ export default function OpsApp() {
     event.currentTarget.reset();
   }
 
-  function resetPilot() {
-    setState(runtimeInitialState);
-    setSelectedOrderId(supabaseConfigured ? "" : seedOrders[2]?.id ?? seedOrders[0]?.id);
-    setMobileDriverId(supabaseConfigured ? "" : seedDrivers[0]?.id ?? "");
-    setMessage(repository.mode === "supabase" ? "Đã reset màn hình về dữ liệu Supabase hiện tại." : "Đã reset dữ liệu pilot về seed ban đầu.");
+  async function cleanTripOperationalData() {
+    if (!canCleanTripData) {
+      setMessage("Chỉ admin hoặc quản lý mới được dọn dữ liệu chuyến.");
+      return;
+    }
+    if (tripCleanupConfirmText.trim().toUpperCase() !== tripCleanupPhrase) {
+      setMessage(`Vui lòng gõ ${tripCleanupPhrase} để xác nhận dọn dữ liệu chuyến.`);
+      return;
+    }
+    const actionKey = "clean-trip-operational-data";
+    if (!beginAction(actionKey, "Dọn dữ liệu chuyến")) return;
+    try {
+      if (supabaseConfigured) {
+        const saved = await runSupabaseRpc("clean_trip_operational_data", {}, "Không dọn được dữ liệu chuyến");
+        if (!saved) return;
+      }
+      setState((current) => ({
+        ...current,
+        orders: [],
+        assignments: [],
+        payments: [],
+        auditEvents: [],
+        notifications: []
+      }));
+      setSelectedOrderId("");
+      setShowNotifications(false);
+      setShowTripCleanupConfirm(false);
+      setTripCleanupConfirmText("");
+      setMessage("Đã dọn dữ liệu chuyến. Xe, tài xế, khách hàng, công ty, cấu hình và tài khoản vẫn giữ nguyên.");
+    } finally {
+      endAction(actionKey);
+    }
   }
 
   if (supabaseConfigured && !authReady) {
@@ -3520,7 +3564,10 @@ export default function OpsApp() {
             <button
               className={`flex h-10 w-full items-center rounded-md px-3 text-left font-medium ${activeTab === item ? "bg-teal-50 text-brand" : "text-slate-600 hover:bg-slate-50"}`}
               key={item}
-              onClick={() => setTab(item)}
+              onClick={() => {
+                setShowNotifications(false);
+                setTab(item);
+              }}
               type="button"
             >
               {item}
@@ -3541,9 +3588,15 @@ export default function OpsApp() {
               <Badge tone="info">{authLabel}</Badge>
               <Badge tone="good">Audit on</Badge>
               <Badge tone="info">{roleLabels[currentRole]}</Badge>
-              <div className="relative">
-                <button className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700" type="button"><Bell size={16} /> {visibleNotifications.length}</button>
-                {visibleNotifications.length > 0 && (
+              <div className="relative" ref={notificationsRef}>
+                <button
+                  className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  onClick={() => setShowNotifications((open) => !open)}
+                  type="button"
+                >
+                  <Bell size={16} /> {visibleNotifications.length}
+                </button>
+                {showNotifications && visibleNotifications.length > 0 && (
                   <div className="absolute right-0 z-20 mt-2 w-80 border border-line bg-white p-2 text-sm shadow-lg">
                     {visibleNotifications.map((item) => (
                       <div className="border-b border-line px-2 py-2 last:border-0" key={item.id}>
@@ -3555,20 +3608,72 @@ export default function OpsApp() {
                 )}
               </div>
               <Link className="inline-flex h-9 items-center rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50" href="/auth">Auth</Link>
-              <button className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50" onClick={resetPilot} type="button">
-                <RefreshCw size={16} /> Reset
-              </button>
+              {canCleanTripData && (
+                <button
+                  className="inline-flex h-9 items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 text-sm font-medium text-amber-900 hover:bg-amber-100"
+                  onClick={() => {
+                    setTripCleanupConfirmText("");
+                    setShowTripCleanupConfirm(true);
+                  }}
+                  type="button"
+                >
+                  <RefreshCw size={16} /> Dọn chuyến
+                </button>
+              )}
             </div>
           </div>
           <p className="mt-3 border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm text-cyan-900">{message}</p>
         </header>
+        {showTripCleanupConfirm && (
+          <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4">
+            <div className="w-full max-w-lg border border-line bg-white p-5 shadow-xl">
+              <h3 className="text-lg font-semibold text-ink">Dọn dữ liệu chuyến</h3>
+              <p className="mt-2 text-sm text-slate-600">
+                Thao tác này chỉ xóa lệnh điều xe, phân xe, payment, audit, notification và queue n8n liên quan đến chuyến. Xe, tài xế,
+                khách hàng, doanh nghiệp, cấu hình và tài khoản đăng nhập vẫn được giữ nguyên.
+              </p>
+              <label className="mt-4 block text-sm font-semibold text-slate-700" htmlFor="trip-cleanup-confirm">
+                Gõ {tripCleanupPhrase} để xác nhận
+              </label>
+              <input
+                className="mt-2 h-11 w-full border border-line px-3 text-sm font-semibold uppercase outline-none focus:border-brand"
+                id="trip-cleanup-confirm"
+                onChange={(event) => setTripCleanupConfirmText(event.target.value)}
+                value={tripCleanupConfirmText}
+              />
+              <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button
+                  className="inline-flex h-10 items-center justify-center rounded-md border border-line bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  onClick={() => {
+                    setShowTripCleanupConfirm(false);
+                    setTripCleanupConfirmText("");
+                  }}
+                  type="button"
+                >
+                  Hủy
+                </button>
+                <button
+                  className="inline-flex h-10 items-center justify-center rounded-md bg-amber-600 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                  disabled={tripCleanupConfirmText.trim().toUpperCase() !== tripCleanupPhrase || isActionPending("clean-trip-operational-data")}
+                  onClick={cleanTripOperationalData}
+                  type="button"
+                >
+                  {isActionPending("clean-trip-operational-data") ? "Đang dọn..." : "Dọn dữ liệu chuyến"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="border-b border-line bg-white px-3 py-3 lg:hidden">
           <div className="flex gap-2 overflow-x-auto pb-1">
             {visibleTabs.map((item) => (
               <button
                 className={`shrink-0 rounded-full border px-3 py-2 text-sm font-medium ${activeTab === item ? "border-teal-600 bg-teal-50 text-brand" : "border-line bg-white text-slate-600"}`}
                 key={item}
-                onClick={() => setTab(item)}
+                onClick={() => {
+                  setShowNotifications(false);
+                  setTab(item);
+                }}
                 type="button"
               >
                 {item}
