@@ -6105,7 +6105,7 @@ function FinancePanel({
     if (order.dispatchStatus === "completed" && order.reconciliationStatus !== "closed") issues.push("Chờ đối soát");
     if (orderDebt > 0) issues.push(`Còn nợ khách ${money(orderDebt)}`);
     if (order.driverReportStatus === "reported" && (order.driverCollectedAmount ?? 0) > 0) issues.push("Có thu hộ tài xế");
-    if (order.dispatchStatus === "completed" && !["reported", "reviewed"].includes(order.driverReportStatus ?? "not_reported")) issues.push("Chờ báo cáo tài xế");
+    if (order.driverReportStatus === "reported" && order.reconciliationStatus !== "closed") issues.push("Chờ duyệt báo cáo tài xế");
     if (order.vehicleOwnership === "rented" && (order.supplierTotalWithVat ?? 0) > 0) issues.push(`Theo dõi NCC ${money(order.supplierTotalWithVat ?? 0)}`);
     if (order.invoiceStatus !== "issued" && order.invoiceStatus !== "not_required") issues.push("Thiếu hóa đơn đầu ra");
     if (order.vehicleOwnership === "rented" && order.supplierInvoiceRequired && !order.supplierTaxCode) issues.push("Thiếu chứng từ đầu vào");
@@ -6116,7 +6116,6 @@ function FinancePanel({
     .filter((order) => profileIssues(order).length > 0)
     .sort((a, b) => {
       const priority = (order: DispatchOrder) => {
-        if (order.dispatchStatus === "completed" && order.driverReportStatus !== "reported") return 0;
         if (order.dispatchStatus === "completed" && order.reconciliationStatus !== "closed") return 1;
         if (order.paymentStatus !== "paid") return 2;
         if (order.invoiceStatus !== "issued" && order.invoiceStatus !== "not_required") return 3;
@@ -6141,8 +6140,7 @@ function FinancePanel({
   const selectedDriverHeldAmount = selectedDriverReportCollectedAmount;
   const closeBlockers = [
     selectedOrder.dispatchStatus !== "completed" ? "Chuyến chưa hoàn thành" : "",
-    !invoiceReady ? "Hóa đơn/chứng từ chưa xong" : "",
-    selectedOrder.dispatchStatus === "completed" && !["reported", "reviewed"].includes(selectedOrder.driverReportStatus ?? "not_reported") ? "Chưa có báo cáo tài xế" : ""
+    !invoiceReady ? "Hóa đơn/chứng từ chưa xong" : ""
   ].filter(Boolean);
   const canCloseSelectedOrder = canCloseOrder && closeBlockers.length === 0;
 
@@ -6361,7 +6359,7 @@ function FinancePanel({
               ["Thu hộ đã nộp/không phát sinh", selectedDriverHeldAmount === 0 || selectedOrder.reconciliationStatus === "closed"],
               ["NCC đã xử lý/không phát sinh", selectedOrder.vehicleOwnership !== "rented" || selectedSupplierPayable >= 0],
               ["Hóa đơn/chứng từ đã xử lý", invoiceReady],
-              ["Chi phí thực tế đã nhập", orderActualCost(selectedOrder) > 0]
+              ["Báo cáo tài xế nếu có", selectedOrder.driverReportStatus === "not_reported" || selectedOrder.driverReportStatus === "reviewed" || selectedOrder.driverReportStatus === "reported"]
             ].map(([label, ok]) => (
               <p className="flex items-center gap-2" key={String(label)}>
                 <CheckCircle2 className={ok ? "text-brand" : "text-slate-300"} size={16} />
