@@ -113,7 +113,7 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
       y += h;
     };
     const paymentBlock = (x: number, pmt: Record<string, unknown>, index: number) => {
-      const h = mm(20);
+      const h = mm(26);
       doc.rect(x, y, blockW, h).lineWidth(0.28).strokeColor(line).stroke();
       doc.rect(x, y, blockW, mm(4)).fill(light);
       write(`THANH TOÁN LẦN ${index}`, x + mm(1.1), y + mm(0.9), 6.4, true, { width: blockW - mm(2) });
@@ -121,11 +121,13 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
         ["Đối tượng thu", pmt.collector_type],
         ["Tên người thu", pmt.collector_name],
         ["Số tiền thu", pmt.amount],
+        ["Hình thức thu", pmt.method],
+        ["Thời gian thu", pmt.paid_at],
         ["STK / NH", `${text(pmt.bank_account)} / ${text(pmt.bank_name)}`],
-        ["Ghi chú", pmt.note]
+        ["Mã/Ghi chú", pmt.reference_note ?? pmt.note]
       ];
       rows.forEach(([label, value], rowIndex) => {
-        const yy = y + mm(6.4 + rowIndex * 2.9);
+        const yy = y + mm(6.1 + rowIndex * 2.75);
         write(`${label}:`, x + mm(1.2), yy, 5.55, true, { width: mm(25) });
         write(value, x + mm(26.5), yy, 5.55, false, { width: blockW - mm(28) });
       });
@@ -192,13 +194,17 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
     kvRow([["Mã dịch vụ", trip.service_code], ["Đơn vị tính", trip.unit]]);
     kvRow([["Nội dung làm rõ", trip.clarification]]);
     if (routeLegs.length > 0) {
-      const h = mm(8.7);
+      const visibleRouteLegs = routeLegs.slice(0, 4);
+      const h = mm(5.4 + visibleRouteLegs.length * 3.3 + (routeLegs.length > visibleRouteLegs.length ? 3.3 : 0));
       doc.rect(left, y, width, h).lineWidth(0.28).strokeColor(line).stroke();
       write("Chi tiết chặng:", left + mm(2), y + mm(1.1), 6.1, true, { width: mm(24) });
-      routeLegs.slice(0, 2).forEach((leg, index) => {
+      visibleRouteLegs.forEach((leg, index) => {
         const legText = `${index + 1}) ${text(leg.time)} ${text(leg.from)} -> ${text(leg.to)} | ${text(leg.note)}`;
         write(legText, left + mm(26), y + mm(1.2 + index * 3.3), 5.8, false, { width: width - mm(29) });
       });
+      if (routeLegs.length > visibleRouteLegs.length) {
+        write(`+ ${routeLegs.length - visibleRouteLegs.length} chặng khác trong hồ sơ`, left + mm(26), y + mm(1.2 + visibleRouteLegs.length * 3.3), 5.8, true, { width: width - mm(29) });
+      }
       y += h;
     }
     kvRow([["Thuế suất", trip.tax_rate], ["Tiền hàng", trip.subtotal]]);
@@ -210,7 +216,7 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
     const paymentBlocks = payments.length > 0 ? payments.slice(0, 2) : [{}];
     paymentBlock(left, paymentBlocks[0], 1);
     if (paymentBlocks[1]) paymentBlock(left + blockW + midGap, paymentBlocks[1], 2);
-    y += mm(20);
+    y += mm(26);
 
     y += mm(0.9);
     section("VII. ĐỐI SOÁT & TRẠNG THÁI");

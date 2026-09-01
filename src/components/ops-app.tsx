@@ -145,8 +145,8 @@ const contractTypeLabels: Record<NonNullable<DispatchOrder["contractType"]>, str
 
 const ownerCompanyProfile = {
   legalName: "CÔNG TY TNHH ANGEL ONE TRAVEL",
-  taxCode: "",
-  address: "",
+  taxCode: "0402198423",
+  address: "Số 111/3 Nguyễn Công Trứ, phường An Hải, thành phố Đà Nẵng, Việt Nam",
   phone: "",
   bankAccount: "",
   bankName: ""
@@ -495,7 +495,19 @@ function DocumentPreview({ title, body }: { title: string; body: string }) {
   );
 }
 
-function FinalDispatchOrderSheet({ order, payments }: { order: DispatchOrder; payments: Payment[] }) {
+function FinalDispatchOrderSheet({
+  assignments = [],
+  drivers = [],
+  order,
+  payments,
+  vehicles = []
+}: {
+  assignments?: Assignment[];
+  drivers?: Driver[];
+  order: DispatchOrder;
+  payments: Payment[];
+  vehicles?: Vehicle[];
+}) {
   const startDate = dateOnly(order.startAt);
   const startTime = timeOnly(order.startAt);
   const endDate = dateOnly(order.endAt);
@@ -511,9 +523,11 @@ function FinalDispatchOrderSheet({ order, payments }: { order: DispatchOrder; pa
     label: `Chặng ${index + 1}`,
     value: `${leg.startAt ? formatDateTime(leg.startAt) : "-"}${leg.endAt ? ` - ${formatDateTime(leg.endAt)}` : ""} / ${leg.pickup || "-"} -> ${leg.dropoff || "-"}${leg.note ? ` / ${leg.note}` : ""}`
   }));
-  const vehicleLabel = order.externalVehiclePlate || order.vehiclePlateNo || order.vehicleId || "-";
-  const driverLabel = order.externalDriverName || order.driverFullName || order.driverId || "-";
-  const driverPhone = order.externalDriverPhone || order.driverPhone || "-";
+  const transport = resolveOrderTransport(order, assignments, vehicles, drivers);
+  const vehicleLabel = transport.vehiclePlate;
+  const driverLabel = transport.driverName;
+  const driverPhone = transport.driverPhone;
+  const driverCccd = order.driverCccd || "-";
   const isRentedVehicle = order.vehicleOwnership === "rented";
   const ownerName = isRentedVehicle
     ? order.supplierOwnerName || order.supplierCompanyName || "-"
@@ -528,16 +542,19 @@ function FinalDispatchOrderSheet({ order, payments }: { order: DispatchOrder; pa
   const supplierBankName = isRentedVehicle ? order.supplierBankName || "-" : ownerCompanyProfile.bankName || "-";
   const supplierTotal = isRentedVehicle ? order.supplierTotalWithVat ?? orderCost(order) : orderActualCost(order) || orderCost(order);
   const paymentRows = (validPayments.length > 0
-    ? validPayments.flatMap((payment, index) => [
-        { group: `Thanh toán lần ${index + 1}`, label: "Đối tượng thu: Công ty thu; tài xế thu; Ban điều hành", value: payment.collector || order.payer || "Công ty thu" },
-        { group: `Thanh toán lần ${index + 1}`, label: "Tên người thu", value: payment.collector || order.collectionAccountOwner || ownerCompanyProfile.legalName },
-        { group: `Thanh toán lần ${index + 1}`, label: "Số tiền thu", value: money(payment.amount) },
-        { group: `Thanh toán lần ${index + 1}`, label: "Hình thức thu", value: paymentMethodLabels[payment.method] },
-        { group: `Thanh toán lần ${index + 1}`, label: "Thời gian thu", value: formatDateTime(payment.paidAt) },
-        { group: `Thanh toán lần ${index + 1}`, label: "Số tài khoản thu (Công ty; Khác; tài xế)", value: order.collectionBankAccount || "-" },
-        { group: `Thanh toán lần ${index + 1}`, label: "Ngân hàng thu", value: order.collectionBankName || "-" },
-        { group: `Thanh toán lần ${index + 1}`, label: "Mã tham chiếu / ghi chú", value: [payment.reference, payment.note].filter(Boolean).join(" / ") || "-" }
-      ])
+    ? validPayments.flatMap((payment, index) => {
+        const collector = paymentCollectorInfo(payment, order, transport);
+        return [
+          { group: `Thanh toán lần ${index + 1}`, label: "Đối tượng thu: Công ty thu; tài xế thu; Ban điều hành", value: collector.type },
+          { group: `Thanh toán lần ${index + 1}`, label: "Tên người thu", value: collector.name },
+          { group: `Thanh toán lần ${index + 1}`, label: "Số tiền thu", value: money(payment.amount) },
+          { group: `Thanh toán lần ${index + 1}`, label: "Hình thức thu", value: paymentMethodLabels[payment.method] },
+          { group: `Thanh toán lần ${index + 1}`, label: "Thời gian thu", value: formatDateTime(payment.paidAt) },
+          { group: `Thanh toán lần ${index + 1}`, label: "Số tài khoản thu (Công ty; Khác; tài xế)", value: order.collectionBankAccount || "-" },
+          { group: `Thanh toán lần ${index + 1}`, label: "Ngân hàng thu", value: order.collectionBankName || "-" },
+          { group: `Thanh toán lần ${index + 1}`, label: "Mã tham chiếu / ghi chú", value: [payment.reference, payment.note].filter(Boolean).join(" / ") || "-" }
+        ];
+      })
     : [
         { group: "Thanh toán lần 1", label: "Đối tượng thu: Công ty thu; tài xế thu; Ban điều hành", value: "Chưa ghi nhận thanh toán" },
         { group: "Thanh toán lần 1", label: "Tên người thu", value: order.collectionAccountOwner || ownerCompanyProfile.legalName },
@@ -559,7 +576,7 @@ function FinalDispatchOrderSheet({ order, payments }: { order: DispatchOrder; pa
     { group: "Quản lý 1", label: "Loại hợp đồng (Mẫu; Giản đơn; Điều khoản)", value: contractTypeLabels[order.contractType ?? "simple"] },
     { group: "Thông tin xe", label: "Biển số xe", value: vehicleLabel },
     { group: "Thông tin xe", label: "Họ và tên tài xế", value: driverLabel },
-    { group: "Thông tin xe", label: "CCCD", value: order.driverCccd || "-" },
+    { group: "Thông tin xe", label: "CCCD", value: driverCccd },
     { group: "Thông tin xe", label: "Số điện thoại tài xế", value: driverPhone },
     { group: "Thông tin nhà cung cấp", label: "Họ và tên chủ sở hữu xe", value: ownerName, tone: "blue" },
     { group: "Thông tin nhà cung cấp", label: "Số CCCD", value: isRentedVehicle ? order.supplierCccd || "-" : "-", tone: "blue" },
@@ -667,7 +684,7 @@ function FinalDispatchOrderSheet({ order, payments }: { order: DispatchOrder; pa
       vehicle: {
         plate: vehicleLabel,
         driver_name: driverLabel,
-        driver_cccd: order.driverCccd || "-",
+        driver_cccd: driverCccd,
         driver_phone: driverPhone
       },
       supplier: {
@@ -714,14 +731,20 @@ function FinalDispatchOrderSheet({ order, payments }: { order: DispatchOrder; pa
           note: leg.note || "-"
         }))
       },
-      payments: validPayments.map((payment) => ({
-        collector_type: payment.collector || order.payer || "Công ty",
-        collector_name: payment.collector || order.collectionAccountOwner || ownerCompanyProfile.legalName,
+      payments: validPayments.map((payment) => {
+        const collector = paymentCollectorInfo(payment, order, transport);
+        return {
+        collector_type: collector.type,
+        collector_name: collector.name,
         amount: money(payment.amount),
+        method: paymentMethodLabels[payment.method],
+        paid_at: formatDateTime(payment.paidAt),
         bank_account: order.collectionBankAccount || "-",
         bank_name: order.collectionBankName || "-",
+        reference_note: [payment.reference, payment.note].filter(Boolean).join(" / ") || "-",
         note: [payment.reference, payment.note].filter(Boolean).join(" / ") || paymentMethodLabels[payment.method]
-      })),
+      };
+      }),
       reconciliation: {
         receivable_total: money(order.amountDue),
         received_total: money(paid),
@@ -817,7 +840,19 @@ function FinalDispatchOrderSheet({ order, payments }: { order: DispatchOrder; pa
   );
 }
 
-function OrderDocumentPreviews({ order, payments }: { order: DispatchOrder; payments: Payment[] }) {
+function OrderDocumentPreviews({
+  assignments,
+  drivers,
+  order,
+  payments,
+  vehicles
+}: {
+  assignments: Assignment[];
+  drivers: Driver[];
+  order: DispatchOrder;
+  payments: Payment[];
+  vehicles: Vehicle[];
+}) {
   return (
     <SectionDetails
       badge="Sale/Kế toán"
@@ -827,7 +862,7 @@ function OrderDocumentPreviews({ order, payments }: { order: DispatchOrder; paym
     >
       <div className="grid gap-3 lg:grid-cols-2">
         <DocumentPreview body={customerConfirmationText(order)} title="Phiếu gửi khách xác nhận" />
-        <FinalDispatchOrderSheet order={order} payments={payments} />
+        <FinalDispatchOrderSheet assignments={assignments} drivers={drivers} order={order} payments={payments} vehicles={vehicles} />
       </div>
     </SectionDetails>
   );
@@ -1168,6 +1203,30 @@ function mapsRouteUrlForOrder(order: DispatchOrder) {
   });
   if (waypoints.length > 0) params.set("waypoints", waypoints.join("|"));
   return `https://www.google.com/maps/dir/?${params.toString()}`;
+}
+
+function resolveOrderTransport(order: DispatchOrder, assignments: Assignment[], vehicles: Vehicle[], drivers: Driver[]) {
+  const activeAssignment = assignments.find((assignment) => assignment.dispatchOrderId === order.id && assignment.status === "active");
+  const vehicle = vehicles.find((item) => item.id === (activeAssignment?.vehicleId || order.vehicleId));
+  const driver = drivers.find((item) => item.id === (activeAssignment?.driverId || order.driverId));
+  return {
+    vehiclePlate: order.externalVehiclePlate || order.vehiclePlateNo || vehicle?.plateNo || "-",
+    driverName: order.externalDriverName || order.driverFullName || driver?.fullName || "-",
+    driverPhone: order.externalDriverPhone || order.driverPhone || driver?.phone || "-"
+  };
+}
+
+function paymentCollectorInfo(payment: Payment, order: DispatchOrder, transport: ReturnType<typeof resolveOrderTransport>) {
+  const raw = (payment.collector || "").trim();
+  const normalized = raw.toLocaleLowerCase("vi-VN");
+  const isDriver = normalized.includes("tài") || normalized.includes("tai") || normalized.includes("driver");
+  const isDispatch = normalized.includes("điều") || normalized.includes("dieu") || normalized.includes("ban");
+  const isCompany = !raw || normalized.includes("công") || normalized.includes("cong") || normalized.includes("company") || normalized.includes("khách") || normalized.includes("khach");
+
+  if (isDriver) return { type: "Tài xế thu", name: transport.driverName };
+  if (isDispatch) return { type: "Ban điều hành", name: raw || order.sourceOwnerName || "-" };
+  if (isCompany) return { type: "Công ty thu", name: order.collectionAccountOwner || ownerCompanyProfile.legalName };
+  return { type: raw, name: raw };
 }
 
 function vatFromForm(form: FormData) {
@@ -3594,7 +3653,9 @@ export default function OpsApp() {
           {activeTab === "Master data" && <MasterDataPanel createDriver={createDriver} createVehicle={createVehicle} currentRole={currentRole} drivers={state.drivers} vehicles={state.vehicles} />}
           {activeTab === "Tài chính" && selectedOrder && (
             <FinancePanel
+              assignments={state.assignments}
               currentRole={currentRole}
+              drivers={state.drivers}
               orders={state.orders}
               payments={state.payments}
               selectedOrder={selectedOrder}
@@ -3604,6 +3665,7 @@ export default function OpsApp() {
               updateActualCosts={updateActualCosts}
               updateInvoiceStatus={updateInvoiceStatus}
               reconcileOrder={reconcileOrder}
+              vehicles={state.vehicles}
             />
           )}
           {activeTab === "Audit" && (can(currentRole, "view_audit") ? <AuditPanel events={state.auditEvents} /> : <AccessDenied role={currentRole} />)}
@@ -4201,7 +4263,7 @@ function OrderDetailPanel({
         <StaticPinMap order={order} />
       </div>
       <div className="mt-4">
-        <OrderDocumentPreviews order={order} payments={payments} />
+        <OrderDocumentPreviews assignments={assignments} drivers={drivers} order={order} payments={payments} vehicles={vehicles} />
       </div>
       {updateOrder && cancelOrder && (
         <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_360px]">
@@ -5922,7 +5984,9 @@ function MasterDataPanel({
 }
 
 function FinancePanel({
+  assignments,
   currentRole,
+  drivers,
   isActionPending,
   orders,
   payments,
@@ -5931,9 +5995,12 @@ function FinancePanel({
   recordPayment,
   updateActualCosts,
   updateInvoiceStatus,
-  reconcileOrder
+  reconcileOrder,
+  vehicles
 }: {
+  assignments: Assignment[];
   currentRole: AppRole;
+  drivers: Driver[];
   isActionPending: (key: string) => boolean;
   orders: DispatchOrder[];
   payments: Payment[];
@@ -5943,6 +6010,7 @@ function FinancePanel({
   updateActualCosts: (event: FormEvent<HTMLFormElement>) => void;
   updateInvoiceStatus: (nextStatus: InvoiceStatus) => void;
   reconcileOrder: () => void;
+  vehicles: Vehicle[];
 }) {
   const activeOrders = orders.filter((order) => order.orderStatus !== "cancelled");
   const selectedPayments = payments.filter((payment) => payment.orderId === selectedOrder.id);
@@ -6123,7 +6191,7 @@ function FinancePanel({
               <Field label="Số tiền"><input className={inputClass()} defaultValue={debt || selectedOrder.amountDue} min="1" name="amount" required type="number" /></Field>
               <Field label="Ngày thu"><input className={inputClass()} defaultValue={vietnamDateTimeLocalValue()} name="paidAt" type="datetime-local" /></Field>
               <Field label="Phương thức"><select className={inputClass()} name="method"><option value="cash">Tiền mặt</option><option value="bank_transfer">Chuyển khoản</option><option value="card">Thẻ</option><option value="other">Khác</option></select></Field>
-              <Field label="Người/đối tượng thu"><input className={inputClass()} defaultValue={selectedOrder.collectionAccountOwner ?? ""} name="collector" placeholder="Công ty, tài xế, nhân sự thu hộ..." /></Field>
+              <Field label="Đối tượng thu tiền"><input className={inputClass()} defaultValue={selectedOrder.collectionAccountOwner ?? "Công ty thu"} name="collector" placeholder="Công ty thu / Tài xế thu / Ban điều hành" /></Field>
               <Field label="Mã tham chiếu"><input className={inputClass()} name="reference" placeholder="Mã GD ngân hàng nếu có" /></Field>
               <Field label="Ghi chú thanh toán"><textarea className={textAreaClass()} name="note" placeholder="Thu lần 1, khách chuyển thiếu, tài xế thu hộ..." /></Field>
             </div>
@@ -6244,7 +6312,7 @@ function FinancePanel({
           )}
           <button className="mt-4 h-10 w-full rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canCloseSelectedOrder || isActionPending(`finance:close:${selectedOrder.id}`)} onClick={reconcileOrder} type="button">{isActionPending(`finance:close:${selectedOrder.id}`) ? "Đang đóng..." : "Đóng hồ sơ"}</button>
         </section>
-        <FinalDispatchOrderSheet order={selectedOrder} payments={selectedPayments} />
+        <FinalDispatchOrderSheet assignments={assignments} drivers={drivers} order={selectedOrder} payments={selectedPayments} vehicles={vehicles} />
       </div>
       </section>
     </section>
