@@ -37,7 +37,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List
 
-from PIL import Image
+from PIL import Image, ImageDraw
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -183,6 +183,16 @@ SAMPLE_DATA: Dict[str, Any] = {
 def register_fonts() -> None:
     candidates = [
         (
+            "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+            "/System/Library/Fonts/Supplemental/Times New Roman Bold.ttf",
+            "/System/Library/Fonts/Supplemental/Times New Roman Italic.ttf",
+        ),
+        (
+            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        ),
+        (
             "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationSerif-Italic.ttf",
@@ -236,6 +246,20 @@ def create_watermark_logo(logo_path: Path, temp_path: Path, opacity: float = 0.0
     return temp_path
 
 
+def ensure_logo(logo_path: Path) -> Path:
+    """Tạo logo fallback tối giản để n8n vẫn xuất được PDF khi server chưa có file logo thật."""
+    if logo_path.exists():
+        return logo_path
+
+    logo_path.parent.mkdir(parents=True, exist_ok=True)
+    im = Image.new("RGBA", (512, 512), (15, 118, 110, 255))
+    draw = ImageDraw.Draw(im)
+    draw.rounded_rectangle((58, 58, 454, 454), radius=72, outline=(255, 255, 255, 255), width=18)
+    draw.text((138, 188), "AOT", fill=(255, 255, 255, 255))
+    im.save(logo_path)
+    return logo_path
+
+
 # ============================================================
 # 5. PDF GENERATOR
 # ============================================================
@@ -247,8 +271,7 @@ def generate_pdf(data: Dict[str, Any], logo_path: str | Path, output_path: str |
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if not logo_path.exists():
-        raise FileNotFoundError(f"Không tìm thấy logo: {logo_path}")
+    logo_path = ensure_logo(logo_path)
 
     wm_tmp = output_path.with_name(output_path.stem + "_watermark_tmp.png")
     create_watermark_logo(logo_path, wm_tmp, opacity=0.045)
