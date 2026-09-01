@@ -86,6 +86,13 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
     const line = "#bdbdbd";
     const light = "#f0f0f0";
     let y = mm(26);
+    const addWatermark = () => {
+      doc.save();
+      doc.opacity(0.045);
+      const wmSize = Math.min(width * 0.96, H * 0.72);
+      doc.image(logoPath, (W - wmSize) / 2, (H - wmSize) / 2 - mm(9), { fit: [wmSize, wmSize] });
+      doc.restore();
+    };
 
     const write = (value: unknown, x: number, yy: number, size = 6.1, bold = false, options: PDFKit.Mixins.TextOptions = {}) => {
       doc.font(bold ? "AOT-Bold" : "AOT-Regular").fontSize(size).fillColor("#111111");
@@ -133,11 +140,7 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
       });
     };
 
-    doc.save();
-    doc.opacity(0.045);
-    const wmSize = Math.min(width * 0.96, H * 0.72);
-    doc.image(logoPath, (W - wmSize) / 2, (H - wmSize) / 2 - mm(9), { fit: [wmSize, wmSize] });
-    doc.restore();
+    addWatermark();
 
     doc.image(headerLogoPath, left, mm(27), { fit: [mm(17), mm(17)] });
     write(company.name, left + mm(21), mm(26), 10.6, true, { width: mm(118) });
@@ -213,10 +216,18 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
 
     y += mm(0.9);
     section("VI. THANH TOÁN");
-    const paymentBlocks = payments.length > 0 ? payments.slice(0, 2) : [{}];
-    paymentBlock(left, paymentBlocks[0], 1);
-    if (paymentBlocks[1]) paymentBlock(left + blockW + midGap, paymentBlocks[1], 2);
-    y += mm(26);
+    const paymentBlocks = payments.length > 0 ? payments : [{}];
+    paymentBlocks.forEach((payment, index) => {
+      if (index > 0 && index % 2 === 0) {
+        doc.addPage();
+        addWatermark();
+        y = mm(20);
+        section("VI. THANH TOÁN (TIẾP)");
+      }
+      const x = index % 2 === 0 ? left : left + blockW + midGap;
+      paymentBlock(x, payment, index + 1);
+      if (index % 2 === 1 || index === paymentBlocks.length - 1) y += mm(27.2);
+    });
 
     y += mm(0.9);
     section("VII. ĐỐI SOÁT & TRẠNG THÁI");
