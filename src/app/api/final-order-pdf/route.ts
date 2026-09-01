@@ -42,7 +42,11 @@ function text(value: unknown, fallback = "-") {
   return String(value);
 }
 
-function rowsFromPayload(payload: FinalOrderPayload & { order_no: string }) {
+async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: string }) {
+  const fontRegular = path.join(process.cwd(), "assets/fonts/NotoSans-Regular.ttf");
+  const fontBold = path.join(process.cwd(), "assets/fonts/NotoSans-Bold.ttf");
+  const logoPath = path.join(process.cwd(), "assets/angel-one-logo.png");
+  const headerLogoPath = path.join(process.cwd(), "assets/angel-one-logo-cropped.png");
   const management = payload.management ?? {};
   const vehicle = payload.vehicle ?? {};
   const supplier = payload.supplier ?? {};
@@ -50,87 +54,20 @@ function rowsFromPayload(payload: FinalOrderPayload & { order_no: string }) {
   const trip = payload.trip ?? {};
   const payments = Array.isArray(payload.payments) ? payload.payments : [];
   const reconciliation = payload.reconciliation ?? {};
-  const routeLegs = Array.isArray(trip.route_legs) ? trip.route_legs as Array<Record<string, unknown>> : [];
+  const routeLegs = Array.isArray(trip.route_legs)
+    ? trip.route_legs as Array<Record<string, unknown>>
+    : Array.isArray(trip.legs) ? trip.legs as Array<Record<string, unknown>> : [];
 
-  const rows: Array<[string, string, unknown]> = [
-    ["Quản lý", "Số", payload.order_no],
-    ["Quản lý", "Ngày", payload.order_date],
-    ["Quản lý", "Nguồn", management.source],
-    ["Quản lý", "Tài xế", management.dispatcher],
-    ["Quản lý", "Có xuất hóa đơn không", management.output_invoice],
-    ["Quản lý", "Hình thức xe", management.vehicle_form],
-    ["Quản lý", "Loại hợp đồng", management.contract_type],
-    ["Thông tin xe", "Biển số xe", vehicle.plate],
-    ["Thông tin xe", "Họ và tên tài xế", vehicle.driver_name],
-    ["Thông tin xe", "CCCD", vehicle.driver_cccd],
-    ["Thông tin xe", "Số điện thoại tài xế", vehicle.driver_phone],
-    ["Thông tin nhà cung cấp", "Họ và tên chủ sở hữu xe", supplier.owner_name],
-    ["Thông tin nhà cung cấp", "Số CCCD", supplier.owner_cccd],
-    ["Thông tin nhà cung cấp", "Có xuất hóa đơn đầu vào không", supplier.input_invoice],
-    ["Thông tin nhà cung cấp", "Tên đơn vị thuê ngoài", supplier.supplier_name],
-    ["Thông tin nhà cung cấp", "Mã số thuế", supplier.tax_code],
-    ["Thông tin nhà cung cấp", "Địa chỉ", supplier.address],
-    ["Thông tin nhà cung cấp", "Số điện thoại nhà cung cấp", supplier.phone],
-    ["Thông tin nhà cung cấp", "Tổng tiền mua", supplier.purchase_total],
-    ["Thông tin nhà cung cấp", "Số tài khoản ngân hàng", supplier.bank_account],
-    ["Thông tin nhà cung cấp", "Tên ngân hàng", supplier.bank_name],
-    ["Thông tin khách hàng", "Họ và tên khách hàng", customer.name],
-    ["Thông tin khách hàng", "Số CCCD", customer.cccd],
-    ["Thông tin khách hàng", "Số điện thoại", customer.phone],
-    ["Thông tin khách hàng", "Tên công ty", customer.company],
-    ["Thông tin khách hàng", "Mã số thuế", customer.tax_code],
-    ["Thông tin khách hàng", "Địa chỉ", customer.address],
-    ["Thông tin khách hàng", "Số tài khoản", customer.bank_account],
-    ["Thông tin khách hàng", "Tên ngân hàng", customer.bank_name],
-    ["Hành trình", "Ngày bắt đầu", `${text(trip.start_date)} ${text(trip.start_time, "")}`],
-    ["Hành trình", "Ngày kết thúc dự kiến", `${text(trip.end_date)} ${text(trip.end_time_expected, "")}`],
-    ["Hành trình", "Điểm đi", trip.pickup],
-    ["Hành trình", "Điểm đến", trip.dropoff],
-    ["Hành trình", "Mã dịch vụ", trip.service_code],
-    ["Hành trình", "Nội dung làm rõ", trip.clarification],
-    ["Hành trình", "Đơn vị tính", trip.unit],
-    ["Hành trình", "Thuế suất", trip.tax_rate],
-    ["Hành trình", "Tiền hàng", trip.subtotal],
-    ["Hành trình", "Tiền thuế", trip.tax_amount],
-    ["Hành trình", "Tổng thanh toán", trip.total],
-    ["Hành trình", "Hình thức thanh toán", trip.payment_method],
-    ["Hành trình", "Số lần thanh toán", payments.length || "-"],
-    ...routeLegs.map((leg, index) => [
-      "Chi tiết chặng",
-      `Chặng ${index + 1}`,
-      `${text(leg.time)} | ${text(leg.from)} -> ${text(leg.to)} | ${text(leg.note)}`
-    ] as [string, string, unknown]),
-    ...payments.map((payment, index) => [
-      `Thanh toán lần ${index + 1}`,
-      text(payment.collector_type),
-      `${text(payment.collector_name)} | ${text(payment.amount)} | ${text(payment.bank_account)} | ${text(payment.bank_name)} | ${text(payment.note)}`
-    ] as [string, string, unknown]),
-    ["Đối soát", "Tổng phải thu", reconciliation.receivable_total],
-    ["Đối soát", "Đã thu", reconciliation.received_total],
-    ["Đối soát", "Còn phải thu", reconciliation.receivable_remaining],
-    ["Đối soát", "Trạng thái thanh toán", reconciliation.customer_payment_status],
-    ["Đối soát", "Tổng tiền mua/NCC", reconciliation.supplier_total],
-    ["Đối soát", "Đã thanh toán NCC", reconciliation.supplier_paid],
-    ["Đối soát", "Còn phải trả NCC", reconciliation.supplier_remaining],
-    ["Đối soát", "Chi phí phát sinh", reconciliation.extra_cost],
-    ["Đối soát", "Lợi nhuận thực tế", reconciliation.actual_profit],
-    ["Đối soát", "HĐ đầu ra", reconciliation.output_invoice_status],
-    ["Đối soát", "HĐ đầu vào", reconciliation.input_invoice_status],
-    ["Đối soát", "Trạng thái đối soát", reconciliation.reconciliation_status],
-    ["Đối soát", "Thời gian chốt", reconciliation.accounting_closed_at]
-  ];
-
-  return rows;
-}
-
-async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: string }) {
-  const fontRegular = path.join(process.cwd(), "assets/fonts/NotoSans-Regular.ttf");
-  const fontBold = path.join(process.cwd(), "assets/fonts/NotoSans-Bold.ttf");
-  const logoPath = path.join(process.cwd(), "assets/angel-one-logo.png");
-  const rows = rowsFromPayload(payload);
+  const mm = (value: number) => value * 2.8346456693;
+  const company = {
+    name: "CÔNG TY TNHH ANGEL ONE TRAVEL",
+    address: "Số 111/3 Nguyễn Công Trứ, phường An Hải, thành phố Đà Nẵng, Việt Nam",
+    taxCode: "0402198423",
+    email: "angleonetravel@gmail.com"
+  };
 
   return new Promise<Buffer>((resolve, reject) => {
-    const doc = new PDFDocument({ size: "A4", margin: 28, bufferPages: true });
+    const doc = new PDFDocument({ size: "A4", margin: 0 });
     const chunks: Buffer[] = [];
     doc.on("data", (chunk: Buffer) => chunks.push(chunk));
     doc.on("error", reject);
@@ -139,98 +76,155 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
     doc.registerFont("AOT-Regular", fontRegular);
     doc.registerFont("AOT-Bold", fontBold);
 
-    const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-    const colGroup = 88;
-    const colLabel = 170;
-    const colValue = pageWidth - colGroup - colLabel;
-    let y = doc.y;
+    const W = doc.page.width;
+    const H = doc.page.height;
+    const left = mm(12);
+    const right = W - mm(12);
+    const width = right - left;
+    const midGap = mm(3);
+    const blockW = (width - midGap) / 2;
+    const line = "#bdbdbd";
+    const light = "#f0f0f0";
+    let y = mm(26);
 
-    const drawWatermark = () => {
-      const watermarkSize = Math.min(doc.page.width * 0.75, doc.page.height * 0.75);
-      const watermarkX = (doc.page.width - watermarkSize) / 2;
-      const watermarkY = (doc.page.height - watermarkSize) / 2 + 18;
-
-      doc.save();
-      doc.opacity(0.055);
-      doc.image(logoPath, watermarkX, watermarkY, {
-        fit: [watermarkSize, watermarkSize],
-        align: "center",
-        valign: "center"
-      });
-      doc.restore();
+    const write = (value: unknown, x: number, yy: number, size = 6.1, bold = false, options: PDFKit.Mixins.TextOptions = {}) => {
+      doc.font(bold ? "AOT-Bold" : "AOT-Regular").fontSize(size).fillColor("#111111");
+      doc.text(text(value), x, yy, { lineBreak: false, ellipsis: true, ...options });
     };
-
-    const drawHeader = () => {
-      const headerTop = doc.page.margins.top;
-      const logoSize = 42;
-      doc.image(logoPath, doc.page.margins.left, headerTop - 6, {
-        fit: [logoSize, logoSize],
-        align: "center",
-        valign: "center"
-      });
-
-      doc.font("AOT-Bold").fontSize(15).fillColor("#111827")
-        .text("LỆNH ĐIỀU XE", doc.page.margins.left + logoSize + 10, headerTop, {
-          width: pageWidth - (logoSize + 20),
-          align: "center"
-        });
-      doc.font("AOT-Regular").fontSize(8).fillColor("#374151")
-        .text(`CÔNG TY TNHH ANGEL ONE TRAVEL | ${text(payload.city, "Đà Nẵng")} | ${payload.order_no}`, doc.page.margins.left + logoSize + 10, headerTop + 21, {
-          width: pageWidth - (logoSize + 20),
-          align: "center"
-        });
-      doc.moveTo(doc.page.margins.left, headerTop + 48)
-        .lineTo(doc.page.width - doc.page.margins.right, headerTop + 48)
-        .strokeColor("#cbd5e1")
-        .lineWidth(0.8)
-        .stroke();
-
-      y = headerTop + 60;
-      doc.x = doc.page.margins.left;
-      doc.y = y;
-      doc.fillColor("#111827");
+    const section = (title: string) => {
+      doc.rect(left, y, width, mm(4)).fill(light);
+      write(title.toUpperCase(), left + mm(2), y + mm(0.85), 7.15, true, { width: width - mm(4) });
+      y += mm(4.8);
     };
-
-    const newPageIfNeeded = (height: number) => {
-      if (y + height > doc.page.height - doc.page.margins.bottom) {
-        doc.addPage();
-        drawHeader();
+    const pairCell = (x: number, yy: number, w: number, h: number, label: string, value: unknown) => {
+      const labelW = w * 0.4;
+      doc.rect(x, yy, w, h).lineWidth(0.28).strokeColor(line).stroke();
+      doc.moveTo(x + labelW, yy).lineTo(x + labelW, yy + h).strokeColor(line).stroke();
+      write(label, x + mm(1), yy + mm(1.18), 6.0, false, { width: labelW - mm(2) });
+      write(value, x + labelW + mm(1), yy + mm(1.18), 6.05, true, { width: w - labelW - mm(2) });
+    };
+    const kvRow = (pairs: Array<[string, unknown]>, h = mm(4)) => {
+      if (pairs.length === 1) {
+        pairCell(left, y, width, h, pairs[0][0], pairs[0][1]);
+      } else {
+        pairCell(left, y, blockW, h, pairs[0][0], pairs[0][1]);
+        pairCell(left + blockW + midGap, y, blockW, h, pairs[1][0], pairs[1][1]);
       }
+      y += h;
+    };
+    const paymentBlock = (x: number, pmt: Record<string, unknown>, index: number) => {
+      const h = mm(20);
+      doc.rect(x, y, blockW, h).lineWidth(0.28).strokeColor(line).stroke();
+      doc.rect(x, y, blockW, mm(4)).fill(light);
+      write(`THANH TOÁN LẦN ${index}`, x + mm(1.1), y + mm(0.9), 6.4, true, { width: blockW - mm(2) });
+      const rows: Array<[string, unknown]> = [
+        ["Đối tượng thu", pmt.collector_type],
+        ["Tên người thu", pmt.collector_name],
+        ["Số tiền thu", pmt.amount],
+        ["STK / NH", `${text(pmt.bank_account)} / ${text(pmt.bank_name)}`],
+        ["Ghi chú", pmt.note]
+      ];
+      rows.forEach(([label, value], rowIndex) => {
+        const yy = y + mm(6.4 + rowIndex * 2.9);
+        write(`${label}:`, x + mm(1.2), yy, 5.55, true, { width: mm(25) });
+        write(value, x + mm(26.5), yy, 5.55, false, { width: blockW - mm(28) });
+      });
     };
 
-    drawHeader();
-    doc.fontSize(7.3);
+    doc.save();
+    doc.opacity(0.045);
+    const wmSize = Math.min(width * 0.96, H * 0.72);
+    doc.image(logoPath, (W - wmSize) / 2, (H - wmSize) / 2 - mm(9), { fit: [wmSize, wmSize] });
+    doc.restore();
 
-    rows.forEach(([group, label, value]) => {
-      const valueText = text(value);
-      const rowHeight = Math.max(
-        18,
-        doc.heightOfString(valueText, { width: colValue - 8 }) + 8,
-        doc.heightOfString(label, { width: colLabel - 8 }) + 8
-      );
-      newPageIfNeeded(rowHeight);
+    doc.image(headerLogoPath, left, mm(27), { fit: [mm(17), mm(17)] });
+    write(company.name, left + mm(21), mm(26), 10.6, true, { width: mm(118) });
+    write(`Địa chỉ: ${company.address}`, left + mm(21), mm(34), 6.4, false, { width: mm(125) });
+    write(`MST: ${company.taxCode}`, left + mm(21), mm(39), 6.4, true, { width: mm(80) });
+    write(`Email: ${company.email}`, left + mm(21), mm(44), 6.4, true, { width: mm(80) });
+    doc.rect(right - mm(27), mm(28), mm(27), mm(20)).lineWidth(0.8).strokeColor("#111111").stroke();
+    write("LỆNH XE", right - mm(27), mm(36.5), 7.2, true, { width: mm(27), align: "center" });
+    write(payload.order_no, right - mm(26), mm(42.5), 6.2, false, { width: mm(25), align: "center" });
+    doc.moveTo(left, mm(54)).lineTo(right, mm(54)).lineWidth(0.8).strokeColor("#111111").stroke();
 
-      const x = doc.page.margins.left;
-      const groupFill = group === "Thông tin nhà cung cấp" ? "#67e8f9" : group === "Thông tin khách hàng" || label === "Có xuất hóa đơn không" || label === "Hình thức xe" || label === "Nội dung làm rõ" ? "#fef08a" : "#ffffff";
-      doc.rect(x, y, colGroup, rowHeight).fillAndStroke(groupFill, "#cbd5e1");
-      doc.rect(x + colGroup, y, colLabel, rowHeight).fillAndStroke("#ffffff", "#cbd5e1");
-      doc.rect(x + colGroup + colLabel, y, colValue, rowHeight).fillAndStroke("#ffffff", "#cbd5e1");
+    const orderDate = text(payload.order_date, "");
+    const parts = orderDate.includes("/") ? orderDate.split("/") : [];
+    const dateText = parts.length === 3
+      ? `${text(payload.city, "Đà Nẵng")}, ngày ${parts[0]} tháng ${parts[1]} năm ${parts[2]}`
+      : `${text(payload.city, "Đà Nẵng")}, ngày ${orderDate}`;
+    write("CỘNG HOÀ XÃ HỘI CHỦ NGHĨA VIỆT NAM", left, mm(60), 8.8, true, { width, align: "center" });
+    write("Độc lập - Tự do - Hạnh phúc", left, mm(67), 8.0, true, { width, align: "center" });
+    write("--------------------", left, mm(72), 6.9, false, { width, align: "center" });
+    write(dateText, left, mm(82), 6.8, false, { width, align: "right" });
+    write("LỆNH ĐIỀU XE", left, mm(90), 13, true, { width, align: "center" });
+    y = mm(101);
 
-      doc.fillColor("#111827").font("AOT-Regular").fontSize(7.1);
-      doc.text(group, x + 4, y + 5, { width: colGroup - 8 });
-      doc.font("AOT-Bold").text(label, x + colGroup + 4, y + 5, { width: colLabel - 8 });
-      doc.font("AOT-Regular").text(valueText, x + colGroup + colLabel + 4, y + 5, { width: colValue - 8 });
-      y += rowHeight;
-    });
+    section("I. THÔNG TIN QUẢN LÝ");
+    kvRow([["Quản lý 1", management.manager_1], ["Số", payload.order_no]]);
+    kvRow([["Ngày", payload.order_date], ["Nguồn", management.source]]);
+    kvRow([["Tên người giao xe", management.dispatcher], ["Có xuất hóa đơn", management.output_invoice]]);
+    kvRow([["Hình thức xe", management.vehicle_form], ["Loại hợp đồng", management.contract_type]]);
 
-    doc.moveDown(1);
-    doc.font("AOT-Regular").fontSize(7).fillColor("#64748b").text(`Xuất lúc: ${new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })}`, { align: "right" });
+    y += mm(0.9);
+    section("II. THÔNG TIN XE");
+    kvRow([["Biển số xe", vehicle.plate], ["Họ và tên tài xế", vehicle.driver_name]]);
+    kvRow([["CCCD tài xế", vehicle.driver_cccd], ["SĐT tài xế", vehicle.driver_phone]]);
 
-    const pageRange = doc.bufferedPageRange();
-    for (let pageIndex = pageRange.start; pageIndex < pageRange.start + pageRange.count; pageIndex += 1) {
-      doc.switchToPage(pageIndex);
-      drawWatermark();
+    y += mm(0.9);
+    section("III. THÔNG TIN NHÀ CUNG CẤP / CHỦ SỞ HỮU XE");
+    kvRow([["Chủ sở hữu xe", supplier.owner_name], ["Số CCCD", supplier.owner_cccd]]);
+    kvRow([["Hóa đơn đầu vào", supplier.input_invoice], ["Tên đơn vị thuê ngoài", supplier.supplier_name]]);
+    kvRow([["Mã số thuế", supplier.tax_code], ["SĐT nhà cung cấp", supplier.phone]]);
+    kvRow([["Địa chỉ", supplier.address]]);
+    kvRow([["Tổng tiền mua", supplier.purchase_total], ["STK / Ngân hàng", `${text(supplier.bank_account)} / ${text(supplier.bank_name)}`]]);
+
+    y += mm(0.9);
+    section("IV. THÔNG TIN KHÁCH HÀNG");
+    kvRow([["Họ và tên khách hàng", customer.name], ["Số CCCD", customer.cccd]]);
+    kvRow([["Số điện thoại", customer.phone], ["Tên công ty", customer.company]]);
+    kvRow([["Mã số thuế", customer.tax_code], ["Địa chỉ", customer.address]]);
+    kvRow([["Số tài khoản", customer.bank_account], ["Tên ngân hàng", customer.bank_name]]);
+
+    y += mm(0.9);
+    section("V. HÀNH TRÌNH & DỊCH VỤ");
+    kvRow([["Ngày bắt đầu", `${text(trip.start_date)} - ${text(trip.start_time)}`], ["Ngày kết thúc dự kiến", `${text(trip.end_date)} - ${text(trip.end_time_expected)}`]]);
+    kvRow([["Điểm đi", trip.pickup], ["Điểm đến", trip.dropoff]]);
+    kvRow([["Mã dịch vụ", trip.service_code], ["Đơn vị tính", trip.unit]]);
+    kvRow([["Nội dung làm rõ", trip.clarification]]);
+    if (routeLegs.length > 0) {
+      const h = mm(8.7);
+      doc.rect(left, y, width, h).lineWidth(0.28).strokeColor(line).stroke();
+      write("Chi tiết chặng:", left + mm(2), y + mm(1.1), 6.1, true, { width: mm(24) });
+      routeLegs.slice(0, 2).forEach((leg, index) => {
+        const legText = `${index + 1}) ${text(leg.time)} ${text(leg.from)} -> ${text(leg.to)} | ${text(leg.note)}`;
+        write(legText, left + mm(26), y + mm(1.2 + index * 3.3), 5.8, false, { width: width - mm(29) });
+      });
+      y += h;
     }
+    kvRow([["Thuế suất", trip.tax_rate], ["Tiền hàng", trip.subtotal]]);
+    kvRow([["Tiền thuế", trip.tax_amount], ["Tổng thanh toán", trip.total]]);
+    kvRow([["Hình thức thanh toán", trip.payment_method], ["Số lần thanh toán", payments.length || "-"]]);
+
+    y += mm(0.9);
+    section("VI. THANH TOÁN");
+    const paymentBlocks = payments.length > 0 ? payments.slice(0, 2) : [{}];
+    paymentBlock(left, paymentBlocks[0], 1);
+    if (paymentBlocks[1]) paymentBlock(left + blockW + midGap, paymentBlocks[1], 2);
+    y += mm(20);
+
+    y += mm(0.9);
+    section("VII. ĐỐI SOÁT & TRẠNG THÁI");
+    kvRow([["Tổng phải thu", reconciliation.receivable_total], ["Đã thu", reconciliation.received_total]], mm(3.7));
+    kvRow([["Còn phải thu", reconciliation.receivable_remaining], ["Trạng thái thanh toán", reconciliation.customer_payment_status]], mm(3.7));
+    kvRow([["Tổng tiền mua/NCC", reconciliation.supplier_total], ["Đã thanh toán NCC", reconciliation.supplier_paid]], mm(3.7));
+    kvRow([["Chi phí phát sinh", reconciliation.extra_cost], ["Lợi nhuận thực tế", reconciliation.actual_profit]], mm(3.7));
+    kvRow([["HĐ đầu ra", reconciliation.output_invoice_status], ["HĐ đầu vào", reconciliation.input_invoice_status]], mm(3.7));
+    kvRow([["Trạng thái đối soát", reconciliation.reconciliation_status], ["Thời gian chốt", reconciliation.accounting_closed_at]], mm(3.7));
+
+    const footerY = H - mm(13);
+    doc.moveTo(left, footerY).lineTo(right, footerY).lineWidth(0.4).strokeColor("#8c8c8c").stroke();
+    write(payload.order_no, left, footerY + mm(4), 5.9, false, { width: mm(70) });
+    write(company.name, left, footerY + mm(4), 5.9, false, { width, align: "right" });
 
     doc.end();
   });
