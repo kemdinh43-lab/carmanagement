@@ -147,9 +147,9 @@ const ownerCompanyProfile = {
   legalName: "CÔNG TY TNHH ANGEL ONE TRAVEL",
   taxCode: "0402198423",
   address: "Số 111/3 Nguyễn Công Trứ, phường An Hải, thành phố Đà Nẵng, Việt Nam",
-  phone: "",
-  bankAccount: "",
-  bankName: ""
+  phone: "0978638227",
+  bankAccount: "282826999",
+  bankName: "MB"
 };
 
 const paymentMethodLabels: Record<Payment["method"], string> = {
@@ -527,19 +527,20 @@ function FinalDispatchOrderSheet({
   const vehicleLabel = transport.vehiclePlate;
   const driverLabel = transport.driverName;
   const driverPhone = transport.driverPhone;
-  const driverCccd = order.driverCccd || "-";
-  const isRentedVehicle = order.vehicleOwnership === "rented";
+  const driverCccd = transport.driverCccd;
+  const isRentedVehicle = order.vehicleOwnership === "rented" || transport.vehicleOwnership === "partner" || transport.vehicleOwnership === "rented";
   const ownerName = isRentedVehicle
-    ? order.supplierOwnerName || order.supplierCompanyName || "-"
+    ? order.supplierOwnerName || transport.ownerName || order.supplierCompanyName || "-"
     : ownerCompanyProfile.legalName;
   const supplierCompanyName = isRentedVehicle
-    ? order.supplierCompanyName || ownerName
+    ? order.supplierCompanyName || transport.supplierCompanyName || ownerName
     : ownerCompanyProfile.legalName;
-  const supplierTaxCode = isRentedVehicle ? order.supplierTaxCode || "-" : ownerCompanyProfile.taxCode || "-";
-  const supplierAddress = isRentedVehicle ? order.supplierAddress || "-" : ownerCompanyProfile.address || "-";
-  const supplierPhone = isRentedVehicle ? order.supplierPhone || "-" : ownerCompanyProfile.phone || "-";
-  const supplierBankAccount = isRentedVehicle ? order.supplierBankAccount || "-" : ownerCompanyProfile.bankAccount || "-";
-  const supplierBankName = isRentedVehicle ? order.supplierBankName || "-" : ownerCompanyProfile.bankName || "-";
+  const supplierTaxCode = isRentedVehicle ? order.supplierTaxCode || transport.supplierTaxCode || "-" : ownerCompanyProfile.taxCode || "-";
+  const supplierAddress = isRentedVehicle ? order.supplierAddress || transport.supplierAddress || "-" : ownerCompanyProfile.address || "-";
+  const supplierPhone = isRentedVehicle ? order.supplierPhone || transport.supplierPhone || "-" : ownerCompanyProfile.phone || "-";
+  const supplierBankAccount = isRentedVehicle ? order.supplierBankAccount || transport.supplierBankAccount || "-" : ownerCompanyProfile.bankAccount || "-";
+  const supplierBankName = isRentedVehicle ? order.supplierBankName || transport.supplierBankName || "-" : ownerCompanyProfile.bankName || "-";
+  const supplierInvoiceRequired = isRentedVehicle ? order.supplierInvoiceRequired ?? transport.supplierInvoiceRequired ?? false : false;
   const supplierTotal = isRentedVehicle ? order.supplierTotalWithVat ?? orderCost(order) : orderActualCost(order) || orderCost(order);
   const paymentRows = (validPayments.length > 0
     ? validPayments.flatMap((payment, index) => {
@@ -579,8 +580,8 @@ function FinalDispatchOrderSheet({
     { group: "Thông tin xe", label: "CCCD", value: driverCccd },
     { group: "Thông tin xe", label: "Số điện thoại tài xế", value: driverPhone },
     { group: "Thông tin nhà cung cấp", label: "Họ và tên chủ sở hữu xe", value: ownerName, tone: "blue" },
-    { group: "Thông tin nhà cung cấp", label: "Số CCCD", value: isRentedVehicle ? order.supplierCccd || "-" : "-", tone: "blue" },
-    { group: "Thông tin nhà cung cấp", label: "Có xuất hóa đơn đầu vào được không (Có; không)", value: isRentedVehicle && order.supplierInvoiceRequired ? "Có" : "Không", tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Số CCCD", value: isRentedVehicle ? order.supplierCccd || transport.ownerCccd || "-" : "-", tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Có xuất hóa đơn đầu vào được không (Có; không)", value: supplierInvoiceRequired ? "Có" : "Không", tone: "blue" },
     { group: "Thông tin nhà cung cấp", label: "Tên đơn vị thuê ngoài", value: supplierCompanyName, tone: "blue" },
     { group: "Thông tin nhà cung cấp", label: "Mã số thuế", value: supplierTaxCode, tone: "blue" },
     { group: "Thông tin nhà cung cấp", label: "Địa chỉ", value: supplierAddress, tone: "blue" },
@@ -689,8 +690,8 @@ function FinalDispatchOrderSheet({
       },
       supplier: {
         owner_name: ownerName,
-        owner_cccd: isRentedVehicle ? order.supplierCccd || "-" : "-",
-        input_invoice: isRentedVehicle && order.supplierInvoiceRequired ? "Có" : "Không",
+        owner_cccd: isRentedVehicle ? order.supplierCccd || transport.ownerCccd || "-" : "-",
+        input_invoice: supplierInvoiceRequired ? "Có" : "Không",
         supplier_name: supplierCompanyName,
         tax_code: supplierTaxCode,
         address: supplierAddress,
@@ -756,7 +757,7 @@ function FinalDispatchOrderSheet({
         extra_cost: money(driverExpenseTotal),
         actual_profit: money(orderActualProfit(order)),
         output_invoice_status: invoiceLabels[order.invoiceStatus],
-        input_invoice_status: isRentedVehicle ? (order.supplierInvoiceRequired ? "Chưa nhận / cần đối soát" : "Không yêu cầu") : "Không áp dụng",
+        input_invoice_status: isRentedVehicle ? (supplierInvoiceRequired ? "Chưa nhận / cần đối soát" : "Không yêu cầu") : "Không áp dụng",
         reconciliation_status: order.reconciliationStatus === "closed" ? "Đã chốt" : "Đang mở",
         accounting_closed_at: order.reconciliationStatus === "closed" ? formatDateTime(new Date().toISOString()) : "-"
       }
@@ -1212,7 +1213,18 @@ function resolveOrderTransport(order: DispatchOrder, assignments: Assignment[], 
   return {
     vehiclePlate: order.externalVehiclePlate || order.vehiclePlateNo || vehicle?.plateNo || "-",
     driverName: order.externalDriverName || order.driverFullName || driver?.fullName || "-",
-    driverPhone: order.externalDriverPhone || order.driverPhone || driver?.phone || "-"
+    driverPhone: order.externalDriverPhone || order.driverPhone || driver?.phone || "-",
+    driverCccd: order.driverCccd || driver?.cccd || "-",
+    vehicleOwnership: vehicle?.ownershipType,
+    ownerName: vehicle?.ownerName,
+    ownerCccd: vehicle?.ownerCccd,
+    supplierInvoiceRequired: vehicle?.supplierInvoiceRequired,
+    supplierCompanyName: vehicle?.supplierCompanyName,
+    supplierTaxCode: vehicle?.supplierTaxCode,
+    supplierAddress: vehicle?.supplierAddress,
+    supplierPhone: vehicle?.supplierPhone,
+    supplierBankAccount: vehicle?.supplierBankAccount,
+    supplierBankName: vehicle?.supplierBankName
   };
 }
 
@@ -3345,6 +3357,18 @@ export default function OpsApp() {
       plateNo: String(form.get("plateNo") || "").trim(),
       type: String(form.get("type") || "Sedan").trim(),
       seats: Number(form.get("seats") || 4),
+      fuelType: String(form.get("fuelType") || "").trim() || undefined,
+      ownershipType: String(form.get("ownershipType") || "company") as Vehicle["ownershipType"],
+      defaultDriverId: String(form.get("defaultDriverId") || "").trim() || undefined,
+      ownerName: String(form.get("ownerName") || "").trim() || undefined,
+      ownerCccd: String(form.get("ownerCccd") || "").trim() || undefined,
+      supplierInvoiceRequired: form.get("supplierInvoiceRequired") === "yes",
+      supplierCompanyName: String(form.get("supplierCompanyName") || "").trim() || undefined,
+      supplierTaxCode: String(form.get("supplierTaxCode") || "").trim() || undefined,
+      supplierAddress: String(form.get("supplierAddress") || "").trim() || undefined,
+      supplierPhone: String(form.get("supplierPhone") || "").trim() || undefined,
+      supplierBankAccount: String(form.get("supplierBankAccount") || "").trim() || undefined,
+      supplierBankName: String(form.get("supplierBankName") || "").trim() || undefined,
       status: String(form.get("status") || "active") as Vehicle["status"]
     };
 
@@ -3363,6 +3387,9 @@ export default function OpsApp() {
       id: makeId("driver"),
       fullName: String(form.get("fullName") || "").trim(),
       phone: String(form.get("phone") || "").trim(),
+      cccd: String(form.get("cccd") || "").trim() || undefined,
+      bankAccount: String(form.get("bankAccount") || "").trim() || undefined,
+      bankName: String(form.get("bankName") || "").trim() || undefined,
       status: String(form.get("status") || "active") as Driver["status"]
     };
 
@@ -5907,8 +5934,22 @@ function MasterDataPanel({
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <Field label="Biển số"><input className={inputClass()} name="plateNo" required /></Field>
-            <Field label="Loại xe"><input className={inputClass()} defaultValue="Sedan" name="type" required /></Field>
-            <Field label="Số chỗ"><input className={inputClass()} defaultValue="4" min="1" name="seats" required type="number" /></Field>
+            <Field label="Loại xe"><input className={inputClass()} defaultValue="Xe du lịch" name="type" required /></Field>
+            <Field label="Số chỗ"><input className={inputClass()} defaultValue="16" min="1" name="seats" required type="number" /></Field>
+            <Field label="Nhiên liệu"><input className={inputClass()} defaultValue="Dầu" name="fuelType" /></Field>
+            <Field label="Hình thức xe">
+              <select className={inputClass()} name="ownershipType">
+                <option value="company">Chính chủ công ty</option>
+                <option value="partner">Xe hợp tác</option>
+                <option value="rented">Xe thuê ngoài</option>
+              </select>
+            </Field>
+            <Field label="Tài xế mặc định">
+              <select className={inputClass()} name="defaultDriverId">
+                <option value="">Chưa gán</option>
+                {drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.fullName} / {driver.phone}</option>)}
+              </select>
+            </Field>
             <Field label="Trạng thái">
               <select className={inputClass()} name="status">
                 <option value="active">active</option>
@@ -5916,6 +5957,22 @@ function MasterDataPanel({
                 <option value="inactive">inactive</option>
               </select>
             </Field>
+            <Field label="Chủ sở hữu xe"><input className={inputClass()} name="ownerName" placeholder="Công ty hoặc cá nhân đứng tên xe" /></Field>
+            <Field label="CCCD chủ xe"><input className={inputClass()} name="ownerCccd" /></Field>
+            <Field label="Có HĐ đầu vào">
+              <select className={inputClass()} name="supplierInvoiceRequired">
+                <option value="no">Không</option>
+                <option value="yes">Có</option>
+              </select>
+            </Field>
+            <Field label="Tên NCC/HTX"><input className={inputClass()} name="supplierCompanyName" /></Field>
+            <Field label="MST NCC"><input className={inputClass()} name="supplierTaxCode" /></Field>
+            <Field label="SĐT NCC"><input className={inputClass()} name="supplierPhone" /></Field>
+            <div className="md:col-span-2">
+              <Field label="Địa chỉ NCC"><input className={inputClass()} name="supplierAddress" /></Field>
+            </div>
+            <Field label="STK NCC"><input className={inputClass()} name="supplierBankAccount" /></Field>
+            <Field label="Ngân hàng NCC"><input className={inputClass()} name="supplierBankName" /></Field>
           </div>
           <button className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canManageMasterData} type="submit">
             <Save size={16} /> Lưu xe
@@ -5926,16 +5983,22 @@ function MasterDataPanel({
             <h3 className="font-semibold text-ink">Danh sách xe</h3>
           </div>
           <div className="divide-y divide-line">
-            {vehicles.map((vehicle) => (
+            {vehicles.map((vehicle) => {
+              const defaultDriver = drivers.find((driver) => driver.id === vehicle.defaultDriverId);
+              const ownershipLabel = vehicle.ownershipType === "partner" ? "Hợp tác" : vehicle.ownershipType === "rented" ? "Thuê ngoài" : "Chính chủ";
+              return (
               <div className="grid grid-cols-[1fr_90px_100px] gap-3 px-4 py-3 text-sm" key={vehicle.id}>
                 <div>
                   <p className="font-semibold text-ink">{vehicle.plateNo}</p>
-                  <p className="text-xs text-slate-500">{vehicle.type} / {vehicle.seats} chỗ</p>
+                  <p className="text-xs text-slate-500">{vehicle.type} / {vehicle.seats} chỗ / {vehicle.fuelType || "-"}</p>
+                  <p className="text-xs text-slate-500">Tài xế mặc định: {defaultDriver?.fullName || "-"}</p>
+                  <p className="text-xs text-slate-500">NCC: {vehicle.supplierCompanyName || vehicle.ownerName || "-"}</p>
                 </div>
-                <p className="text-slate-600">{vehicle.seats} chỗ</p>
+                <p className="text-slate-600">{ownershipLabel}</p>
                 <Badge tone={vehicle.status === "active" ? "good" : "warn"}>{vehicle.status}</Badge>
               </div>
-            ))}
+            );
+            })}
           </div>
         </div>
       </div>
@@ -5949,6 +6012,9 @@ function MasterDataPanel({
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <Field label="Họ tên"><input className={inputClass()} name="fullName" required /></Field>
             <Field label="SĐT"><input className={inputClass()} name="phone" required /></Field>
+            <Field label="CCCD"><input className={inputClass()} name="cccd" /></Field>
+            <Field label="STK tài xế"><input className={inputClass()} name="bankAccount" /></Field>
+            <Field label="Ngân hàng tài xế"><input className={inputClass()} name="bankName" /></Field>
             <Field label="Trạng thái">
               <select className={inputClass()} name="status">
                 <option value="active">active</option>
@@ -5970,7 +6036,8 @@ function MasterDataPanel({
               <div className="grid grid-cols-[1fr_130px_100px] gap-3 px-4 py-3 text-sm" key={driver.id}>
                 <div>
                   <p className="font-semibold text-ink">{driver.fullName}</p>
-                  <p className="text-xs text-slate-500">{driver.phone}</p>
+                  <p className="text-xs text-slate-500">{driver.phone} / CCCD: {driver.cccd || "-"}</p>
+                  <p className="text-xs text-slate-500">{driver.bankAccount ? `${driver.bankAccount} / ${driver.bankName || "-"}` : "Chưa có STK"}</p>
                 </div>
                 <p className="text-slate-600">{driver.phone}</p>
                 <Badge tone={driver.status === "active" ? "good" : "warn"}>{driver.status}</Badge>

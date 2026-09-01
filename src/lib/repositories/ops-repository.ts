@@ -20,8 +20,28 @@ type MutationResult = Promise<{ error: { message: string; code?: string } | null
 const customerSelectColumns = "id,full_name,phone,email,address,status";
 const companySelectColumns = "id,legal_name,tax_code,legal_address,billing_email,status";
 const companyContactSelectColumns = "id,company_id,full_name,phone,email,position,is_primary";
-const vehicleSelectColumns = "id,plate_no,vehicle_type,seats,status";
-const driverSelectColumns = "id,full_name,phone,status";
+const legacyVehicleSelectColumns = "id,plate_no,vehicle_type,seats,status";
+const vehicleSelectColumns = [
+  "id",
+  "plate_no",
+  "vehicle_type",
+  "seats",
+  "fuel_type",
+  "ownership_type",
+  "default_driver_id",
+  "owner_name",
+  "owner_cccd",
+  "supplier_invoice_required",
+  "supplier_company_name",
+  "supplier_tax_code",
+  "supplier_address",
+  "supplier_phone",
+  "supplier_bank_account",
+  "supplier_bank_name",
+  "status"
+].join(",");
+const legacyDriverSelectColumns = "id,full_name,phone,status";
+const driverSelectColumns = "id,full_name,phone,cccd,bank_account,bank_name,status";
 const assignmentSelectColumns = "id,dispatch_order_id,vehicle_id,driver_id,status,start_at,end_at,replace_reason";
 const paymentSelectColumns = "id,order_id,amount,status,paid_at,method,collector,reference,note";
 const auditSelectColumns = "id,actor,entity_type,entity_id,action,reason,created_at";
@@ -180,8 +200,8 @@ export class SupabaseOpsRepository implements OpsRepository {
         selectTable(supabase, "app_customers", customerSelectColumns),
         selectTable(supabase, "app_companies", companySelectColumns),
         selectTable(supabase, "app_company_contacts", companyContactSelectColumns),
-        selectTable(supabase, "app_vehicles", vehicleSelectColumns),
-        selectTable(supabase, "app_drivers", driverSelectColumns),
+        selectTableWithFallback(supabase, "app_vehicles", vehicleSelectColumns, legacyVehicleSelectColumns),
+        selectTableWithFallback(supabase, "app_drivers", driverSelectColumns, legacyDriverSelectColumns),
         selectTable(supabase, "app_dispatch_orders", appDispatchOrderPersistenceColumns.join(",")),
         selectTable(supabase, "app_dispatch_assignments", assignmentSelectColumns),
         selectTable(supabase, "app_payments", paymentSelectColumns),
@@ -246,6 +266,15 @@ async function selectTable(supabase: SupabaseTableClient, table: AppTable, colum
   if (error) throw new Error(`${table}: ${error.message}`);
   repositoryTiming(`select_${table}`, startedAt, { rows: data?.length ?? 0 });
   return data ?? [];
+}
+
+async function selectTableWithFallback(supabase: SupabaseTableClient, table: AppTable, columns: string, fallbackColumns: string) {
+  try {
+    return await selectTable(supabase, table, columns);
+  } catch (error) {
+    if (isMissingRelationalSchema(error)) return selectTable(supabase, table, fallbackColumns);
+    throw error;
+  }
 }
 
 function repositoryTiming(label: string, startedAt: number, detail?: Record<string, unknown>) {
@@ -326,19 +355,71 @@ function fromCompanyContact(contact: CompanyContact) {
 }
 
 function toVehicle(row: Record<string, unknown>): Vehicle {
-  return { id: text(row, "id"), plateNo: text(row, "plate_no"), type: text(row, "vehicle_type"), seats: numberValue(row, "seats"), status: text(row, "status") as Vehicle["status"] };
+  return {
+    id: text(row, "id"),
+    plateNo: text(row, "plate_no"),
+    type: text(row, "vehicle_type"),
+    seats: numberValue(row, "seats"),
+    fuelType: optionalText(row, "fuel_type"),
+    ownershipType: optionalText(row, "ownership_type") as Vehicle["ownershipType"],
+    defaultDriverId: optionalText(row, "default_driver_id"),
+    ownerName: optionalText(row, "owner_name"),
+    ownerCccd: optionalText(row, "owner_cccd"),
+    supplierInvoiceRequired: row.supplier_invoice_required === null || row.supplier_invoice_required === undefined ? undefined : Boolean(row.supplier_invoice_required),
+    supplierCompanyName: optionalText(row, "supplier_company_name"),
+    supplierTaxCode: optionalText(row, "supplier_tax_code"),
+    supplierAddress: optionalText(row, "supplier_address"),
+    supplierPhone: optionalText(row, "supplier_phone"),
+    supplierBankAccount: optionalText(row, "supplier_bank_account"),
+    supplierBankName: optionalText(row, "supplier_bank_name"),
+    status: text(row, "status") as Vehicle["status"]
+  };
 }
 
 function fromVehicle(vehicle: Vehicle) {
-  return { id: vehicle.id, plate_no: vehicle.plateNo, vehicle_type: vehicle.type, seats: vehicle.seats, status: vehicle.status };
+  return {
+    id: vehicle.id,
+    plate_no: vehicle.plateNo,
+    vehicle_type: vehicle.type,
+    seats: vehicle.seats,
+    fuel_type: vehicle.fuelType ?? null,
+    ownership_type: vehicle.ownershipType ?? null,
+    default_driver_id: vehicle.defaultDriverId ?? null,
+    owner_name: vehicle.ownerName ?? null,
+    owner_cccd: vehicle.ownerCccd ?? null,
+    supplier_invoice_required: vehicle.supplierInvoiceRequired ?? null,
+    supplier_company_name: vehicle.supplierCompanyName ?? null,
+    supplier_tax_code: vehicle.supplierTaxCode ?? null,
+    supplier_address: vehicle.supplierAddress ?? null,
+    supplier_phone: vehicle.supplierPhone ?? null,
+    supplier_bank_account: vehicle.supplierBankAccount ?? null,
+    supplier_bank_name: vehicle.supplierBankName ?? null,
+    status: vehicle.status
+  };
 }
 
 function toDriver(row: Record<string, unknown>): Driver {
-  return { id: text(row, "id"), fullName: text(row, "full_name"), phone: text(row, "phone"), status: text(row, "status") as Driver["status"] };
+  return {
+    id: text(row, "id"),
+    fullName: text(row, "full_name"),
+    phone: text(row, "phone"),
+    cccd: optionalText(row, "cccd"),
+    bankAccount: optionalText(row, "bank_account"),
+    bankName: optionalText(row, "bank_name"),
+    status: text(row, "status") as Driver["status"]
+  };
 }
 
 function fromDriver(driver: Driver) {
-  return { id: driver.id, full_name: driver.fullName, phone: driver.phone, status: driver.status };
+  return {
+    id: driver.id,
+    full_name: driver.fullName,
+    phone: driver.phone,
+    cccd: driver.cccd ?? null,
+    bank_account: driver.bankAccount ?? null,
+    bank_name: driver.bankName ?? null,
+    status: driver.status
+  };
 }
 
 function toOrder(row: Record<string, unknown>): DispatchOrder {

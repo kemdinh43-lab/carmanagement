@@ -1,17 +1,85 @@
 import type { Assignment, AuditEvent, Company, CompanyContact, Customer, DispatchOrder, Driver, Payment, Vehicle } from "@/lib/types";
 
 export const vehicles: Vehicle[] = [
-  { id: "v1", plateNo: "43A-668.88", type: "Sedan", seats: 4, status: "active" },
-  { id: "v2", plateNo: "43B-112.79", type: "SUV", seats: 7, status: "active" },
-  { id: "v3", plateNo: "43F-901.16", type: "Van", seats: 16, status: "maintenance" },
-  { id: "v4", plateNo: "43C-229.01", type: "Limousine", seats: 9, status: "active" }
+  {
+    id: "veh_43h34470",
+    plateNo: "43H34470",
+    type: "Xe du lịch",
+    seats: 16,
+    fuelType: "Dầu",
+    ownershipType: "company",
+    defaultDriverId: "drv_phung_ngoc_duc",
+    ownerName: "CÔNG TY TNHH ANGEL ONE TRAVEL",
+    supplierCompanyName: "CÔNG TY TNHH ANGEL ONE TRAVEL",
+    supplierTaxCode: "0402198423",
+    supplierAddress: "Số 111/3 Nguyễn Công Trứ, Phường An Hải, TP Đà Nẵng, Việt Nam",
+    supplierPhone: "0978638227",
+    supplierBankAccount: "282826999",
+    supplierBankName: "MB",
+    status: "active"
+  },
+  {
+    id: "veh_43h28307",
+    plateNo: "43H28307",
+    type: "Xe du lịch",
+    seats: 16,
+    fuelType: "Dầu",
+    ownershipType: "company",
+    defaultDriverId: "drv_truong_huynh_truong",
+    ownerName: "CÔNG TY TNHH ANGEL ONE TRAVEL",
+    supplierCompanyName: "CÔNG TY TNHH ANGEL ONE TRAVEL",
+    supplierTaxCode: "0402198423",
+    supplierAddress: "Số 111/3 Nguyễn Công Trứ, Phường An Hải, TP Đà Nẵng, Việt Nam",
+    supplierPhone: "0978638227",
+    supplierBankAccount: "282826999",
+    supplierBankName: "MB",
+    status: "active"
+  },
+  {
+    id: "veh_43h18875",
+    plateNo: "43H18875",
+    type: "Xe điện",
+    seats: 7,
+    fuelType: "Điện",
+    ownershipType: "partner",
+    defaultDriverId: "drv_le_phuoc_cuong",
+    ownerName: "Lê Phước Cường",
+    ownerCccd: "049087011434",
+    supplierInvoiceRequired: true,
+    supplierCompanyName: "HỢP TÁC XÃ VẬN TẢI DỊCH VỤ GIA AN",
+    supplierTaxCode: "0402213537",
+    supplierAddress: "19 Phạm Xuân Ẩn, Phường Hòa Xuân, TP Đà Nẵng, Việt Nam",
+    supplierPhone: "0905144177",
+    supplierBankAccount: "494349",
+    supplierBankName: "Techcombank - Chi nhánh Đà Nẵng",
+    status: "active"
+  },
+  {
+    id: "veh_92f00366",
+    plateNo: "92F00366",
+    type: "Xe du lịch",
+    seats: 16,
+    fuelType: "Dầu",
+    ownershipType: "partner",
+    defaultDriverId: "drv_pham_huynh_thanh",
+    ownerName: "Phạm Huỳnh Thành",
+    ownerCccd: "049083006882",
+    supplierInvoiceRequired: true,
+    supplierCompanyName: "HỢP TÁC XÃ TRƯỜNG THỊNH TG",
+    supplierTaxCode: "1201529814",
+    supplierAddress: "Thửa đất số 2253, ấp Ngãi Thuận, Xã Châu Thành, Tỉnh Đồng Tháp, Việt Nam",
+    supplierPhone: "0908834244",
+    supplierBankAccount: "0281000186276",
+    supplierBankName: "Ngân hàng TMCP An Bình",
+    status: "active"
+  }
 ];
 
 export const drivers: Driver[] = [
-  { id: "dr1", fullName: "Nguyen Van Hai", phone: "0905 111 222", status: "active" },
-  { id: "dr2", fullName: "Tran Quoc Minh", phone: "0914 222 333", status: "active" },
-  { id: "dr3", fullName: "Le Anh Tuan", phone: "0935 333 444", status: "leave" },
-  { id: "dr4", fullName: "Pham Thanh Son", phone: "0977 444 555", status: "active" }
+  { id: "drv_phung_ngoc_duc", fullName: "Phùng Ngọc Đức", phone: "0905296471", cccd: "048089002898", status: "active" },
+  { id: "drv_truong_huynh_truong", fullName: "Trương Huỳnh Trường", phone: "0905258250", cccd: "048087006371", status: "active" },
+  { id: "drv_le_phuoc_cuong", fullName: "Lê Phước Cường", phone: "0905900173", cccd: "049087011434", status: "active" },
+  { id: "drv_pham_huynh_thanh", fullName: "Phạm Huỳnh Thành", phone: "0905615648", cccd: "049083006882", status: "active" }
 ];
 
 export const customers: Customer[] = [
@@ -55,8 +123,8 @@ export const orders: DispatchOrder[] = [
     paymentStatus: "paid",
     invoiceStatus: "not_required",
     reconciliationStatus: "reconciled",
-    vehicleId: "v1",
-    driverId: "dr1"
+    vehicleId: "veh_43h34470",
+    driverId: "drv_phung_ngoc_duc"
   },
   {
     id: "o2",
@@ -88,8 +156,8 @@ export const orders: DispatchOrder[] = [
     paymentStatus: "partial",
     invoiceStatus: "ready_to_issue",
     reconciliationStatus: "open",
-    vehicleId: "v4",
-    driverId: "dr2"
+    vehicleId: "veh_43h28307",
+    driverId: "drv_truong_huynh_truong"
   },
   {
     id: "o3",
@@ -151,8 +219,8 @@ export const assignments: Assignment[] = [
   {
     id: "a1",
     dispatchOrderId: "o1",
-    vehicleId: "v1",
-    driverId: "dr1",
+    vehicleId: "veh_43h34470",
+    driverId: "drv_phung_ngoc_duc",
     status: "active",
     startAt: "2026-08-25T08:00:00+07:00",
     endAt: "2026-08-25T10:00:00+07:00"
@@ -160,8 +228,8 @@ export const assignments: Assignment[] = [
   {
     id: "a2",
     dispatchOrderId: "o2",
-    vehicleId: "v4",
-    driverId: "dr2",
+    vehicleId: "veh_43h28307",
+    driverId: "drv_truong_huynh_truong",
     status: "active",
     startAt: "2026-08-25T13:00:00+07:00",
     endAt: "2026-08-25T19:00:00+07:00"

@@ -38,6 +38,18 @@ export interface Vehicle {
   plateNo: string;
   type: string;
   seats: number;
+  fuelType?: string;
+  ownershipType?: "company" | "partner" | "rented";
+  defaultDriverId?: string;
+  ownerName?: string;
+  ownerCccd?: string;
+  supplierInvoiceRequired?: boolean;
+  supplierCompanyName?: string;
+  supplierTaxCode?: string;
+  supplierAddress?: string;
+  supplierPhone?: string;
+  supplierBankAccount?: string;
+  supplierBankName?: string;
   status: ResourceStatus;
 }
 
@@ -45,6 +57,9 @@ export interface Driver {
   id: string;
   fullName: string;
   phone: string;
+  cccd?: string;
+  bankAccount?: string;
+  bankName?: string;
   status: ResourceStatus;
 }
 
