@@ -95,8 +95,17 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
     };
 
     const write = (value: unknown, x: number, yy: number, size = 6.1, bold = false, options: PDFKit.Mixins.TextOptions = {}) => {
-      doc.font(bold ? "AOT-Bold" : "AOT-Regular").fontSize(size).fillColor("#111111");
-      doc.text(text(value), x, yy, { lineBreak: false, ellipsis: true, ...options });
+      const content = text(value);
+      const maxWidth = typeof options.width === "number" ? options.width : undefined;
+      let fontSize = size;
+      doc.font(bold ? "AOT-Bold" : "AOT-Regular").fontSize(fontSize).fillColor("#111111");
+      if (maxWidth && options.lineBreak !== true) {
+        while (fontSize > 4.2 && doc.widthOfString(content) > maxWidth) {
+          fontSize -= 0.25;
+          doc.fontSize(fontSize);
+        }
+      }
+      doc.text(content, x, yy, { lineBreak: false, ellipsis: true, ...options });
     };
     const section = (title: string) => {
       doc.rect(left, y, width, mm(4)).fill(light);
@@ -161,11 +170,11 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
     write("Độc lập - Tự do - Hạnh phúc", left, mm(67), 8.0, true, { width, align: "center" });
     write("--------------------", left, mm(72), 6.9, false, { width, align: "center" });
     write(dateText, left, mm(82), 6.8, false, { width, align: "right" });
-    write("LỆNH ĐIỀU XE", left, mm(90), 13, true, { width, align: "center" });
-    y = mm(101);
+    write("LỆNH ĐIỀU XE", left, mm(86), 13, true, { width, align: "center" });
+    y = mm(96);
 
     section("I. THÔNG TIN QUẢN LÝ");
-    kvRow([["Quản lý 1", management.manager_1], ["Số", payload.order_no]]);
+    kvRow([["Quản lý lệnh", management.manager_1], ["Số", payload.order_no]]);
     kvRow([["Ngày", payload.order_date], ["Nguồn", management.source]]);
     kvRow([["Tên người giao xe", management.dispatcher], ["Có xuất hóa đơn", management.output_invoice]]);
     kvRow([["Hình thức xe", management.vehicle_form], ["Loại hợp đồng", management.contract_type]]);

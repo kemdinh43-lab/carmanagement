@@ -551,8 +551,8 @@ function FinalDispatchOrderSheet({
           { group: `Thanh toán lần ${index + 1}`, label: "Số tiền thu", value: money(payment.amount) },
           { group: `Thanh toán lần ${index + 1}`, label: "Hình thức thu", value: paymentMethodLabels[payment.method] },
           { group: `Thanh toán lần ${index + 1}`, label: "Thời gian thu", value: formatDateTime(payment.paidAt) },
-          { group: `Thanh toán lần ${index + 1}`, label: "Số tài khoản thu (Công ty; Khác; tài xế)", value: order.collectionBankAccount || "-" },
-          { group: `Thanh toán lần ${index + 1}`, label: "Ngân hàng thu", value: order.collectionBankName || "-" },
+          { group: `Thanh toán lần ${index + 1}`, label: "Số tài khoản thu (Công ty; Khác; tài xế)", value: payment.bankAccount || order.collectionBankAccount || "-" },
+          { group: `Thanh toán lần ${index + 1}`, label: "Ngân hàng thu", value: payment.bankName || order.collectionBankName || "-" },
           { group: `Thanh toán lần ${index + 1}`, label: "Mã tham chiếu / ghi chú", value: [payment.reference, payment.note].filter(Boolean).join(" / ") || "-" }
         ];
       })
@@ -568,13 +568,13 @@ function FinalDispatchOrderSheet({
       ]) satisfies Array<{ group: string; label: string; value: string }>;
 
   const rows: Array<{ group: string; label: string; value: string; tone?: "yellow" | "blue" }> = [
-    { group: "Quản lý 1", label: "Số", value: order.code },
-    { group: "Quản lý 1", label: "Ngày", value: order.orderDate || dateOnly(order.startAt) },
-    { group: "Quản lý 1", label: "Nguồn (Sale; xe; ĐHXX; khác)", value: `${order.salesOwner} / ${order.source}` },
-    { group: "Quản lý 1", label: "Tên người giao xe", value: order.sourceOwnerName || order.salesOwner || "-" },
-    { group: "Quản lý 1", label: "Có xuất hóa đơn không (Có; Không)", value: order.invoiceRequired ? "Có" : "Không", tone: "yellow" },
-    { group: "Quản lý 1", label: "Hình thức xe (Công ty; Thuê ngoài)", value: order.vehicleOwnership === "rented" ? "Thuê ngoài" : "Công ty", tone: "blue" },
-    { group: "Quản lý 1", label: "Loại hợp đồng (Mẫu; Giản đơn; Điều khoản)", value: contractTypeLabels[order.contractType ?? "simple"] },
+    { group: "Quản lý lệnh", label: "Số", value: order.code },
+    { group: "Quản lý lệnh", label: "Ngày", value: order.orderDate || dateOnly(order.startAt) },
+    { group: "Quản lý lệnh", label: "Nguồn (Sale; xe; ĐHXX; khác)", value: `${order.salesOwner} / ${order.source}` },
+    { group: "Quản lý lệnh", label: "Tên người giao xe", value: order.sourceOwnerName || order.salesOwner || "-" },
+    { group: "Quản lý lệnh", label: "Có xuất hóa đơn không (Có; Không)", value: order.invoiceRequired ? "Có" : "Không", tone: "yellow" },
+    { group: "Quản lý lệnh", label: "Hình thức xe (Công ty; Thuê ngoài)", value: order.vehicleOwnership === "rented" ? "Thuê ngoài" : "Công ty", tone: "blue" },
+    { group: "Quản lý lệnh", label: "Loại hợp đồng (Mẫu; Giản đơn; Điều khoản)", value: contractTypeLabels[order.contractType ?? "simple"] },
     { group: "Thông tin xe", label: "Biển số xe", value: vehicleLabel },
     { group: "Thông tin xe", label: "Họ và tên tài xế", value: driverLabel },
     { group: "Thông tin xe", label: "CCCD", value: driverCccd },
@@ -740,8 +740,8 @@ function FinalDispatchOrderSheet({
         amount: money(payment.amount),
         method: paymentMethodLabels[payment.method],
         paid_at: formatDateTime(payment.paidAt),
-        bank_account: order.collectionBankAccount || "-",
-        bank_name: order.collectionBankName || "-",
+        bank_account: payment.bankAccount || order.collectionBankAccount || "-",
+        bank_name: payment.bankName || order.collectionBankName || "-",
         reference_note: [payment.reference, payment.note].filter(Boolean).join(" / ") || "-",
         note: [payment.reference, payment.note].filter(Boolean).join(" / ") || paymentMethodLabels[payment.method]
       };
@@ -2899,8 +2899,8 @@ export default function OpsApp() {
     const canEditFinance = can(currentRole, "record_payment") || can(currentRole, "update_invoice") || can(currentRole, "close_order");
     const startAt = canEditSales ? String(form.get("startAt") ?? "") : toDateTimeInput(selectedOrder.startAt);
     const endAt = canEditSales ? String(form.get("endAt") ?? "") : toDateTimeInput(selectedOrder.endAt);
-    const nextStartAt = toIsoFromInput(startAt);
-    const nextEndAt = toIsoFromInput(endAt);
+    const nextStartAt = canEditSales ? toIsoFromInput(startAt) : selectedOrder.startAt;
+    const nextEndAt = canEditSales ? toIsoFromInput(endAt) : selectedOrder.endAt;
     const routeLegs = canEditSales ? parseRouteLegs(form) : selectedOrder.routeLegs;
     const primaryRoute = canEditSales && routeLegs?.length ? primaryLegValues(routeLegs, startAt, endAt) : { startAt: nextStartAt, endAt: nextEndAt, pickup: selectedOrder.pickup, dropoff: selectedOrder.dropoff };
     const readText = (name: string, fallback: string, editable: boolean) => (editable ? String(form.get(name) ?? "").trim() : fallback);
@@ -3246,6 +3246,8 @@ export default function OpsApp() {
       paidAt: paidAtInput ? new Date(paidAtInput).toISOString() : new Date().toISOString(),
       method: String(form.get("method")) as Payment["method"],
       collector: String(form.get("collector") || "").trim() || undefined,
+      bankAccount: String(form.get("bankAccount") || "").trim() || undefined,
+      bankName: String(form.get("bankName") || "").trim() || undefined,
       reference: String(form.get("reference") || "").trim() || undefined,
       note: String(form.get("note") || "").trim() || undefined
     };
@@ -3267,6 +3269,8 @@ export default function OpsApp() {
         p_paid_at: payment.paidAt,
         p_payment_status: paymentStatus,
         p_collector: payment.collector ?? null,
+        p_bank_account: payment.bankAccount ?? null,
+        p_bank_name: payment.bankName ?? null,
         p_note: payment.note ?? null
       },
       `Không lưu được thanh toán ${selectedOrder.code}`
@@ -4424,7 +4428,15 @@ function OrderDetailPanel({
                   title="5. Thanh toán & hóa đơn"
                 >
                   <div className="grid gap-3 md:grid-cols-3">
-                    <Field label="Hình thức thanh toán"><input className={inputClass()} defaultValue={order.paymentMethod ?? ""} name="paymentMethod" placeholder="Tiền mặt / chuyển khoản" /></Field>
+                    <Field label="Hình thức thanh toán">
+                      <select className={inputClass()} defaultValue={order.paymentMethod ?? ""} name="paymentMethod">
+                        <option value="">Chưa chọn</option>
+                        <option value="Tiền mặt">Tiền mặt</option>
+                        <option value="Chuyển khoản">Chuyển khoản</option>
+                        <option value="Tiền mặt + chuyển khoản">Tiền mặt + chuyển khoản</option>
+                        <option value="Đối trừ">Đối trừ</option>
+                      </select>
+                    </Field>
                     <Field label="Đối tượng thu"><input className={inputClass()} defaultValue={order.payer ?? ""} name="payer" placeholder="Công ty / Khách / Tài xế" /></Field>
                     <Field label="Chủ tài khoản thu"><input className={inputClass()} defaultValue={order.collectionAccountOwner ?? ""} name="collectionAccountOwner" /></Field>
                     <Field label="Số tài khoản thu"><input className={inputClass()} defaultValue={order.collectionBankAccount ?? ""} name="collectionBankAccount" /></Field>
@@ -4906,7 +4918,15 @@ function OrdersPanel({
               title="4. Thanh toán & hóa đơn"
             >
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-                <Field label="Hình thức thanh toán"><input className={inputClass()} name="paymentMethod" placeholder="Tiền mặt / chuyển khoản" /></Field>
+                <Field label="Hình thức thanh toán">
+                  <select className={inputClass()} name="paymentMethod">
+                    <option value="">Chưa chọn</option>
+                    <option value="Tiền mặt">Tiền mặt</option>
+                    <option value="Chuyển khoản">Chuyển khoản</option>
+                    <option value="Tiền mặt + chuyển khoản">Tiền mặt + chuyển khoản</option>
+                    <option value="Đối trừ">Đối trừ</option>
+                  </select>
+                </Field>
                 <Field label="Đối tượng thu"><input className={inputClass()} name="payer" placeholder="Công ty / Khách / Tài xế" /></Field>
                 <Field label="Chủ tài khoản thu"><input className={inputClass()} name="collectionAccountOwner" /></Field>
                 <Field label="Số tài khoản thu"><input className={inputClass()} name="collectionBankAccount" /></Field>
@@ -6083,7 +6103,9 @@ function FinancePanel({
   vehicles: Vehicle[];
 }) {
   const activeOrders = orders.filter((order) => order.orderStatus !== "cancelled");
-  const selectedPayments = payments.filter((payment) => payment.orderId === selectedOrder.id);
+  const selectedPayments = payments
+    .filter((payment) => payment.orderId === selectedOrder.id)
+    .sort((a, b) => new Date(a.paidAt).getTime() - new Date(b.paidAt).getTime());
   const paid = selectedPayments.filter((payment) => payment.status === "valid").reduce((sum, payment) => sum + payment.amount, 0);
   const debt = Math.max(selectedOrder.amountDue - paid, 0);
   const totalReceivable = activeOrders.reduce((sum, order) => sum + order.amountDue, 0);
@@ -6260,6 +6282,8 @@ function FinancePanel({
               <Field label="Ngày thu"><input className={inputClass()} defaultValue={vietnamDateTimeLocalValue()} name="paidAt" type="datetime-local" /></Field>
               <Field label="Phương thức"><select className={inputClass()} name="method"><option value="cash">Tiền mặt</option><option value="bank_transfer">Chuyển khoản</option><option value="card">Thẻ</option><option value="other">Khác</option></select></Field>
               <Field label="Đối tượng thu tiền"><input className={inputClass()} defaultValue={selectedOrder.collectionAccountOwner ?? "Công ty thu"} name="collector" placeholder="Công ty thu / Tài xế thu / Ban điều hành" /></Field>
+              <Field label="Số tài khoản thu"><input className={inputClass()} defaultValue={selectedOrder.collectionBankAccount ?? ""} name="bankAccount" placeholder="STK nhận tiền của lần thu này" /></Field>
+              <Field label="Ngân hàng thu"><input className={inputClass()} defaultValue={selectedOrder.collectionBankName ?? ""} name="bankName" placeholder="MB / Techcombank / tiền mặt..." /></Field>
               <Field label="Mã tham chiếu"><input className={inputClass()} name="reference" placeholder="Mã GD ngân hàng nếu có" /></Field>
               <Field label="Ghi chú thanh toán"><textarea className={textAreaClass()} name="note" placeholder="Thu lần 1, khách chuyển thiếu, tài xế thu hộ..." /></Field>
             </div>
@@ -6342,7 +6366,8 @@ function FinancePanel({
               <div className="flex items-center justify-between border border-line bg-panel p-3" key={payment.id}>
                 <div>
                   <p className="font-medium">{money(payment.amount)}</p>
-                  <p className="text-xs text-slate-500">{formatDateTime(payment.paidAt)} / {payment.method} / {payment.collector || "chưa ghi người thu"}</p>
+                  <p className="text-xs text-slate-500">{formatDateTime(payment.paidAt)} / {paymentMethodLabels[payment.method]} / {payment.collector || "chưa ghi người thu"}</p>
+                  <p className="text-xs text-slate-500">STK/NH: {payment.bankAccount || selectedOrder.collectionBankAccount || "-"} / {payment.bankName || selectedOrder.collectionBankName || "-"}</p>
                   <p className="text-xs text-slate-500">{payment.reference || "không mã GD"}{payment.note ? ` / ${payment.note}` : ""}</p>
                 </div>
                 <Badge tone="good">{payment.status}</Badge>
@@ -6359,7 +6384,7 @@ function FinancePanel({
               ["Thu hộ đã nộp/không phát sinh", selectedDriverHeldAmount === 0 || selectedOrder.reconciliationStatus === "closed"],
               ["NCC đã xử lý/không phát sinh", selectedOrder.vehicleOwnership !== "rented" || selectedSupplierPayable >= 0],
               ["Hóa đơn/chứng từ đã xử lý", invoiceReady],
-              ["Báo cáo tài xế nếu có", selectedOrder.driverReportStatus === "not_reported" || selectedOrder.driverReportStatus === "reviewed" || selectedOrder.driverReportStatus === "reported"]
+              ["Báo cáo tài xế không bắt buộc", true]
             ].map(([label, ok]) => (
               <p className="flex items-center gap-2" key={String(label)}>
                 <CheckCircle2 className={ok ? "text-brand" : "text-slate-300"} size={16} />

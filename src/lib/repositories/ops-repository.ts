@@ -43,7 +43,8 @@ const vehicleSelectColumns = [
 const legacyDriverSelectColumns = "id,full_name,phone,status";
 const driverSelectColumns = "id,full_name,phone,cccd,bank_account,bank_name,status";
 const assignmentSelectColumns = "id,dispatch_order_id,vehicle_id,driver_id,status,start_at,end_at,replace_reason";
-const paymentSelectColumns = "id,order_id,amount,status,paid_at,method,collector,reference,note";
+const paymentSelectColumns = "id,order_id,amount,status,paid_at,method,collector,bank_account,bank_name,reference,note";
+const legacyPaymentSelectColumns = "id,order_id,amount,status,paid_at,method,collector,reference,note";
 const auditSelectColumns = "id,actor,entity_type,entity_id,action,reason,created_at";
 type SupabaseTableClient = {
   from(table: AppTable): {
@@ -161,6 +162,8 @@ export const appPaymentPersistenceColumns = [
   "paid_at",
   "method",
   "collector",
+  "bank_account",
+  "bank_name",
   "reference",
   "note"
 ] as const;
@@ -204,7 +207,7 @@ export class SupabaseOpsRepository implements OpsRepository {
         selectTableWithFallback(supabase, "app_drivers", driverSelectColumns, legacyDriverSelectColumns),
         selectTable(supabase, "app_dispatch_orders", appDispatchOrderPersistenceColumns.join(",")),
         selectTable(supabase, "app_dispatch_assignments", assignmentSelectColumns),
-        selectTable(supabase, "app_payments", paymentSelectColumns),
+        selectTableWithFallback(supabase, "app_payments", paymentSelectColumns, legacyPaymentSelectColumns),
         mobileViewport ? Promise.resolve([] as Record<string, unknown>[]) : selectTable(supabase, "app_audit_events", auditSelectColumns)
       ]);
       repositoryTiming("relational_tables_loaded", startedAt);
@@ -635,6 +638,8 @@ function toPayment(row: Record<string, unknown>): Payment {
     paidAt: text(row, "paid_at"),
     method: text(row, "method") as Payment["method"],
     collector: optionalText(row, "collector"),
+    bankAccount: optionalText(row, "bank_account"),
+    bankName: optionalText(row, "bank_name"),
     reference: optionalText(row, "reference"),
     note: optionalText(row, "note")
   };
@@ -649,6 +654,8 @@ function fromPayment(payment: Payment) {
     paid_at: payment.paidAt,
     method: payment.method,
     collector: payment.collector ?? null,
+    bank_account: payment.bankAccount ?? null,
+    bank_name: payment.bankName ?? null,
     reference: payment.reference ?? null,
     note: payment.note ?? null
   };

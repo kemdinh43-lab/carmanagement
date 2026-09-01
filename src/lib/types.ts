@@ -99,6 +99,8 @@ export interface Payment {
   paidAt: string;
   method: "cash" | "bank_transfer" | "card" | "other";
   collector?: string;
+  bankAccount?: string;
+  bankName?: string;
   reference?: string;
   note?: string;
 }

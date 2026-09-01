@@ -10,7 +10,8 @@ const migrationSql = [
   "0021_finance_schema_alignment.sql",
   "0022_driver_trip_reports.sql",
   "0023_external_trip_links.sql",
-  "0029_customer_confirmation_final_order_fields.sql"
+  "0029_customer_confirmation_final_order_fields.sql",
+  "0033_payment_collection_accounts.sql"
 ]
   .map((file) => readFileSync(join(process.cwd(), "supabase", "migrations", file), "utf8"))
   .join("\n");
