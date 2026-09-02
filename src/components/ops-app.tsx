@@ -154,6 +154,13 @@ const ownerCompanyProfile = {
 
 const defaultOrderManagerName = "Nguyễn Quang Nam";
 const salesOwnerOptions = ["Phan Thị Bích Hà", "Đặng Thị Hồng Tiên", "Lê Hoàn Nin Hy"];
+const serviceOptions = [
+  { code: "DVVT", label: "Dịch vụ vận tải" },
+  { code: "DVHL", label: "Dịch vụ lữ hành" },
+  { code: "DVHT", label: "Dịch vụ hợp tác" },
+  { code: "DVCT", label: "Dịch vụ cho thuê" }
+] as const;
+type ServiceCode = (typeof serviceOptions)[number]["code"];
 const guestMarketOptions = [
   { value: "domestic", code: "NĐ", label: "Khách Nội Địa" },
   { value: "international", code: "QT", label: "Khách Quốc Tế" },
@@ -459,6 +466,38 @@ function RouteLegFields({ initialLegs }: { initialLegs?: DispatchRouteLeg[] }) {
   );
 }
 
+function serviceOptionFromCode(code?: string) {
+  return serviceOptions.find((option) => option.code === code) ?? null;
+}
+
+function serviceOptionFromLabel(label?: string) {
+  return serviceOptions.find((option) => option.label === label) ?? null;
+}
+
+function serviceOptionFor(code?: string, label?: string) {
+  return serviceOptionFromCode(code) ?? serviceOptionFromLabel(label) ?? serviceOptions[0];
+}
+
+function ServiceFields({ initialCode, initialLabel }: { initialCode?: string; initialLabel?: string }) {
+  const [selectedCode, setSelectedCode] = useState(() => serviceOptionFor(initialCode, initialLabel).code);
+  const selected = serviceOptionFor(selectedCode);
+
+  return (
+    <>
+      <Field label="Mã dịch vụ">
+        <select className={inputClass()} name="serviceCode" onChange={(event) => setSelectedCode(event.target.value as ServiceCode)} value={selected.code}>
+          {serviceOptions.map((option) => <option key={option.code} value={option.code}>{option.code}</option>)}
+        </select>
+      </Field>
+      <Field label="Dịch vụ">
+        <select className={inputClass()} name="serviceLabel" onChange={(event) => setSelectedCode(serviceOptionFromLabel(event.target.value)?.code ?? serviceOptions[0].code)} required value={selected.label}>
+          {serviceOptions.map((option) => <option key={option.code} value={option.label}>{option.label}</option>)}
+        </select>
+      </Field>
+    </>
+  );
+}
+
 function VatCalculatorFields({ initialSubtotal = 0, initialVatRate = 0, initialTotal = 0 }: { initialSubtotal?: number; initialVatRate?: number; initialTotal?: number }) {
   const startingTotal = initialTotal || (initialSubtotal ? Math.round(initialSubtotal * (1 + initialVatRate / 100)) : 0);
   const startingSubtotal = initialSubtotal || (startingTotal ? Math.round(startingTotal / (1 + initialVatRate / 100)) : 0);
@@ -637,7 +676,8 @@ function FinalDispatchOrderSheet({
     { group: "Hành trình", label: "Điểm đi", value: order.pickup },
     { group: "Hành trình", label: "Điểm đến", value: pdfRouteText || order.dropoff },
     ...routeLegRows,
-    { group: "Hành trình", label: "Mã dịch vụ (DVVT; DVHL; DVHT; DVCT)", value: order.serviceCode || order.serviceLabel },
+    { group: "Hành trình", label: "Mã dịch vụ (DVVT; DVHL; DVHT; DVCT)", value: order.serviceCode || serviceOptionFor(undefined, order.serviceLabel).code },
+    { group: "Hành trình", label: "Dịch vụ", value: serviceOptionFor(order.serviceCode, order.serviceLabel).label },
     { group: "Hành trình", label: "Nội dung làm rõ (Nếu có)", value: order.serviceClarification || order.customerConfirmationNote || "-", tone: "yellow" },
     { group: "Hành trình", label: "Đơn vị tính (Chuyến; Ngày; tháng; Kỳ)", value: order.unit || "Chuyến" },
     { group: "Hành trình", label: "Thuế suất %", value: `${order.vatRate ?? 0}%` },
@@ -757,7 +797,8 @@ function FinalDispatchOrderSheet({
         end_time_expected: endTime,
         pickup: order.pickup,
         dropoff: pdfRouteText || order.dropoff,
-        service_code: order.serviceCode || order.serviceLabel,
+        service_code: order.serviceCode || serviceOptionFor(undefined, order.serviceLabel).code,
+        service_label: serviceOptionFor(order.serviceCode, order.serviceLabel).label,
         clarification: order.serviceClarification || order.customerConfirmationNote || "-",
         unit: order.unit || "Chuyến",
         tax_rate: `${order.vatRate ?? 0}%`,
@@ -1524,8 +1565,12 @@ function provinceCodeFullLabel(value?: string) {
   return item ? item.label : code || "-";
 }
 
+function provinceNameLabel(value?: string) {
+  return provinceCodeFullLabel(value).replace(/^[A-Z]+ - /, "");
+}
+
 function provinceRouteFullLabel(origin?: string, destination?: string) {
-  return `${origin || "-"}-${destination || "-"} / ${provinceCodeFullLabel(origin)} - ${provinceCodeFullLabel(destination)}`;
+  return `${provinceNameLabel(origin)} - ${provinceNameLabel(destination)}`;
 }
 
 function buildTransportCode(index: number, input: {
@@ -2428,7 +2473,9 @@ export default function OpsApp() {
     const companyAddress = String(form.get("companyAddress") || "").trim();
     const companyBankAccount = String(form.get("companyBankAccount") || "").trim();
     const companyBankName = String(form.get("companyBankName") || "").trim();
-    const serviceCode = String(form.get("serviceCode") || "").trim();
+    const serviceSelection = serviceOptionFor(String(form.get("serviceCode") || "").trim(), String(form.get("serviceLabel") || "").trim());
+    const serviceCode = serviceSelection.code;
+    const serviceLabel = serviceSelection.label;
     const serviceClarification = String(form.get("serviceClarification") || "").trim();
     const unit = String(form.get("unit") || "").trim();
     const sourceOwnerName = String(form.get("sourceOwnerName") || "").trim();
@@ -2446,7 +2493,7 @@ export default function OpsApp() {
     const driverPhone = String(form.get("driverPhone") || "").trim();
     const supplierOwnerName = String(form.get("supplierOwnerName") || "").trim();
     const supplierCccd = String(form.get("supplierCccd") || "").trim();
-    const supplierInvoiceRequired = form.get("supplierInvoiceRequired") === "yes";
+    const supplierInvoiceRequired = form.get("supplierInvoiceRequired") !== "no";
     const supplierCompanyName = String(form.get("supplierCompanyName") || "").trim();
     const supplierTaxCode = String(form.get("supplierTaxCode") || "").trim();
     const supplierAddress = String(form.get("supplierAddress") || "").trim();
@@ -2533,7 +2580,7 @@ export default function OpsApp() {
       pickup: primaryRoute.pickup,
       dropoff: primaryRoute.dropoff,
       routeLegs,
-      serviceLabel: String(form.get("serviceLabel") || "Private transfer").trim(),
+      serviceLabel,
       serviceClarification: serviceClarification || undefined,
       unit: unit || undefined,
       salesOwner: String(form.get("salesOwner") || salesOwnerOptions[0]),
@@ -3205,7 +3252,11 @@ export default function OpsApp() {
     const companyAddress = readMaybeText("companyAddress", selectedOrder.companyAddress, canEditSales);
     const companyBankAccount = readMaybeText("companyBankAccount", selectedOrder.companyBankAccount, canEditSales);
     const companyBankName = readMaybeText("companyBankName", selectedOrder.companyBankName, canEditSales);
-    const serviceCode = readMaybeText("serviceCode", selectedOrder.serviceCode, canEditSales);
+    const serviceSelection = canEditSales
+      ? serviceOptionFor(String(form.get("serviceCode") || "").trim(), String(form.get("serviceLabel") || "").trim())
+      : serviceOptionFor(selectedOrder.serviceCode, selectedOrder.serviceLabel);
+    const serviceCode = serviceSelection.code;
+    const serviceLabel = serviceSelection.label;
     const serviceClarification = readMaybeText("serviceClarification", selectedOrder.serviceClarification, canEditSales);
     const unit = readMaybeText("unit", selectedOrder.unit, canEditSales);
     const salesOwner = readText("salesOwner", selectedOrder.salesOwner, canEditSales);
@@ -3308,7 +3359,7 @@ export default function OpsApp() {
       p_pickup: primaryRoute.pickup,
       p_dropoff: primaryRoute.dropoff,
       p_route_legs: routeLegs ?? null,
-      p_service_label: readText("serviceLabel", selectedOrder.serviceLabel, canEditSales),
+      p_service_label: serviceLabel,
       p_service_clarification: serviceClarification || null,
       p_unit: unit || null,
       p_sales_owner: salesOwner,
@@ -3393,7 +3444,7 @@ export default function OpsApp() {
             pickup: primaryRoute.pickup,
             dropoff: primaryRoute.dropoff,
             routeLegs,
-            serviceLabel: readText("serviceLabel", selectedOrder.serviceLabel, canEditSales),
+            serviceLabel,
             serviceClarification: serviceClarification || undefined,
             unit: unit || undefined,
             salesOwner,
@@ -4581,7 +4632,7 @@ function OrderDetailPanel({
   const driver = drivers.find((item) => item.id === (activeAssignment?.driverId || order.driverId));
   const transport = resolveOrderTransport(order, assignments, vehicles, drivers);
   const editVehicleOwnership = order.vehicleOwnership ?? (transport.vehicleOwnership === "partner" || transport.vehicleOwnership === "rented" ? "rented" : "company");
-  const editSupplierInvoiceRequired = order.supplierInvoiceRequired ?? transport.supplierInvoiceRequired ?? false;
+  const editSupplierInvoiceRequired = order.supplierInvoiceRequired ?? transport.supplierInvoiceRequired ?? true;
   const orderAudit = auditEvents.filter((event) => event.entityId === order.id || event.entityId === activeAssignment?.id).slice(0, 5);
   const cost = orderCost(order);
   const profit = orderProfit(order);
@@ -4787,16 +4838,7 @@ function OrderDetailPanel({
                   title="3. Hành trình & báo giá"
                 >
                   <div className="grid gap-3 md:grid-cols-3">
-                    <Field label="Mã dịch vụ"><input className={inputClass()} defaultValue={order.serviceCode ?? ""} name="serviceCode" /></Field>
-                    <Field label="Dịch vụ">
-                      <select className={inputClass()} defaultValue={order.serviceLabel} name="serviceLabel" required>
-                        <option>Dịch vụ vận tải</option>
-                        <option>Dịch vụ lữ hành</option>
-                        <option>Hợp tác</option>
-                        <option>Cho thuê</option>
-                        <option>Private transfer</option>
-                      </select>
-                    </Field>
+                    <ServiceFields initialCode={order.serviceCode} initialLabel={order.serviceLabel} />
                     <Field label="Diễn giải"><input className={inputClass()} defaultValue={order.serviceClarification ?? ""} name="serviceClarification" /></Field>
                     <Field label="Đơn vị tính">
                       <select className={inputClass()} defaultValue={order.unit ?? "Chuyến"} name="unit">
@@ -4836,7 +4878,7 @@ function OrderDetailPanel({
                     <Field label="SĐT tài xế"><input className={inputClass()} defaultValue={transport.driverPhone === "-" ? "" : transport.driverPhone} name="driverPhone" /></Field>
                     <Field label="Tên chủ xe / nhà cung cấp"><input className={inputClass()} defaultValue={order.supplierOwnerName ?? transport.ownerName ?? ""} name="supplierOwnerName" /></Field>
                     <Field label="CCCD / MST NCC"><input className={inputClass()} defaultValue={order.supplierCccd ?? transport.ownerCccd ?? ""} name="supplierCccd" /></Field>
-                    <Field label="Xuất HĐ đầu vào"><select className={inputClass()} defaultValue={editSupplierInvoiceRequired ? "yes" : "no"} name="supplierInvoiceRequired"><option value="no">Không</option><option value="yes">Có</option></select></Field>
+                    <Field label="Xuất HĐ đầu vào"><select className={inputClass()} defaultValue={editSupplierInvoiceRequired ? "yes" : "no"} name="supplierInvoiceRequired"><option value="yes">Có</option><option value="no">Không</option></select></Field>
                     <Field label="Tên đơn vị thuê ngoài"><input className={inputClass()} defaultValue={order.supplierCompanyName ?? transport.supplierCompanyName ?? ""} name="supplierCompanyName" /></Field>
                     <Field label="MST NCC"><input className={inputClass()} defaultValue={order.supplierTaxCode ?? transport.supplierTaxCode ?? ""} name="supplierTaxCode" /></Field>
                     <Field label="Địa chỉ NCC"><input className={inputClass()} defaultValue={order.supplierAddress ?? transport.supplierAddress ?? ""} name="supplierAddress" /></Field>
@@ -5306,16 +5348,7 @@ function OrdersPanel({
             title="2. Hành trình & giá bán"
           >
             <div className="grid gap-3 md:grid-cols-2">
-              <Field label="Mã dịch vụ"><input className={inputClass()} name="serviceCode" /></Field>
-              <Field label="Dịch vụ">
-                <select className={inputClass()} defaultValue="Dịch vụ vận tải" name="serviceLabel" required>
-                  <option>Dịch vụ vận tải</option>
-                  <option>Dịch vụ lữ hành</option>
-                  <option>Hợp tác</option>
-                  <option>Cho thuê</option>
-                  <option>Private transfer</option>
-                </select>
-              </Field>
+              <ServiceFields />
               <Field label="Diễn giải"><input className={inputClass()} name="serviceClarification" /></Field>
               <Field label="Đơn vị tính">
                 <select className={inputClass()} defaultValue="Chuyến" name="unit">
@@ -5355,7 +5388,7 @@ function OrdersPanel({
                 <Field label="SĐT tài xế"><input className={inputClass()} name="driverPhone" /></Field>
                 <Field label="Chủ xe / NCC"><input className={inputClass()} name="supplierOwnerName" /></Field>
                 <Field label="CCCD / MST NCC"><input className={inputClass()} name="supplierCccd" /></Field>
-                <Field label="Xuất HĐ đầu vào"><select className={inputClass()} name="supplierInvoiceRequired"><option value="no">Không</option><option value="yes">Có</option></select></Field>
+                <Field label="Xuất HĐ đầu vào"><select className={inputClass()} defaultValue="yes" name="supplierInvoiceRequired"><option value="yes">Có</option><option value="no">Không</option></select></Field>
                 <Field label="Tên đơn vị thuê ngoài"><input className={inputClass()} name="supplierCompanyName" /></Field>
                 <Field label="MST NCC"><input className={inputClass()} name="supplierTaxCode" /></Field>
                 <Field label="Địa chỉ NCC"><input className={inputClass()} name="supplierAddress" /></Field>

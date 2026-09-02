@@ -216,7 +216,8 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
     kvRow([["Ngày bắt đầu", `${text(trip.start_date)} - ${text(trip.start_time)}`], ["Ngày kết thúc dự kiến", `${text(trip.end_date)} - ${text(trip.end_time_expected)}`]]);
     fullWidthRow("Điểm đi", trip.pickup);
     fullWidthRow("Điểm đến", trip.dropoff);
-    kvRow([["Mã dịch vụ", trip.service_code], ["Đơn vị tính", trip.unit]]);
+    kvRow([["Mã dịch vụ", trip.service_code], ["Dịch vụ", trip.service_label]]);
+    kvRow([["Đơn vị tính", trip.unit]]);
     kvRow([["Nội dung làm rõ", trip.clarification]]);
     if (routeLegs.length > 0) {
       const visibleRouteLegs = routeLegs.slice(0, 4);
