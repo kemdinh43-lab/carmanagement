@@ -174,7 +174,10 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
     kvRow([["Quản lý lệnh", management.manager_1], ["Số", payload.order_no]]);
     kvRow([["Ngày", payload.order_date], ["Nguồn", management.source]]);
     kvRow([["Tên người giao nguồn", management.dispatcher], ["Có xuất hóa đơn", management.output_invoice]]);
-    kvRow([["Hình thức xe", management.vehicle_form], ["Loại hợp đồng", management.contract_type]]);
+    kvRow([["Số lượng khách", management.guest_count], ["Dòng khách", management.guest_market]]);
+    kvRow([["Nhận biết khách", management.customer_recognition_code], ["Nguồn khách", management.customer_source_code]]);
+    kvRow([["Mã tỉnh/thành", management.province_route_code], ["Hình thức xe", management.vehicle_form]]);
+    kvRow([["Loại hợp đồng", management.contract_type]]);
 
     y += mm(0.9);
     section("II. THÔNG TIN XE");

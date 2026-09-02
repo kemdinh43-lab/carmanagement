@@ -134,6 +134,12 @@ export interface DispatchOrder extends TimeWindow {
   salesOwner: string;
   sourceOwnerName?: string;
   source: string;
+  guestCount?: number;
+  guestMarket?: "domestic" | "international" | "mixed";
+  customerRecognitionCode?: "DL" | "CT" | "GD" | "KL";
+  customerSourceCode?: "T" | "DDH" | "ĐDH";
+  originProvinceCode?: string;
+  destinationProvinceCode?: string;
   invoiceRequired?: boolean;
   vehicleOwnership?: "company" | "rented";
   vehiclePlateNo?: string;

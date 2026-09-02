@@ -87,6 +87,12 @@ export const appDispatchOrderPersistenceColumns = [
   "sales_owner",
   "source_owner_name",
   "source",
+  "guest_count",
+  "guest_market",
+  "customer_recognition_code",
+  "customer_source_code",
+  "origin_province_code",
+  "destination_province_code",
   "invoice_required",
   "vehicle_ownership",
   "vehicle_plate_no",
@@ -154,6 +160,17 @@ export const appDispatchOrderPersistenceColumns = [
   "actual_cost_note"
 ] as const;
 
+const legacyDispatchOrderPersistenceColumns = appDispatchOrderPersistenceColumns
+  .filter((column) => ![
+    "guest_count",
+    "guest_market",
+    "customer_recognition_code",
+    "customer_source_code",
+    "origin_province_code",
+    "destination_province_code"
+  ].includes(column))
+  .join(",");
+
 export const appPaymentPersistenceColumns = [
   "id",
   "order_id",
@@ -205,7 +222,7 @@ export class SupabaseOpsRepository implements OpsRepository {
         selectTable(supabase, "app_company_contacts", companyContactSelectColumns),
         selectTableWithFallback(supabase, "app_vehicles", vehicleSelectColumns, legacyVehicleSelectColumns),
         selectTableWithFallback(supabase, "app_drivers", driverSelectColumns, legacyDriverSelectColumns),
-        selectTable(supabase, "app_dispatch_orders", appDispatchOrderPersistenceColumns.join(",")),
+        selectTableWithFallback(supabase, "app_dispatch_orders", appDispatchOrderPersistenceColumns.join(","), legacyDispatchOrderPersistenceColumns),
         selectTable(supabase, "app_dispatch_assignments", assignmentSelectColumns),
         selectTableWithFallback(supabase, "app_payments", paymentSelectColumns, legacyPaymentSelectColumns),
         mobileViewport ? Promise.resolve([] as Record<string, unknown>[]) : selectTable(supabase, "app_audit_events", auditSelectColumns)
@@ -455,6 +472,12 @@ function toOrder(row: Record<string, unknown>): DispatchOrder {
     salesOwner: text(row, "sales_owner"),
     sourceOwnerName: optionalText(row, "source_owner_name"),
     source: text(row, "source"),
+    guestCount: optionalNumber(row, "guest_count"),
+    guestMarket: optionalText(row, "guest_market") as DispatchOrder["guestMarket"],
+    customerRecognitionCode: optionalText(row, "customer_recognition_code") as DispatchOrder["customerRecognitionCode"],
+    customerSourceCode: optionalText(row, "customer_source_code") as DispatchOrder["customerSourceCode"],
+    originProvinceCode: optionalText(row, "origin_province_code"),
+    destinationProvinceCode: optionalText(row, "destination_province_code"),
     invoiceRequired: row.invoice_required === null || row.invoice_required === undefined ? undefined : Boolean(row.invoice_required),
     vehicleOwnership: optionalText(row, "vehicle_ownership") as DispatchOrder["vehicleOwnership"],
     vehiclePlateNo: optionalText(row, "vehicle_plate_no"),
@@ -553,6 +576,12 @@ function fromOrder(order: DispatchOrder) {
     sales_owner: order.salesOwner,
     source_owner_name: order.sourceOwnerName ?? null,
     source: order.source,
+    guest_count: order.guestCount ?? null,
+    guest_market: order.guestMarket ?? null,
+    customer_recognition_code: order.customerRecognitionCode ?? null,
+    customer_source_code: order.customerSourceCode ?? null,
+    origin_province_code: order.originProvinceCode ?? null,
+    destination_province_code: order.destinationProvinceCode ?? null,
     invoice_required: order.invoiceRequired ?? null,
     vehicle_ownership: order.vehicleOwnership ?? null,
     vehicle_plate_no: order.vehiclePlateNo ?? null,

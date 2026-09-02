@@ -246,6 +246,12 @@ export function updateOrderDetails(
     salesOwner: string;
     sourceOwnerName?: string;
     source: string;
+    guestCount?: number;
+    guestMarket?: DispatchOrder["guestMarket"];
+    customerRecognitionCode?: DispatchOrder["customerRecognitionCode"];
+    customerSourceCode?: DispatchOrder["customerSourceCode"];
+    originProvinceCode?: string;
+    destinationProvinceCode?: string;
     invoiceRequired?: boolean;
     vehicleOwnership?: DispatchOrder["vehicleOwnership"];
     vehiclePlateNo?: string;

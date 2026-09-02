@@ -154,6 +154,29 @@ const ownerCompanyProfile = {
 
 const defaultOrderManagerName = "Nguyễn Quang Nam";
 const salesOwnerOptions = ["Phan Thị Bích Hà", "Đặng Thị Hồng Tiên", "Lê Hoàn Nin Hy"];
+const guestMarketOptions = [
+  { value: "domestic", code: "NĐ", label: "Khách Nội Địa" },
+  { value: "international", code: "QT", label: "Khách Quốc Tế" },
+  { value: "mixed", code: "NĐQT", label: "Khách Nội Địa + Quốc Tế" }
+] as const;
+const customerRecognitionOptions = [
+  { value: "DL", label: "DL - Khách du lịch / khách du lịch đoàn" },
+  { value: "CT", label: "CT - Khách tổ chức công ty / khách đoàn hội nghị" },
+  { value: "GD", label: "GĐ - Khách gia đình" },
+  { value: "KL", label: "KL - Khách lẻ" }
+] as const;
+const customerSourceCodeOptions = [
+  { value: "T", code: "T", label: "T - Nguồn khách Tour" },
+  { value: "DDH", code: "ĐDH", label: "ĐDH - Khách theo đơn đặt hàng vận chuyển" }
+] as const;
+const provinceCodeOptions = [
+  { value: "DAD", label: "DAD - Đà Nẵng" },
+  { value: "QNH", label: "QNH - Quảng Nam / Hội An" },
+  { value: "HUE", label: "HUE - Huế" },
+  { value: "HAN", label: "HAN - Hà Nội" },
+  { value: "SGN", label: "SGN - TP.HCM" },
+  { value: "QYN", label: "QYN - Quy Nhơn" }
+] as const;
 
 const paymentMethodLabels: Record<Payment["method"], string> = {
   cash: "Tiền mặt",
@@ -577,6 +600,11 @@ function FinalDispatchOrderSheet({
     { group: "Quản lý lệnh", label: "Ngày", value: order.orderDate || dateOnly(order.startAt) },
     { group: "Quản lý lệnh", label: "Nguồn (Sale; xe; ĐHXX; khác)", value: `${order.salesOwner} / ${order.source}` },
     { group: "Quản lý lệnh", label: "Tên người giao nguồn", value: order.sourceOwnerName || order.salesOwner || "-" },
+    { group: "Quản lý lệnh", label: "Số lượng khách", value: String(order.guestCount ?? "-") },
+    { group: "Quản lý lệnh", label: "Dòng khách", value: `${guestMarketCode(order.guestMarket)} - ${guestMarketLabel(order.guestMarket)}` },
+    { group: "Quản lý lệnh", label: "Nhận biết khách", value: order.customerRecognitionCode || "-" },
+    { group: "Quản lý lệnh", label: "Nguồn khách", value: customerSourceCodeLabel(order.customerSourceCode) },
+    { group: "Quản lý lệnh", label: "Mã tỉnh/thành", value: `${order.originProvinceCode || "-"}-${order.destinationProvinceCode || "-"}` },
     { group: "Quản lý lệnh", label: "Có xuất hóa đơn không (Có; Không)", value: order.invoiceRequired ? "Có" : "Không", tone: "yellow" },
     { group: "Quản lý lệnh", label: "Hình thức xe (Công ty; Thuê ngoài)", value: order.vehicleOwnership === "rented" ? "Thuê ngoài" : "Công ty", tone: "blue" },
     { group: "Quản lý lệnh", label: "Loại hợp đồng (Mẫu; Giản đơn; Điều khoản)", value: contractTypeLabels[order.contractType ?? "simple"] },
@@ -627,6 +655,7 @@ function FinalDispatchOrderSheet({
   const [isSendingPdfPayload, setIsSendingPdfPayload] = useState(false);
 
   function exportFinalOrder() {
+    const fileCode = safeOrderFileCode(order.code);
     const bodyRows = rows.map((row) => {
       const background = row.tone === "yellow" ? "#fef08a" : row.tone === "blue" ? "#67e8f9" : "#ffffff";
       return `<tr style="background:${background}"><td>${escapeHtml(row.group)}</td><td>${escapeHtml(row.label)}</td><td><strong>${escapeHtml(row.value || "-")}</strong></td></tr>`;
@@ -655,7 +684,7 @@ function FinalDispatchOrderSheet({
   </table>
 </body>
 </html>`;
-    downloadTextFile(`lenh-dieu-xe-${order.code}.html`, html, "text/html;charset=utf-8");
+    downloadTextFile(`lenh-dieu-xe-${fileCode}.html`, html, "text/html;charset=utf-8");
   }
 
   function buildFinalPdfData() {
@@ -666,12 +695,13 @@ function FinalDispatchOrderSheet({
       (order.driverExpenseWater ?? 0) +
       (order.driverExpenseOther ?? 0);
 
+    const fileCode = safeOrderFileCode(order.code);
     return {
       delivery: {
         schema: "aot_final_dispatch_order_pdf_v1",
         generated_at: new Date().toISOString(),
         status: order.reconciliationStatus === "closed" ? "official" : "preview",
-        filename: `Lenh_dieu_xe_${order.code}.pdf`,
+        filename: `Lenh_dieu_xe_${fileCode}.pdf`,
         telegram_caption: `Lệnh điều xe ${order.code} - ${order.customerName} - ${pdfRouteText}`,
         email_subject: `Lệnh điều xe ${order.code} - ${order.customerName}`,
         email_body: `Kính gửi,\n\nĐính kèm là lệnh điều xe ${order.code}.\n\nTrân trọng,\n${ownerCompanyProfile.legalName}`
@@ -683,6 +713,11 @@ function FinalDispatchOrderSheet({
         manager_1: defaultOrderManagerName,
         source: `${order.salesOwner} / ${order.source}`,
         dispatcher: order.sourceOwnerName || "-",
+        guest_count: order.guestCount ?? "-",
+        guest_market: `${guestMarketCode(order.guestMarket)} - ${guestMarketLabel(order.guestMarket)}`,
+        customer_recognition_code: order.customerRecognitionCode || "-",
+        customer_source_code: customerSourceCodeLabel(order.customerSourceCode),
+        province_route_code: `${order.originProvinceCode || "-"}-${order.destinationProvinceCode || "-"}`,
         output_invoice: order.invoiceRequired ? "Có" : "Không",
         vehicle_form: isRentedVehicle ? "Thuê ngoài" : "Công ty",
         contract_type: contractTypeLabels[order.contractType ?? "simple"]
@@ -1368,6 +1403,45 @@ function buildCode(index: number, orderDate = vietnamDateKey()) {
   return `AOT-${dateCode}-${String(index).padStart(4, "0")}`;
 }
 
+function orderMonthCode(orderDate = vietnamDateKey()) {
+  const [year, month] = orderDate.split("-");
+  return `${month ?? "01"}.${year ?? new Date().getFullYear()}`;
+}
+
+function guestMarketCode(value?: DispatchOrder["guestMarket"]) {
+  return guestMarketOptions.find((item) => item.value === value)?.code ?? "NĐ";
+}
+
+function guestMarketLabel(value?: DispatchOrder["guestMarket"]) {
+  return guestMarketOptions.find((item) => item.value === value)?.label ?? "-";
+}
+
+function customerSourceCodeLabel(value?: DispatchOrder["customerSourceCode"]) {
+  return customerSourceCodeOptions.find((item) => item.value === value || item.code === value)?.code ?? "ĐDH";
+}
+
+function buildTransportCode(index: number, input: {
+  orderDate?: string;
+  guestMarket?: DispatchOrder["guestMarket"];
+  customerRecognitionCode?: DispatchOrder["customerRecognitionCode"];
+  customerSourceCode?: DispatchOrder["customerSourceCode"];
+  originProvinceCode?: string;
+  destinationProvinceCode?: string;
+}) {
+  return [
+    `V${String(index).padStart(4, "0")}`,
+    orderMonthCode(input.orderDate),
+    guestMarketCode(input.guestMarket),
+    input.customerRecognitionCode || "DL",
+    customerSourceCodeLabel(input.customerSourceCode),
+    `${(input.originProvinceCode || "DAD").toUpperCase()}-${(input.destinationProvinceCode || "QNH").toUpperCase()}`
+  ].join("/");
+}
+
+function safeOrderFileCode(code: string) {
+  return code.replace(/[\\/]/g, "-");
+}
+
 function orderCost(order: DispatchOrder) {
   return (order.driverCost ?? 0) + (order.vehicleCost ?? 0) + (order.otherCost ?? 0);
 }
@@ -2019,6 +2093,12 @@ export default function OpsApp() {
       sales_owner: order.salesOwner,
       source_owner_name: order.sourceOwnerName ?? null,
       source: order.source,
+      guest_count: order.guestCount ?? null,
+      guest_market: order.guestMarket ?? null,
+      customer_recognition_code: order.customerRecognitionCode ?? null,
+      customer_source_code: order.customerSourceCode ?? null,
+      origin_province_code: order.originProvinceCode ?? null,
+      destination_province_code: order.destinationProvinceCode ?? null,
       invoice_required: order.invoiceRequired ?? null,
       vehicle_ownership: order.vehicleOwnership ?? null,
       vehicle_plate_no: order.vehiclePlateNo ?? null,
@@ -2152,8 +2232,18 @@ export default function OpsApp() {
     }
   }
 
-  async function reserveDispatchOrderCode(orderDate?: string): Promise<string | null> {
-    const localCode = buildCode(state.orders.length + 1, orderDate || vietnamDateKey(now));
+  async function reserveDispatchOrderCode(
+    orderDate?: string,
+    codeInput?: {
+      guestMarket?: DispatchOrder["guestMarket"];
+      customerRecognitionCode?: DispatchOrder["customerRecognitionCode"];
+      customerSourceCode?: DispatchOrder["customerSourceCode"];
+      originProvinceCode?: string;
+      destinationProvinceCode?: string;
+    }
+  ): Promise<string | null> {
+    const effectiveDate = orderDate || vietnamDateKey(now);
+    const localCode = buildTransportCode(state.orders.length + 1, { orderDate: effectiveDate, ...codeInput });
     if (!supabaseConfigured) return localCode;
     if (!authUserId) {
       setMessage("Cần đăng nhập trước khi Supabase cấp số lệnh.");
@@ -2161,15 +2251,39 @@ export default function OpsApp() {
     }
     const supabase = createSupabaseBrowserClient();
     const { data, error } = await supabase
-      .rpc("next_dispatch_order_code" as never, { p_order_date: orderDate || vietnamDateKey(now) } as never) as unknown as {
+      .rpc("next_transport_order_code" as never, {
+        p_order_date: effectiveDate,
+        p_guest_market: codeInput?.guestMarket ?? "domestic",
+        p_customer_recognition_code: codeInput?.customerRecognitionCode ?? "DL",
+        p_customer_source_code: codeInput?.customerSourceCode ?? "DDH",
+        p_origin_province_code: codeInput?.originProvinceCode ?? "DAD",
+        p_destination_province_code: codeInput?.destinationProvinceCode ?? "QNH"
+      } as never) as unknown as {
         data: string | null;
         error: { message: string } | null;
       };
     if (error || !data) {
-      setMessage(`Chưa cấp được số lệnh từ Supabase: ${error?.message ?? "không có dữ liệu trả về"}. Hãy chạy migration 0014 trước khi tạo lệnh mới.`);
+      setMessage(`Chưa cấp được số lệnh từ Supabase: ${error?.message ?? "không có dữ liệu trả về"}. Hãy chạy migration 0036 trước khi tạo lệnh mới.`);
       return null;
     }
     return data;
+  }
+
+  async function syncOrderTransportCodeFields(order: DispatchOrder) {
+    if (!supabaseConfigured) return true;
+    return runSupabaseRpc(
+      "update_dispatch_order_transport_code_fields",
+      {
+        p_order_id: order.id,
+        p_guest_count: order.guestCount ?? null,
+        p_guest_market: order.guestMarket ?? null,
+        p_customer_recognition_code: order.customerRecognitionCode ?? null,
+        p_customer_source_code: order.customerSourceCode ?? null,
+        p_origin_province_code: order.originProvinceCode ?? null,
+        p_destination_province_code: order.destinationProvinceCode ?? null
+      },
+      `Không lưu được thông tin mã vận chuyển ${order.code}`
+    );
   }
 
   async function createOrder(event: FormEvent<HTMLFormElement>) {
@@ -2209,6 +2323,12 @@ export default function OpsApp() {
     const serviceClarification = String(form.get("serviceClarification") || "").trim();
     const unit = String(form.get("unit") || "").trim();
     const sourceOwnerName = String(form.get("sourceOwnerName") || "").trim();
+    const guestCount = Number(form.get("guestCount") || 0);
+    const guestMarket = String(form.get("guestMarket") || "domestic") as DispatchOrder["guestMarket"];
+    const customerRecognitionCode = String(form.get("customerRecognitionCode") || "DL") as DispatchOrder["customerRecognitionCode"];
+    const customerSourceCode = String(form.get("customerSourceCode") || "DDH") as DispatchOrder["customerSourceCode"];
+    const originProvinceCode = String(form.get("originProvinceCode") || "DAD").trim().toUpperCase();
+    const destinationProvinceCode = String(form.get("destinationProvinceCode") || "QNH").trim().toUpperCase();
     const invoiceRequired = form.get("invoiceRequired") === "yes";
     const vehicleOwnership = String(form.get("vehicleOwnership") || "company") as DispatchOrder["vehicleOwnership"];
     const vehiclePlateNo = String(form.get("vehiclePlateNo") || "").trim();
@@ -2244,6 +2364,11 @@ export default function OpsApp() {
       return;
     }
 
+    if (guestCount < 0) {
+      setMessage("Số lượng khách không được âm.");
+      return;
+    }
+
     if (kind === "individual" && !selectedCustomerProfile && !String(form.get("customerName") || "").trim()) {
       setMessage("Khách cá nhân cần chọn hồ sơ có sẵn hoặc nhập tên khách mới.");
       return;
@@ -2267,7 +2392,13 @@ export default function OpsApp() {
     const actionKey = "order:create";
     if (!beginAction(actionKey, "Tạo lệnh")) return;
     try {
-    const orderCode = await reserveDispatchOrderCode(orderDate || startAt.slice(0, 10));
+    const orderCode = await reserveDispatchOrderCode(orderDate || startAt.slice(0, 10), {
+      guestMarket,
+      customerRecognitionCode,
+      customerSourceCode,
+      originProvinceCode,
+      destinationProvinceCode
+    });
     if (!orderCode) return;
 
     const order: DispatchOrder = {
@@ -2299,6 +2430,12 @@ export default function OpsApp() {
       salesOwner: String(form.get("salesOwner") || salesOwnerOptions[0]),
       sourceOwnerName: sourceOwnerName || undefined,
       source: String(form.get("source") || "Manual"),
+      guestCount: Number.isFinite(guestCount) ? guestCount : undefined,
+      guestMarket,
+      customerRecognitionCode,
+      customerSourceCode,
+      originProvinceCode,
+      destinationProvinceCode,
       invoiceRequired,
       vehicleOwnership,
       vehiclePlateNo: vehiclePlateNo || undefined,
@@ -2350,6 +2487,8 @@ export default function OpsApp() {
       `Không lưu được đề xuất điều xe ${order.code}`
     );
     if (!saved) return;
+    const syncedTransportFields = await syncOrderTransportCodeFields(order);
+    if (!syncedTransportFields) return;
 
     runCommand("order.submit_proposal", (current) => submitDispatchProposal(current, order, audit), `Đã gửi đề xuất điều xe ${order.code} vào hàng chờ điều hành xét duyệt.`);
     setSelectedOrderId(order.id);
@@ -2952,6 +3091,12 @@ export default function OpsApp() {
     const salesOwner = readText("salesOwner", selectedOrder.salesOwner, canEditSales);
     const sourceOwnerName = readMaybeText("sourceOwnerName", selectedOrder.sourceOwnerName, canEditSales);
     const source = readText("source", selectedOrder.source, canEditSales);
+    const guestCount = readMaybeNumber("guestCount", selectedOrder.guestCount, canEditSales);
+    const guestMarket = readMaybeText("guestMarket", selectedOrder.guestMarket, canEditSales) as DispatchOrder["guestMarket"] | null;
+    const customerRecognitionCode = readMaybeText("customerRecognitionCode", selectedOrder.customerRecognitionCode, canEditSales) as DispatchOrder["customerRecognitionCode"] | null;
+    const customerSourceCode = readMaybeText("customerSourceCode", selectedOrder.customerSourceCode, canEditSales) as DispatchOrder["customerSourceCode"] | null;
+    const originProvinceCode = readMaybeText("originProvinceCode", selectedOrder.originProvinceCode, canEditSales);
+    const destinationProvinceCode = readMaybeText("destinationProvinceCode", selectedOrder.destinationProvinceCode, canEditSales);
     const invoiceRequired = readBoolean("invoiceRequired", selectedOrder.invoiceRequired, canEditSales);
     const vehicleOwnership = readMaybeText("vehicleOwnership", selectedOrder.vehicleOwnership, canEditVehicleSupplier) as DispatchOrder["vehicleOwnership"] | null;
     const vehiclePlateNo = readMaybeText("vehiclePlateNo", selectedOrder.vehiclePlateNo, canEditVehicleSupplier);
@@ -3088,6 +3233,18 @@ export default function OpsApp() {
     };
     const saved = await runSupabaseRpc("update_dispatch_order", rpcArgs, `Không lưu được sửa lệnh ${selectedOrder.code}`);
     if (!saved) return;
+    if (canEditSales) {
+      const syncedTransportFields = await syncOrderTransportCodeFields({
+        ...selectedOrder,
+        guestCount: typeof guestCount === "number" && Number.isFinite(guestCount) ? guestCount : undefined,
+        guestMarket: guestMarket ?? undefined,
+        customerRecognitionCode: customerRecognitionCode ?? undefined,
+        customerSourceCode: customerSourceCode ?? undefined,
+        originProvinceCode: originProvinceCode || undefined,
+        destinationProvinceCode: destinationProvinceCode || undefined
+      });
+      if (!syncedTransportFields) return;
+    }
 
     runCommand(
       "order.update_details",
@@ -3122,6 +3279,12 @@ export default function OpsApp() {
             salesOwner,
             sourceOwnerName: sourceOwnerName || undefined,
             source,
+            guestCount: canEditSales && typeof guestCount === "number" && Number.isFinite(guestCount) ? guestCount : selectedOrder.guestCount,
+            guestMarket: canEditSales ? guestMarket ?? undefined : selectedOrder.guestMarket,
+            customerRecognitionCode: canEditSales ? customerRecognitionCode ?? undefined : selectedOrder.customerRecognitionCode,
+            customerSourceCode: canEditSales ? customerSourceCode ?? undefined : selectedOrder.customerSourceCode,
+            originProvinceCode: canEditSales ? originProvinceCode || undefined : selectedOrder.originProvinceCode,
+            destinationProvinceCode: canEditSales ? destinationProvinceCode || undefined : selectedOrder.destinationProvinceCode,
             invoiceRequired: invoiceRequired ?? undefined,
             vehicleOwnership: vehicleOwnership ?? undefined,
             vehiclePlateNo: vehiclePlateNo || undefined,
@@ -4439,6 +4602,32 @@ function OrderDetailPanel({
                     <Field label="Sale phụ trách"><input className={inputClass()} defaultValue={order.salesOwner} name="salesOwner" /></Field>
                     <Field label="Người tạo nguồn"><input className={inputClass()} defaultValue={order.sourceOwnerName ?? ""} name="sourceOwnerName" /></Field>
                     <Field label="Nguồn"><input className={inputClass()} defaultValue={order.source} name="source" /></Field>
+                    <Field label="Số lượng khách"><input className={inputClass()} defaultValue={order.guestCount ?? 1} min="0" name="guestCount" type="number" /></Field>
+                    <Field label="Dòng khách">
+                      <select className={inputClass()} defaultValue={order.guestMarket ?? "domestic"} name="guestMarket">
+                        {guestMarketOptions.map((item) => <option key={item.value} value={item.value}>{item.code} - {item.label}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Nhận biết khách">
+                      <select className={inputClass()} defaultValue={order.customerRecognitionCode ?? "DL"} name="customerRecognitionCode">
+                        {customerRecognitionOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Nguồn khách">
+                      <select className={inputClass()} defaultValue={order.customerSourceCode ?? "DDH"} name="customerSourceCode">
+                        {customerSourceCodeOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Mã tỉnh/thành điểm đi">
+                      <select className={inputClass()} defaultValue={order.originProvinceCode ?? "DAD"} name="originProvinceCode">
+                        {provinceCodeOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Mã tỉnh/thành điểm đến">
+                      <select className={inputClass()} defaultValue={order.destinationProvinceCode ?? "QNH"} name="destinationProvinceCode">
+                        {provinceCodeOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                      </select>
+                    </Field>
                     <Field label="Xuất hóa đơn"><select className={inputClass()} defaultValue={order.invoiceRequired ? "yes" : "no"} name="invoiceRequired"><option value="no">Không</option><option value="yes">Có</option></select></Field>
                   </div>
                 </SectionDetails>
@@ -4910,6 +5099,32 @@ function OrdersPanel({
                 </select>
               </Field>
               <Field label="Nguồn"><select className={inputClass()} name="source"><option>Manual</option><option>Website</option><option>Google Ads</option><option>Referral</option><option>Old customer</option></select></Field>
+              <Field label="Số lượng khách"><input className={inputClass()} defaultValue="1" min="0" name="guestCount" type="number" /></Field>
+              <Field label="Dòng khách">
+                <select className={inputClass()} name="guestMarket">
+                  {guestMarketOptions.map((item) => <option key={item.value} value={item.value}>{item.code} - {item.label}</option>)}
+                </select>
+              </Field>
+              <Field label="Nhận biết khách">
+                <select className={inputClass()} name="customerRecognitionCode">
+                  {customerRecognitionOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                </select>
+              </Field>
+              <Field label="Nguồn khách">
+                <select className={inputClass()} name="customerSourceCode">
+                  {customerSourceCodeOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                </select>
+              </Field>
+              <Field label="Mã tỉnh/thành điểm đi">
+                <select className={inputClass()} name="originProvinceCode">
+                  {provinceCodeOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                </select>
+              </Field>
+              <Field label="Mã tỉnh/thành điểm đến">
+                <select className={inputClass()} defaultValue="QNH" name="destinationProvinceCode">
+                  {provinceCodeOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                </select>
+              </Field>
               {customerKind === "individual" ? (
                 <>
                   <Field label="Chọn khách có sẵn">
