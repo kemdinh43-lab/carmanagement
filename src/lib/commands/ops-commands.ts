@@ -152,6 +152,8 @@ export function assignVehicleDriver(
   audit: AuditFactory,
   includeAudit = true
 ): OpsState {
+  const vehicle = state.vehicles.find((item) => item.id === assignment.vehicleId);
+  const driver = state.drivers.find((item) => item.id === assignment.driverId);
   return {
     ...state,
     assignments: [
@@ -159,7 +161,32 @@ export function assignVehicleDriver(
       ...state.assignments.map((item) => (item.id === replacingAssignmentId ? { ...item, status: "replaced" as const, replaceReason: reason } : item))
     ],
     orders: state.orders.map((order) =>
-      order.id === selectedOrderId ? { ...order, vehicleId: assignment.vehicleId, driverId: assignment.driverId, dispatchStatus: "assigned", changedNearStart: replacingAssignmentId ? true : order.changedNearStart } : order
+      order.id === selectedOrderId ? {
+        ...order,
+        vehicleId: assignment.vehicleId,
+        driverId: assignment.driverId,
+        vehicleOwnership: vehicle?.ownershipType === "rented" ? "rented" : "company",
+        vehiclePlateNo: vehicle?.plateNo ?? order.vehiclePlateNo,
+        driverFullName: driver?.fullName ?? order.driverFullName,
+        driverCccd: driver?.cccd ?? order.driverCccd,
+        driverPhone: driver?.phone ?? order.driverPhone,
+        supplierOwnerName: vehicle?.ownerName ?? order.supplierOwnerName,
+        supplierCccd: vehicle?.ownerCccd ?? order.supplierCccd,
+        supplierInvoiceRequired: vehicle?.supplierInvoiceRequired ?? order.supplierInvoiceRequired,
+        supplierCompanyName: vehicle?.supplierCompanyName ?? order.supplierCompanyName,
+        supplierTaxCode: vehicle?.supplierTaxCode ?? order.supplierTaxCode,
+        supplierAddress: vehicle?.supplierAddress ?? order.supplierAddress,
+        supplierPhone: vehicle?.supplierPhone ?? order.supplierPhone,
+        supplierBankAccount: vehicle?.supplierBankAccount ?? order.supplierBankAccount,
+        supplierBankName: vehicle?.supplierBankName ?? order.supplierBankName,
+        dispatchStatus: "assigned",
+        driverAckStatus: "pending",
+        driverAckCount: 0,
+        driverAckLastSentAt: undefined,
+        driverAcknowledgedAt: undefined,
+        driverAckEscalatedAt: undefined,
+        changedNearStart: replacingAssignmentId ? true : order.changedNearStart
+      } : order
     ),
     auditEvents: includeAudit
       ? [audit({ actor: "Dispatcher", entityType: "assignment", entityId: assignment.id, action: replacingAssignmentId ? "replaced_assignment" : "assigned_vehicle_driver", reason }), ...state.auditEvents]
@@ -211,7 +238,12 @@ export function updateDispatchStatus(
 ): OpsState {
   return {
     ...state,
-    orders: state.orders.map((order) => (order.id === orderId ? { ...order, dispatchStatus: nextStatus } : order)),
+    orders: state.orders.map((order) => (order.id === orderId ? {
+      ...order,
+      dispatchStatus: nextStatus,
+      driverAckStatus: nextStatus === "driver_accepted" ? "accepted" : order.driverAckStatus,
+      driverAcknowledgedAt: nextStatus === "driver_accepted" ? new Date().toISOString() : order.driverAcknowledgedAt
+    } : order)),
     auditEvents: includeAudit ? [audit({ actor, entityType: "dispatch_order", entityId: orderId, action: `status_${nextStatus}`, reason }), ...state.auditEvents] : state.auditEvents
   };
 }

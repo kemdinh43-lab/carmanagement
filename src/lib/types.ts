@@ -10,6 +10,7 @@ export type PaymentStatus = "unpaid" | "partial" | "paid" | "refunded";
 export type QuoteStatus = "draft" | "sent" | "approved" | "rejected" | "expired";
 export type DispatchPriority = "normal" | "high" | "urgent";
 export type DriverReportStatus = "not_reported" | "reported" | "reviewed";
+export type DriverAckStatus = "not_required" | "pending" | "accepted" | "escalated";
 export type InvoiceStatus =
   | "not_required"
   | "pending_info"
@@ -203,6 +204,11 @@ export interface DispatchOrder extends TimeWindow {
   driverExpenseNote?: string;
   driverReportStatus?: DriverReportStatus;
   driverReportedAt?: string;
+  driverAckStatus?: DriverAckStatus;
+  driverAckCount?: number;
+  driverAckLastSentAt?: string;
+  driverAcknowledgedAt?: string;
+  driverAckEscalatedAt?: string;
 }
 
 export interface DispatchRouteLeg {

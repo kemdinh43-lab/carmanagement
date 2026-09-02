@@ -1715,6 +1715,90 @@ function driverNextDispatchStatus(order: DispatchOrder): DispatchStatus | null {
   return null;
 }
 
+const resourceStatusLabels: Record<Vehicle["status"], string> = {
+  active: "Sẵn sàng",
+  maintenance: "Bảo dưỡng",
+  inactive: "Ngưng",
+  leave: "Nghỉ"
+};
+
+const vehicleOwnershipLabels: Record<NonNullable<Vehicle["ownershipType"]>, string> = {
+  company: "Chính chủ",
+  partner: "Hợp tác",
+  rented: "Thuê ngoài"
+};
+
+function vehicleOptionLabel(vehicle: Vehicle) {
+  const ownership = vehicle.ownershipType ? vehicleOwnershipLabels[vehicle.ownershipType] : "Chưa phân loại";
+  return `${vehicle.plateNo} - ${vehicle.seats} chỗ / ${ownership} / ${resourceStatusLabels[vehicle.status] ?? vehicle.status}`;
+}
+
+function driverOptionLabel(driver: Driver, vehicles: Vehicle[]) {
+  const defaultVehicle = vehicles.find((vehicle) => vehicle.defaultDriverId === driver.id);
+  const vehicleLabel = defaultVehicle ? `${defaultVehicle.plateNo} - ${defaultVehicle.seats} chỗ` : "chưa gắn xe mặc định";
+  return `${driver.fullName} / ${driver.phone} / ${vehicleLabel} / ${resourceStatusLabels[driver.status] ?? driver.status}`;
+}
+
+function assignmentIssueLines({
+  assignments,
+  driver,
+  drivers,
+  ignoreAssignmentId,
+  order,
+  orders,
+  vehicle,
+  vehicles
+}: {
+  assignments: Assignment[];
+  driver?: Driver;
+  drivers: Driver[];
+  ignoreAssignmentId?: string;
+  order: DispatchOrder;
+  orders: DispatchOrder[];
+  vehicle?: Vehicle;
+  vehicles: Vehicle[];
+}) {
+  const issues: { tone: "warn" | "block"; text: string }[] = [];
+  if (!vehicle) issues.push({ tone: "block", text: "Chưa chọn xe." });
+  if (!driver) issues.push({ tone: "block", text: "Chưa chọn tài xế." });
+  if (vehicle && vehicle.status !== "active") issues.push({ tone: "block", text: `Xe ${vehicle.plateNo} đang ở trạng thái ${resourceStatusLabels[vehicle.status] ?? vehicle.status}.` });
+  if (driver && driver.status !== "active") issues.push({ tone: "block", text: `Tài xế ${driver.fullName} đang ở trạng thái ${resourceStatusLabels[driver.status] ?? driver.status}.` });
+  if (driver && !driver.phone) issues.push({ tone: "block", text: `Thiếu SĐT tài xế ${driver.fullName}, chưa thể gửi thông báo nhận chuyến.` });
+  if (driver && !driver.cccd) issues.push({ tone: "warn", text: `Thiếu CCCD tài xế ${driver.fullName}, cần bổ sung trước khi xuất lệnh final.` });
+  if (vehicle && driver && vehicle.defaultDriverId && vehicle.defaultDriverId !== driver.id) {
+    const defaultDriver = drivers.find((item) => item.id === vehicle.defaultDriverId);
+    issues.push({ tone: "warn", text: `Xe ${vehicle.plateNo} mặc định chạy với ${defaultDriver?.fullName ?? vehicle.defaultDriverId}; vẫn có thể đổi nếu điều hành xác nhận.` });
+  }
+
+  if (vehicle || driver) {
+    const conflicts = assignments.filter((assignment) => {
+      if (assignment.status !== "active") return false;
+      if (assignment.id === ignoreAssignmentId) return false;
+      if (vehicle && assignment.vehicleId !== vehicle.id && (!driver || assignment.driverId !== driver.id)) return false;
+      if (!vehicle && driver && assignment.driverId !== driver.id) return false;
+      try {
+        return new Date(order.startAt) < new Date(assignment.endAt) && new Date(order.endAt) > new Date(assignment.startAt);
+      } catch {
+        return false;
+      }
+    });
+    for (const conflict of conflicts) {
+      const conflictOrder = orders.find((item) => item.id === conflict.dispatchOrderId);
+      const conflictVehicle = vehicles.find((item) => item.id === conflict.vehicleId);
+      const conflictDriver = drivers.find((item) => item.id === conflict.driverId);
+      const parts = [
+        vehicle && conflict.vehicleId === vehicle.id ? `xe ${conflictVehicle?.plateNo ?? conflict.vehicleId}` : "",
+        driver && conflict.driverId === driver.id ? `tài xế ${conflictDriver?.fullName ?? conflict.driverId}` : ""
+      ].filter(Boolean).join(" và ");
+      issues.push({
+        tone: "block",
+        text: `Trùng lịch ${parts || "nguồn lực"} với lệnh ${conflictOrder?.code ?? conflict.dispatchOrderId}: ${formatDateTime(conflict.startAt)} - ${formatDateTime(conflict.endAt)}.`
+      });
+    }
+  }
+  return issues;
+}
+
 function toAppNotification(row: unknown): AppNotification {
   const item = row as Record<string, unknown>;
   return {
@@ -2977,6 +3061,8 @@ export default function OpsApp() {
     const externalPurchaseAmount = Number(form.get("externalPurchaseAmount") || 0);
     const reason = String(form.get("reason") || "Assign resource").trim();
     const currentAssignment = state.assignments.find((assignment) => assignment.dispatchOrderId === selectedOrder.id && assignment.status === "active");
+    const selectedVehicle = state.vehicles.find((item) => item.id === vehicleId);
+    const selectedDriver = state.drivers.find((item) => item.id === driverId);
 
     const actionKey = `dispatch:assign:${selectedOrder.id}`;
     if (!beginAction(actionKey, "Phân xe/tài xế")) return;
@@ -3048,6 +3134,22 @@ export default function OpsApp() {
         return;
       }
 
+      const assignmentIssues = assignmentIssueLines({
+        assignments: state.assignments,
+        driver: selectedDriver,
+        drivers: state.drivers,
+        ignoreAssignmentId: currentAssignment?.id,
+        order: selectedOrder,
+        orders: state.orders,
+        vehicle: selectedVehicle,
+        vehicles: state.vehicles
+      });
+      const blockingIssues = assignmentIssues.filter((issue) => issue.tone === "block");
+      if (blockingIssues.length > 0) {
+        setMessage(`Không thể phân: ${blockingIssues.map((issue) => issue.text).join(" ")}`);
+        return;
+      }
+
       const conflict = findAssignmentConflict(
         {
           vehicleId,
@@ -3061,7 +3163,13 @@ export default function OpsApp() {
 
       if (conflict) {
         const conflictOrder = state.orders.find((order) => order.id === conflict.dispatchOrderId);
-        setMessage(`Không thể phân: trùng xe hoặc tài xế với ${conflictOrder?.code ?? conflict.dispatchOrderId}.`);
+        const conflictVehicle = state.vehicles.find((item) => item.id === conflict.vehicleId);
+        const conflictDriver = state.drivers.find((item) => item.id === conflict.driverId);
+        const reasons = [
+          conflict.vehicleId === vehicleId ? `xe ${conflictVehicle?.plateNo ?? conflict.vehicleId}` : "",
+          conflict.driverId === driverId ? `tài xế ${conflictDriver?.fullName ?? conflict.driverId}` : ""
+        ].filter(Boolean).join(" và ");
+        setMessage(`Không thể phân: trùng lịch ${reasons || "nguồn lực"} với ${conflictOrder?.code ?? conflict.dispatchOrderId} (${formatDateTime(conflict.startAt)} - ${formatDateTime(conflict.endAt)}).`);
         return;
       }
 
@@ -3097,12 +3205,32 @@ export default function OpsApp() {
         (current) => assignVehicleDriver(current, selectedOrder.id, assignment, currentAssignment?.id, reason, audit, false),
         currentAssignment ? `Đã đổi xe/tài xế cho ${selectedOrder.code}.` : `Đã phân xe/tài xế cho ${selectedOrder.code}.`
       );
-      notify({ audience: "driver", eventType: "driver_assigned", title: "Bạn có chuyến mới", body: `${selectedOrder.code} / ${formatDateTime(selectedOrder.startAt)}`, entityId: selectedOrder.id, targetDriverId: driverId });
+      notify({
+        audience: "driver",
+        eventType: "driver_assigned",
+        title: "Bạn có chuyến mới cần nhận",
+        body: `${selectedOrder.code} / ${formatDateTime(selectedOrder.startAt)}. Vui lòng bấm Nhận chuyến.`,
+        entityId: selectedOrder.id,
+        targetDriverId: driverId,
+        payload: {
+          orderCode: selectedOrder.code,
+          ack: {
+            status: "pending",
+            reminderEveryMinutes: 2,
+            maxReminderCount: 3,
+            escalationAudience: "dispatcher"
+          },
+          action: {
+            label: "Nhận chuyến",
+            url: appOrderActionUrl(selectedOrder, "driver")
+          }
+        }
+      });
       notify({
         audience: "dispatcher",
         eventType: currentAssignment ? "driver_assignment_replaced" : "driver_assigned",
         title: currentAssignment ? "Đã đổi phân xe" : "Đã phân xe/tài xế",
-        body: `${selectedOrder.code} / ${vehicleId} / ${driverId}`,
+        body: `${selectedOrder.code} / ${selectedVehicle ? vehicleOptionLabel(selectedVehicle) : vehicleId} / ${selectedDriver?.fullName ?? driverId}. Chờ tài xế nhận chuyến.`,
         entityId: selectedOrder.id
       });
       notify({
@@ -5659,7 +5787,41 @@ function DispatchPanel({
     mode: selectedOrder.vehicleOwnership ?? "company"
   }));
   const assignmentMode = assignmentModeState.orderId === selectedOrder.id ? assignmentModeState.mode : selectedOrder.vehicleOwnership ?? "company";
+  const [assignmentChoice, setAssignmentChoice] = useState<{ orderId: string; vehicleId: string; driverId: string }>(() => ({
+    orderId: selectedOrder.id,
+    vehicleId: selectedOrder.vehicleId ?? vehicles[0]?.id ?? "",
+    driverId: selectedOrder.driverId ?? drivers[0]?.id ?? ""
+  }));
+  const selectedAssignmentChoice = assignmentChoice.orderId === selectedOrder.id
+    ? assignmentChoice
+    : {
+        orderId: selectedOrder.id,
+        vehicleId: selectedOrder.vehicleId ?? vehicles[0]?.id ?? "",
+        driverId: selectedOrder.driverId ?? drivers[0]?.id ?? ""
+      };
+  const draftVehicle = vehicles.find((item) => item.id === selectedAssignmentChoice.vehicleId);
+  const draftDriver = drivers.find((item) => item.id === selectedAssignmentChoice.driverId);
+  const assignmentIssues = assignmentMode === "company"
+    ? assignmentIssueLines({
+        assignments,
+        driver: draftDriver,
+        drivers,
+        ignoreAssignmentId: activeAssignment?.id,
+        order: selectedOrder,
+        orders,
+        vehicle: draftVehicle,
+        vehicles
+      })
+    : [];
+  const blockingAssignmentIssues = assignmentIssues.filter((issue) => issue.tone === "block");
   const externalTripLink = tripAccessUrl(selectedOrder.tripAccessToken);
+  const driverAckLabel = selectedOrder.driverAckStatus === "accepted"
+    ? "Tài xế đã nhận"
+    : selectedOrder.driverAckStatus === "escalated"
+      ? "Quá 3 lần nhắc"
+      : selectedOrder.driverAckStatus === "pending"
+        ? `Chờ tài xế nhận (${selectedOrder.driverAckCount ?? 0}/3)`
+        : "Chưa cần nhắc";
 
   return (
     <section className="space-y-4">
@@ -5697,6 +5859,7 @@ function DispatchPanel({
               <p className="mt-1 text-slate-600">Nguồn xe: {selectedOrder.vehicleOwnership === "rented" ? "Thuê ngoài" : "Xe công ty"}</p>
               <p className="text-slate-600">{selectedOrder.vehicleOwnership === "rented" ? `${selectedOrder.externalVehiclePlate || selectedOrder.vehiclePlateNo || "Chưa có biển số"} / ${selectedOrder.externalVehicleType || "Chưa rõ loại xe"}` : vehicle ? `${vehicle.plateNo} / ${vehicle.type}` : "Chưa có xe"}</p>
               <p className="text-slate-600">{selectedOrder.vehicleOwnership === "rented" ? `${selectedOrder.externalDriverName || selectedOrder.driverFullName || "Chưa có tài xế"} / ${selectedOrder.externalDriverPhone || selectedOrder.driverPhone || "Chưa có SĐT"}` : driver ? `${driver.fullName} / ${driver.phone}` : "Chưa có tài xế"}</p>
+              <p className="text-slate-600">Xác nhận tài xế: {driverAckLabel}</p>
               {activeAssignment && <p className="mt-1 text-xs text-slate-500">Assignment ID: {activeAssignment.id}</p>}
               {selectedOrder.vehicleOwnership === "rented" && (
                 <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
@@ -5737,16 +5900,64 @@ function DispatchPanel({
             </Field>
             {assignmentMode === "company" ? (
               <>
-                <Field label="Xe">
-                  <select className={inputClass()} defaultValue={selectedOrder.vehicleId} name="vehicleId" required>
-                    {vehicles.map((item) => <option disabled={item.status !== "active"} key={item.id} value={item.id}>{item.plateNo} / {item.type} / {item.status}</option>)}
-                  </select>
-                </Field>
                 <Field label="Tài xế">
-                  <select className={inputClass()} defaultValue={selectedOrder.driverId} name="driverId" required>
-                    {drivers.map((item) => <option disabled={item.status !== "active"} key={item.id} value={item.id}>{item.fullName} / {item.status}</option>)}
+                  <select
+                    className={inputClass()}
+                    name="driverId"
+                    onChange={(event) => {
+                      const nextDriverId = event.target.value;
+                      const defaultVehicle = vehicles.find((item) => item.defaultDriverId === nextDriverId);
+                      setAssignmentChoice({
+                        orderId: selectedOrder.id,
+                        driverId: nextDriverId,
+                        vehicleId: defaultVehicle?.id ?? selectedAssignmentChoice.vehicleId
+                      });
+                    }}
+                    required
+                    value={selectedAssignmentChoice.driverId}
+                  >
+                    {drivers.map((item) => <option disabled={item.status !== "active"} key={item.id} value={item.id}>{driverOptionLabel(item, vehicles)}</option>)}
                   </select>
                 </Field>
+                <Field label="Xe">
+                  <select
+                    className={inputClass()}
+                    name="vehicleId"
+                    onChange={(event) => setAssignmentChoice({ ...selectedAssignmentChoice, orderId: selectedOrder.id, vehicleId: event.target.value })}
+                    required
+                    value={selectedAssignmentChoice.vehicleId}
+                  >
+                    {vehicles.map((item) => <option disabled={item.status !== "active"} key={item.id} value={item.id}>{vehicleOptionLabel(item)}</option>)}
+                  </select>
+                </Field>
+                <div className="md:col-span-2">
+                  <div className="grid gap-3 rounded-md border border-line bg-panel p-3 text-sm md:grid-cols-2">
+                    <div>
+                      <p className="font-semibold text-ink">Tài xế đang chọn</p>
+                      <p className="mt-1 text-slate-600">{draftDriver ? `${draftDriver.fullName} / ${draftDriver.phone}` : "Chưa chọn tài xế"}</p>
+                      <p className="text-xs text-slate-500">CCCD: {draftDriver?.cccd || "-"} / STK: {draftDriver?.bankAccount ? `${draftDriver.bankAccount} / ${draftDriver.bankName || "-"}` : "-"}</p>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-ink">Xe đang chọn</p>
+                      <p className="mt-1 text-slate-600">{draftVehicle ? `${draftVehicle.plateNo} - ${draftVehicle.seats} chỗ / ${draftVehicle.type}` : "Chưa chọn xe"}</p>
+                      <p className="text-xs text-slate-500">NCC: {draftVehicle?.supplierCompanyName || draftVehicle?.ownerName || "-"} / {draftVehicle?.ownershipType ? vehicleOwnershipLabels[draftVehicle.ownershipType] : "-"}</p>
+                    </div>
+                    <div className="md:col-span-2">
+                      <p className="font-semibold text-ink">Lý do có thể/chưa thể phân</p>
+                      {assignmentIssues.length === 0 ? (
+                        <p className="mt-1 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-800">Có thể phân. Xe và tài xế không trùng lịch trong khung giờ này.</p>
+                      ) : (
+                        <div className="mt-2 space-y-2">
+                          {assignmentIssues.map((issue) => (
+                            <p className={`rounded-md border px-3 py-2 ${issue.tone === "block" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-amber-200 bg-amber-50 text-amber-900"}`} key={issue.text}>
+                              {issue.text}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </>
             ) : (
               <>
@@ -5762,7 +5973,7 @@ function DispatchPanel({
               <Field label="Lý do khi đổi/ghi chú phân công"><textarea className={textAreaClass()} name="reason" placeholder="Ví dụ: xe cũ bận, khách đổi giờ, ưu tiên tài xế quen tuyến..." /></Field>
             </div>
           </div>
-          <button className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canAssignSelectedOrder || isActionPending(`dispatch:assign:${selectedOrder.id}`)} type="submit">
+          <button className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canAssignSelectedOrder || blockingAssignmentIssues.length > 0 || isActionPending(`dispatch:assign:${selectedOrder.id}`)} type="submit">
             <Save size={16} /> {isActionPending(`dispatch:assign:${selectedOrder.id}`) ? "Đang lưu..." : "Lưu phân công"}
           </button>
           <div className="mt-4 border border-line bg-panel p-3 text-sm">
