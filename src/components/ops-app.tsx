@@ -1247,6 +1247,94 @@ function mapsRouteUrlForOrder(order: DispatchOrder) {
   return `https://www.google.com/maps/dir/?${params.toString()}`;
 }
 
+function mapsRouteUrlForLeg(leg: DispatchRouteLeg) {
+  const params = new URLSearchParams({
+    api: "1",
+    origin: leg.pickup || "-",
+    destination: leg.dropoff || "-",
+    travelmode: "driving"
+  });
+  return `https://www.google.com/maps/dir/?${params.toString()}`;
+}
+
+function appOrderActionUrl(order: DispatchOrder, view = "dispatch") {
+  if (typeof window === "undefined") return "";
+  const params = new URLSearchParams({ view, order: order.id });
+  return `${window.location.origin}/?${params.toString()}`;
+}
+
+function telegramHtml(value: string) {
+  return escapeHtml(value).replaceAll("\n", "<br>");
+}
+
+function buildDispatchProposalIntegrationPayload(order: DispatchOrder, audience: AppNotification["audience"]) {
+  const legs = routeLegsForOrder(order);
+  const actionLabel = audience === "dispatcher" ? "Duyệt xe / phân tài xế" : "Xem và xử lý lệnh";
+  const actionUrl = appOrderActionUrl(order, "dispatch");
+  const routePayload = legs.map((leg, index) => ({
+    index: index + 1,
+    label: `Chặng ${index + 1}: ${leg.pickup || "-"} -> ${leg.dropoff || "-"}`,
+    time: `${leg.startAt ? formatDateTime(leg.startAt) : "-"} - ${leg.endAt ? formatDateTime(leg.endAt) : "-"}`,
+    pickup: leg.pickup || "-",
+    dropoff: leg.dropoff || "-",
+    note: leg.note || "",
+    maps_url: mapsRouteUrlForLeg(leg),
+    maps_label: `Mở Google Maps chặng ${index + 1}`
+  }));
+  const routeText = routePayload.flatMap((leg) => [
+    `${leg.label}`,
+    `Thời gian: ${leg.time}`,
+    `Google Maps: ${leg.maps_label}`
+  ]);
+  const textLines = [
+    "Lệnh chờ điều hành duyệt",
+    "Việc cần làm: Kiểm tra thông tin lệnh và duyệt hoặc từ chối.",
+    `Thông tin: ${order.code}`,
+    `Khách: ${order.contactName || order.customerName} / ${order.contactPhone}`,
+    `Giá bán: ${money(order.amountDue)}`,
+    "",
+    ...routeText,
+    "",
+    `Thao tác: ${actionLabel}`
+  ];
+  const htmlLines = [
+    "<b>Lệnh chờ điều hành duyệt</b>",
+    "Việc cần làm: Kiểm tra thông tin lệnh và duyệt hoặc từ chối.",
+    `Thông tin: <b>${telegramHtml(order.code)}</b>`,
+    `Khách: ${telegramHtml(order.contactName || order.customerName)} / ${telegramHtml(order.contactPhone)}`,
+    `Giá bán: ${telegramHtml(money(order.amountDue))}`,
+    "",
+    ...routePayload.flatMap((leg) => [
+      `<b>${telegramHtml(leg.label)}</b>`,
+      `Thời gian: ${telegramHtml(leg.time)}`,
+      `Google Maps: <a href="${escapeHtml(leg.maps_url)}">${telegramHtml(leg.maps_label)}</a>`
+    ]),
+    "",
+    `Thao tác: <a href="${escapeHtml(actionUrl)}">${telegramHtml(actionLabel)}</a>`
+  ];
+
+  return {
+    telegram: {
+      parse_mode: "HTML",
+      message_text: textLines.join("\n"),
+      message_html: htmlLines.join("\n")
+    },
+    action: {
+      label: actionLabel,
+      url: actionUrl
+    },
+    order: {
+      id: order.id,
+      code: order.code,
+      customer_name: order.contactName || order.customerName,
+      customer_phone: order.contactPhone,
+      amount_due: order.amountDue,
+      amount_due_label: money(order.amountDue)
+    },
+    route_legs: routePayload
+  };
+}
+
 function resolveOrderTransport(order: DispatchOrder, assignments: Assignment[], vehicles: Vehicle[], drivers: Driver[]) {
   const activeAssignment = assignments.find((assignment) => assignment.dispatchOrderId === order.id && assignment.status === "active");
   const vehicle = vehicles.find((item) => item.id === (activeAssignment?.vehicleId || order.vehicleId));
@@ -2215,7 +2303,8 @@ export default function OpsApp() {
           audience: event.audience,
           entityId: event.entityId ?? null,
           targetUserId: event.targetUserId ?? null,
-          targetDriverId: event.targetDriverId ?? null
+          targetDriverId: event.targetDriverId ?? null,
+          ...(event.payload ?? {})
         },
         status: "pending",
         created_at: event.createdAt
@@ -2493,7 +2582,16 @@ export default function OpsApp() {
     runCommand("order.submit_proposal", (current) => submitDispatchProposal(current, order, audit), `Đã gửi đề xuất điều xe ${order.code} vào hàng chờ điều hành xét duyệt.`);
     setSelectedOrderId(order.id);
     setTab("Lệnh điều xe");
-    notifyMany(["dispatcher", "manager", "admin"], { eventType: "dispatch_proposal_submitted", title: "Đề xuất điều xe mới", body: `${order.code} / ${order.customerName}`, entityId: order.id });
+    (["dispatcher", "manager", "admin"] as AppNotification["audience"][]).forEach((audience) => {
+      notify({
+        audience,
+        eventType: "dispatch_proposal_submitted",
+        title: "Đề xuất điều xe mới",
+        body: `${order.code} / ${order.customerName}`,
+        entityId: order.id,
+        payload: buildDispatchProposalIntegrationPayload(order, audience)
+      });
+    });
     formElement.reset();
     } finally {
       endAction(actionKey);
@@ -3074,12 +3172,14 @@ export default function OpsApp() {
     const kind = (canEditSales ? String(form.get("customerKind") || selectedOrder.customerKind) : selectedOrder.customerKind) as DispatchOrder["customerKind"];
     const orderDate = readText("orderDate", selectedOrder.orderDate ?? "", canEditSales);
     const contractType = readMaybeText("contractType", selectedOrder.contractType, canEditSales) as DispatchOrder["contractType"] | null;
-    const customerName = readText("customerName", selectedOrder.customerName, canEditSales);
     const customerCccd = readMaybeText("customerCccd", selectedOrder.customerCccd, canEditSales);
     const customerAddress = readMaybeText("customerAddress", selectedOrder.customerAddress, canEditSales);
     const customerBankAccount = readMaybeText("customerBankAccount", selectedOrder.customerBankAccount, canEditSales);
     const customerBankName = readMaybeText("customerBankName", selectedOrder.customerBankName, canEditSales);
     const companyName = readMaybeText("companyName", selectedOrder.companyName, canEditSales);
+    const customerName = kind === "company"
+      ? companyName || selectedOrder.companyName || selectedOrder.customerName
+      : readText("customerName", selectedOrder.customerName, canEditSales);
     const taxCode = readMaybeText("taxCode", selectedOrder.taxCode, canEditSales);
     const billingEmail = readMaybeText("billingEmail", selectedOrder.billingEmail, canEditSales);
     const companyAddress = readMaybeText("companyAddress", selectedOrder.companyAddress, canEditSales);
@@ -4637,21 +4737,28 @@ function OrderDetailPanel({
                   description="Thông tin người đi, công ty liên quan và liên hệ."
                   title="2. Thông tin khách hàng"
                 >
-                  <div className="grid gap-3 md:grid-cols-3">
-                    <Field label="Tên khách / người đi"><input className={inputClass()} defaultValue={order.customerName} name="customerName" required /></Field>
-                    <Field label="CCCD khách"><input className={inputClass()} defaultValue={order.customerCccd ?? ""} name="customerCccd" /></Field>
-                    <Field label="Địa chỉ khách"><input className={inputClass()} defaultValue={order.customerAddress ?? ""} name="customerAddress" /></Field>
-                    <Field label="Người liên hệ"><input className={inputClass()} defaultValue={order.contactName ?? ""} name="contactName" /></Field>
-                    <Field label="SĐT"><input className={inputClass()} defaultValue={order.contactPhone} name="contactPhone" required /></Field>
-                    <Field label="Tên công ty"><input className={inputClass()} defaultValue={order.companyName ?? ""} name="companyName" /></Field>
-                    <Field label="MST"><input className={inputClass()} defaultValue={order.taxCode ?? ""} name="taxCode" /></Field>
-                    <Field label="Email HĐ"><input className={inputClass()} defaultValue={order.billingEmail ?? ""} name="billingEmail" type="email" /></Field>
-                    <Field label="Địa chỉ công ty"><input className={inputClass()} defaultValue={order.companyAddress ?? ""} name="companyAddress" /></Field>
-                    <Field label="TK ngân hàng KH"><input className={inputClass()} defaultValue={order.customerBankAccount ?? ""} name="customerBankAccount" /></Field>
-                    <Field label="Ngân hàng KH"><input className={inputClass()} defaultValue={order.customerBankName ?? ""} name="customerBankName" /></Field>
-                    <Field label="TK ngân hàng CTy"><input className={inputClass()} defaultValue={order.companyBankAccount ?? ""} name="companyBankAccount" /></Field>
-                    <Field label="Ngân hàng CTy"><input className={inputClass()} defaultValue={order.companyBankName ?? ""} name="companyBankName" /></Field>
-                  </div>
+                  {order.customerKind === "individual" ? (
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <Field label="Tên khách / người đi"><input className={inputClass()} defaultValue={order.customerName} name="customerName" required /></Field>
+                      <Field label="SĐT"><input className={inputClass()} defaultValue={order.contactPhone} name="contactPhone" required /></Field>
+                      <Field label="CCCD khách"><input className={inputClass()} defaultValue={order.customerCccd ?? ""} name="customerCccd" /></Field>
+                      <Field label="Địa chỉ khách"><input className={inputClass()} defaultValue={order.customerAddress ?? ""} name="customerAddress" /></Field>
+                      <Field label="TK ngân hàng KH"><input className={inputClass()} defaultValue={order.customerBankAccount ?? ""} name="customerBankAccount" /></Field>
+                      <Field label="Ngân hàng KH"><input className={inputClass()} defaultValue={order.customerBankName ?? ""} name="customerBankName" /></Field>
+                    </div>
+                  ) : (
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <input name="customerName" type="hidden" value={order.companyName || order.customerName} />
+                      <Field label="Người sử dụng dịch vụ"><input className={inputClass()} defaultValue={order.contactName ?? ""} name="contactName" required /></Field>
+                      <Field label="SĐT người sử dụng"><input className={inputClass()} defaultValue={order.contactPhone} name="contactPhone" required /></Field>
+                      <Field label="Tên công ty"><input className={inputClass()} defaultValue={order.companyName ?? order.customerName} name="companyName" required /></Field>
+                      <Field label="MST"><input className={inputClass()} defaultValue={order.taxCode ?? ""} name="taxCode" /></Field>
+                      <Field label="Email HĐ"><input className={inputClass()} defaultValue={order.billingEmail ?? ""} name="billingEmail" type="email" /></Field>
+                      <Field label="Địa chỉ công ty"><input className={inputClass()} defaultValue={order.companyAddress ?? ""} name="companyAddress" /></Field>
+                      <Field label="TK ngân hàng CTy"><input className={inputClass()} defaultValue={order.companyBankAccount ?? ""} name="companyBankAccount" /></Field>
+                      <Field label="Ngân hàng CTy"><input className={inputClass()} defaultValue={order.companyBankName ?? ""} name="companyBankName" /></Field>
+                    </div>
+                  )}
                 </SectionDetails>
 
                 <SectionDetails

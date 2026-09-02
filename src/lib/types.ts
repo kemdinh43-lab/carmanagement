@@ -232,6 +232,7 @@ export interface AppNotification {
   entityId?: string;
   targetUserId?: string;
   targetDriverId?: string;
+  payload?: Record<string, unknown>;
   createdAt: string;
   read?: boolean;
 }
