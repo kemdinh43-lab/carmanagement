@@ -128,6 +128,18 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
       }
       y += h;
     };
+    const fullWidthRow = (label: string, value: unknown, h = mm(7.4)) => {
+      const labelW = width * 0.18;
+      doc.rect(left, y, width, h).lineWidth(0.28).strokeColor(line).stroke();
+      doc.moveTo(left + labelW, y).lineTo(left + labelW, y + h).strokeColor(line).stroke();
+      write(label, left + mm(1), y + mm(1.45), 6.45, false, { width: labelW - mm(2) });
+      write(value, left + labelW + mm(1), y + mm(1.35), 6.55, true, {
+        width: width - labelW - mm(2),
+        height: h - mm(2),
+        lineBreak: true
+      });
+      y += h;
+    };
     const paymentBlock = (x: number, pmt: Record<string, unknown>, index: number) => {
       const h = mm(29);
       doc.rect(x, y, blockW, h).lineWidth(0.28).strokeColor(line).stroke();
@@ -202,7 +214,8 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
     y += mm(0.9);
     section("V. HÀNH TRÌNH & DỊCH VỤ");
     kvRow([["Ngày bắt đầu", `${text(trip.start_date)} - ${text(trip.start_time)}`], ["Ngày kết thúc dự kiến", `${text(trip.end_date)} - ${text(trip.end_time_expected)}`]]);
-    kvRow([["Điểm đi", trip.pickup], ["Điểm đến", trip.dropoff]]);
+    fullWidthRow("Điểm đi", trip.pickup);
+    fullWidthRow("Điểm đến", trip.dropoff);
     kvRow([["Mã dịch vụ", trip.service_code], ["Đơn vị tính", trip.unit]]);
     kvRow([["Nội dung làm rõ", trip.clarification]]);
     if (routeLegs.length > 0) {

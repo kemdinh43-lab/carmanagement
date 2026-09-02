@@ -602,9 +602,9 @@ function FinalDispatchOrderSheet({
     { group: "Quản lý lệnh", label: "Tên người giao nguồn", value: order.sourceOwnerName || order.salesOwner || "-" },
     { group: "Quản lý lệnh", label: "Số lượng khách", value: String(order.guestCount ?? "-") },
     { group: "Quản lý lệnh", label: "Dòng khách", value: `${guestMarketCode(order.guestMarket)} - ${guestMarketLabel(order.guestMarket)}` },
-    { group: "Quản lý lệnh", label: "Nhận biết khách", value: order.customerRecognitionCode || "-" },
-    { group: "Quản lý lệnh", label: "Nguồn khách", value: customerSourceCodeLabel(order.customerSourceCode) },
-    { group: "Quản lý lệnh", label: "Mã tỉnh/thành", value: `${order.originProvinceCode || "-"}-${order.destinationProvinceCode || "-"}` },
+    { group: "Quản lý lệnh", label: "Nhận biết khách", value: customerRecognitionFullLabel(order.customerRecognitionCode) },
+    { group: "Quản lý lệnh", label: "Nguồn khách", value: customerSourceFullLabel(order.customerSourceCode) },
+    { group: "Quản lý lệnh", label: "Mã tỉnh/thành", value: provinceRouteFullLabel(order.originProvinceCode, order.destinationProvinceCode) },
     { group: "Quản lý lệnh", label: "Có xuất hóa đơn không (Có; Không)", value: order.invoiceRequired ? "Có" : "Không", tone: "yellow" },
     { group: "Quản lý lệnh", label: "Hình thức xe (Công ty; Thuê ngoài)", value: order.vehicleOwnership === "rented" ? "Thuê ngoài" : "Công ty", tone: "blue" },
     { group: "Quản lý lệnh", label: "Loại hợp đồng (Mẫu; Giản đơn; Điều khoản)", value: contractTypeLabels[order.contractType ?? "simple"] },
@@ -715,9 +715,9 @@ function FinalDispatchOrderSheet({
         dispatcher: order.sourceOwnerName || "-",
         guest_count: order.guestCount ?? "-",
         guest_market: `${guestMarketCode(order.guestMarket)} - ${guestMarketLabel(order.guestMarket)}`,
-        customer_recognition_code: order.customerRecognitionCode || "-",
-        customer_source_code: customerSourceCodeLabel(order.customerSourceCode),
-        province_route_code: `${order.originProvinceCode || "-"}-${order.destinationProvinceCode || "-"}`,
+        customer_recognition_code: customerRecognitionFullLabel(order.customerRecognitionCode),
+        customer_source_code: customerSourceFullLabel(order.customerSourceCode),
+        province_route_code: provinceRouteFullLabel(order.originProvinceCode, order.destinationProvinceCode),
         output_invoice: order.invoiceRequired ? "Có" : "Không",
         vehicle_form: isRentedVehicle ? "Thuê ngoài" : "Công ty",
         contract_type: contractTypeLabels[order.contractType ?? "simple"]
@@ -1506,6 +1506,26 @@ function guestMarketLabel(value?: DispatchOrder["guestMarket"]) {
 
 function customerSourceCodeLabel(value?: DispatchOrder["customerSourceCode"]) {
   return customerSourceCodeOptions.find((item) => item.value === value || item.code === value)?.code ?? "ĐDH";
+}
+
+function customerRecognitionFullLabel(value?: DispatchOrder["customerRecognitionCode"]) {
+  const item = customerRecognitionOptions.find((option) => option.value === value);
+  return item ? item.label.replace("GĐ", "GD") : "-";
+}
+
+function customerSourceFullLabel(value?: DispatchOrder["customerSourceCode"]) {
+  const item = customerSourceCodeOptions.find((option) => option.value === value || option.code === value);
+  return item ? item.label : "ĐDH - Khách theo đơn đặt hàng vận chuyển";
+}
+
+function provinceCodeFullLabel(value?: string) {
+  const code = (value || "").toUpperCase();
+  const item = provinceCodeOptions.find((option) => option.value === code);
+  return item ? item.label : code || "-";
+}
+
+function provinceRouteFullLabel(origin?: string, destination?: string) {
+  return `${origin || "-"}-${destination || "-"} / ${provinceCodeFullLabel(origin)} - ${provinceCodeFullLabel(destination)}`;
 }
 
 function buildTransportCode(index: number, input: {
