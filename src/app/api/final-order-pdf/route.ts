@@ -42,6 +42,43 @@ function text(value: unknown, fallback = "-") {
   return String(value);
 }
 
+const serviceLabelByCode: Record<string, string> = {
+  DVVT: "Dịch vụ vận tải",
+  DVHL: "Dịch vụ lữ hành",
+  DVHT: "Dịch vụ hợp tác",
+  DVCT: "Dịch vụ cho thuê"
+};
+
+const provinceLabelByCode: Record<string, string> = {
+  DAD: "Đà Nẵng",
+  QNH: "Quảng Nam / Hội An",
+  HUE: "Huế",
+  HAN: "Hà Nội",
+  SGN: "TP.HCM",
+  QYN: "Quy Nhơn"
+};
+
+function normalizedServiceLabel(code: unknown, label: unknown) {
+  const rawLabel = text(label, "").trim();
+  if (rawLabel && rawLabel !== "-") return rawLabel;
+  const rawCode = text(code, "").trim().toUpperCase();
+  return serviceLabelByCode[rawCode] ?? "-";
+}
+
+function normalizedProvinceRouteLabel(value: unknown) {
+  const raw = text(value, "").trim();
+  if (!raw || raw === "-") return "-";
+
+  const codePair = raw.match(/^([A-Z]{2,4})-([A-Z]{2,4})\b/);
+  if (codePair) {
+    const from = provinceLabelByCode[codePair[1]] ?? codePair[1];
+    const to = provinceLabelByCode[codePair[2]] ?? codePair[2];
+    return `${from} - ${to}`;
+  }
+
+  return raw.replace(/\b[A-Z]{2,4}\s*-\s*/g, "").replace(/\s{2,}/g, " ").trim() || raw;
+}
+
 async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: string }) {
   const fontRegular = path.join(process.cwd(), "assets/fonts/NotoSans-Regular.ttf");
   const fontBold = path.join(process.cwd(), "assets/fonts/NotoSans-Bold.ttf");
@@ -57,6 +94,8 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
     ? trip.route_legs as Array<Record<string, unknown>>
     : Array.isArray(trip.legs) ? trip.legs as Array<Record<string, unknown>> : [];
   const supplierInputInvoice = text(supplier.input_invoice) === "-" ? "Có" : supplier.input_invoice;
+  const provinceRouteLabel = normalizedProvinceRouteLabel(management.province_route_code);
+  const serviceLabel = normalizedServiceLabel(trip.service_code, trip.service_label);
 
   const mm = (value: number) => value * 2.8346456693;
   const company = {
@@ -188,7 +227,7 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
     kvRow([["Tên người giao nguồn", management.dispatcher], ["Có xuất hóa đơn", management.output_invoice]]);
     kvRow([["Số lượng khách", management.guest_count], ["Dòng khách", management.guest_market]]);
     kvRow([["Nhận biết khách", management.customer_recognition_code], ["Nguồn khách", management.customer_source_code]]);
-    kvRow([["Mã tỉnh/thành", management.province_route_code], ["Hình thức xe", management.vehicle_form]]);
+    kvRow([["Mã tỉnh/thành", provinceRouteLabel], ["Hình thức xe", management.vehicle_form]]);
     kvRow([["Loại hợp đồng", management.contract_type]]);
 
     y += mm(0.9);
@@ -216,7 +255,7 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
     kvRow([["Ngày bắt đầu", `${text(trip.start_date)} - ${text(trip.start_time)}`], ["Ngày kết thúc dự kiến", `${text(trip.end_date)} - ${text(trip.end_time_expected)}`]]);
     fullWidthRow("Điểm đi", trip.pickup);
     fullWidthRow("Điểm đến", trip.dropoff);
-    kvRow([["Mã dịch vụ", trip.service_code], ["Dịch vụ", trip.service_label]]);
+    kvRow([["Mã dịch vụ", trip.service_code], ["Dịch vụ", serviceLabel]]);
     kvRow([["Đơn vị tính", trip.unit]]);
     kvRow([["Nội dung làm rõ", trip.clarification]]);
     if (routeLegs.length > 0) {
