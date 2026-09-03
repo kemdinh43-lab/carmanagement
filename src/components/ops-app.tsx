@@ -4122,12 +4122,14 @@ export default function OpsApp() {
         </div>
 
         <div className="space-y-6 p-5 pb-28 lg:p-8">
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <StatCard label="Chuyến hôm nay" value={String(todayOrders.length)} icon={CalendarClock} detail="Tính theo ngày chạy, không theo ngày tạo." />
-            <StatCard label="Chờ duyệt" value={String(pendingDispatchReviewCount)} icon={ClipboardList} detail="Sale đã gửi đề xuất, điều hành cần xét duyệt." />
-            <StatCard label="Chờ phân xe" value={String(todayOrders.filter((o) => o.orderStatus === "confirmed" && o.dispatchStatus === "waiting_assignment").length)} icon={Clock3} detail="Đã duyệt, cần phân xe/tài xế." />
-            <StatCard label="Doanh thu booked" value={money(revenue)} icon={Banknote} detail={`Đã thu ${money(collected)} hợp lệ.`} />
-          </section>
+          {currentRole !== "driver" && (
+            <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <StatCard label="Chuyến hôm nay" value={String(todayOrders.length)} icon={CalendarClock} detail="Tính theo ngày chạy, không theo ngày tạo." />
+              <StatCard label="Chờ duyệt" value={String(pendingDispatchReviewCount)} icon={ClipboardList} detail="Sale đã gửi đề xuất, điều hành cần xét duyệt." />
+              <StatCard label="Chờ phân xe" value={String(todayOrders.filter((o) => o.orderStatus === "confirmed" && o.dispatchStatus === "waiting_assignment").length)} icon={Clock3} detail="Đã duyệt, cần phân xe/tài xế." />
+              <StatCard label="Doanh thu booked" value={money(revenue)} icon={Banknote} detail={`Đã thu ${money(collected)} hợp lệ.`} />
+            </section>
+          )}
 
           {activeTab === "Dashboard" && (
             <DashboardPanel
