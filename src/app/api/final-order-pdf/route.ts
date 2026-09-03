@@ -228,7 +228,7 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
     section("I. THÔNG TIN QUẢN LÝ");
     kvRow([["Quản lý lệnh", management.manager_1], ["Số", payload.order_no]]);
     kvRow([["Ngày", payload.order_date], ["Nguồn", management.source]]);
-    kvRow([["Tên người giao nguồn", management.dispatcher], ["Có xuất hóa đơn", management.output_invoice]]);
+    kvRow([["Tên người giao nguồn", management.dispatcher], ["Tình trạng hóa đơn", management.output_invoice]]);
     kvRow([["Số lượng khách", management.guest_count], ["Dòng khách", management.guest_market]]);
     kvRow([["Nhận biết khách", management.customer_recognition_code], ["Nguồn khách", management.customer_source_code]]);
     kvRow([["Mã tỉnh/thành", provinceRouteLabel], ["Hình thức xe", management.vehicle_form]]);

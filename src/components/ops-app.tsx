@@ -59,7 +59,6 @@ import {
   submitDriverDispatchProposal,
   submitDriverTripReport as submitDriverTripReportCommand,
   submitDispatchProposal,
-  updateActualCosts as updateActualCostsCommand,
   updateDispatchStatus as updateDispatchStatusCommand,
   updateInvoiceStatus as updateInvoiceStatusCommand,
   updateOrderDetails,
@@ -643,7 +642,7 @@ function FinalDispatchOrderSheet({
     { group: "Quản lý lệnh", label: "Nhận biết khách", value: customerRecognitionFullLabel(order.customerRecognitionCode) },
     { group: "Quản lý lệnh", label: "Nguồn khách", value: customerSourceFullLabel(order.customerSourceCode) },
     { group: "Quản lý lệnh", label: "Mã tỉnh/thành", value: provinceRouteFullLabel(order.originProvinceCode, order.destinationProvinceCode) },
-    { group: "Quản lý lệnh", label: "Có xuất hóa đơn không (Có; Không)", value: order.invoiceRequired ? "Có" : "Không", tone: "yellow" },
+    { group: "Quản lý lệnh", label: "Tình trạng hóa đơn", value: order.invoiceRequired ? "Có" : "Không", tone: "yellow" },
     { group: "Quản lý lệnh", label: "Hình thức xe (Công ty; Thuê ngoài)", value: order.vehicleOwnership === "rented" ? "Thuê ngoài" : "Công ty", tone: "blue" },
     { group: "Quản lý lệnh", label: "Loại hợp đồng (Mẫu; Giản đơn; Điều khoản)", value: contractTypeLabels[order.contractType ?? "simple"] },
     { group: "Thông tin xe", label: "Biển số xe", value: vehicleLabel },
@@ -652,7 +651,7 @@ function FinalDispatchOrderSheet({
     { group: "Thông tin xe", label: "Số điện thoại tài xế", value: driverPhone },
     { group: "Thông tin nhà cung cấp", label: "Chủ sở hữu xe cá nhân", value: personalOwnerName, tone: "blue" },
     { group: "Thông tin nhà cung cấp", label: "CCCD chủ sở hữu cá nhân", value: personalOwnerCccd, tone: "blue" },
-    { group: "Thông tin nhà cung cấp", label: "Có xuất hóa đơn đầu vào được không (Có; không)", value: supplierInvoiceRequired ? "Có" : "Không", tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Tình trạng hóa đơn đầu vào", value: supplierInvoiceRequired ? "Có" : "Không", tone: "blue" },
     { group: "Thông tin nhà cung cấp", label: "Đơn vị sở hữu/NCC", value: supplierCompanyName, tone: "blue" },
     { group: "Thông tin nhà cung cấp", label: "Mã số thuế", value: supplierTaxCode, tone: "blue" },
     { group: "Thông tin nhà cung cấp", label: "Địa chỉ", value: supplierAddress, tone: "blue" },
@@ -727,13 +726,6 @@ function FinalDispatchOrderSheet({
   }
 
   function buildFinalPdfData() {
-    const driverExpenseTotal =
-      (order.driverExpenseFuel ?? 0) +
-      (order.driverExpenseToll ?? 0) +
-      (order.driverExpenseParking ?? 0) +
-      (order.driverExpenseWater ?? 0) +
-      (order.driverExpenseOther ?? 0);
-
     const fileCode = safeOrderFileCode(order.code);
     return {
       delivery: {
@@ -836,7 +828,7 @@ function FinalDispatchOrderSheet({
         supplier_total: money(supplierTotal),
         supplier_paid: "-",
         supplier_remaining: isRentedVehicle ? money(supplierTotal) : "0 đ",
-        extra_cost: money(driverExpenseTotal),
+        extra_cost: money(orderActualCost(order)),
         actual_profit: money(orderActualProfit(order)),
         output_invoice_status: invoiceLabels[order.invoiceStatus],
         input_invoice_status: isRentedVehicle ? (supplierInvoiceRequired ? "Chưa nhận / cần đối soát" : "Không yêu cầu") : "Không áp dụng",
@@ -2882,25 +2874,15 @@ export default function OpsApp() {
     }
 
     const collectedAmount = Number(form.get("driverCollectedAmount") || 0);
-    const useFuel = form.get("useFuel") === "yes";
-    const useToll = form.get("useToll") === "yes";
-    const useParking = form.get("useParking") === "yes";
-    const useWater = form.get("useWater") === "yes";
-    const useOther = form.get("useOther") === "yes";
-    const driverExpenseFuel = useFuel ? Number(form.get("driverExpenseFuel") || 0) : 0;
-    const driverExpenseToll = useToll ? Number(form.get("driverExpenseToll") || 0) : 0;
-    const driverExpenseParking = useParking ? Number(form.get("driverExpenseParking") || 0) : 0;
-    const driverExpenseWater = useWater ? Number(form.get("driverExpenseWater") || 0) : 0;
-    const driverExpenseOther = useOther ? Number(form.get("driverExpenseOther") || 0) : 0;
+    const driverExpenseFuel = 0;
+    const driverExpenseToll = 0;
+    const driverExpenseParking = 0;
+    const driverExpenseWater = 0;
+    const driverExpenseOther = 0;
     const driverExpenseNote = String(form.get("driverExpenseNote") || "").trim();
 
-    const expenseValues = [driverExpenseFuel, driverExpenseToll, driverExpenseParking, driverExpenseWater, driverExpenseOther];
-    if (collectedAmount < 0 || expenseValues.some((value) => value < 0)) {
+    if (collectedAmount < 0) {
       setMessage("Số tiền báo cáo không được âm.");
-      return false;
-    }
-    if ((useFuel && driverExpenseFuel <= 0) || (useToll && driverExpenseToll <= 0) || (useParking && driverExpenseParking <= 0) || (useWater && driverExpenseWater <= 0) || (useOther && driverExpenseOther <= 0)) {
-      setMessage("Các khoản chi phí đã tick cần có số tiền lớn hơn 0.");
       return false;
     }
 
@@ -3667,48 +3649,6 @@ export default function OpsApp() {
     }
   }
 
-  async function updateActualCosts(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!selectedOrder) return;
-    if (!can(currentRole, "record_payment")) {
-      setMessage(`${roleLabels[currentRole]} không có quyền cập nhật chi phí thực tế.`);
-      return;
-    }
-    const form = new FormData(event.currentTarget);
-    const actualDriverCost = Number(form.get("actualDriverCost") || 0);
-    const actualVehicleCost = Number(form.get("actualVehicleCost") || 0);
-    const actualOtherCost = Number(form.get("actualOtherCost") || 0);
-    if (actualDriverCost < 0 || actualVehicleCost < 0 || actualOtherCost < 0) {
-      setMessage("Chi phí thực tế không được âm.");
-      return;
-    }
-    const actualCostNote = String(form.get("actualCostNote") || "").trim();
-    const actionKey = `finance:actual-costs:${selectedOrder.id}`;
-    if (!beginAction(actionKey, "Lưu chi phí thực tế")) return;
-    try {
-    const saved = await runSupabaseRpc(
-      "update_actual_costs",
-      {
-        p_order_id: selectedOrder.id,
-        p_actual_driver_cost: actualDriverCost,
-        p_actual_vehicle_cost: actualVehicleCost,
-        p_actual_other_cost: actualOtherCost,
-        p_actual_cost_note: actualCostNote || null
-      },
-      `Không lưu được chi phí thực tế ${selectedOrder.code}`
-    );
-    if (!saved) return;
-
-    runCommand(
-      "finance.update_actual_costs",
-      (current) => updateActualCostsCommand(current, selectedOrder.id, { actualDriverCost, actualVehicleCost, actualOtherCost, actualCostNote: actualCostNote || undefined }, audit, false),
-      `Đã cập nhật chi phí thực tế cho ${selectedOrder.code}.`
-    );
-    } finally {
-      endAction(actionKey);
-    }
-  }
-
   async function recordPayment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedOrder) return;
@@ -4266,7 +4206,6 @@ export default function OpsApp() {
               isActionPending={isActionPending}
               setSelectedOrderId={setSelectedOrderId}
               recordPayment={recordPayment}
-              updateActualCosts={updateActualCosts}
               updateInvoiceStatus={updateInvoiceStatus}
               reconcileOrder={reconcileOrder}
               vehicles={state.vehicles}
@@ -4927,7 +4866,7 @@ function OrderDetailPanel({
                         {provinceCodeOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                       </select>
                     </Field>
-                    <Field label="Xuất hóa đơn"><select className={inputClass()} defaultValue={order.invoiceRequired ? "yes" : "no"} name="invoiceRequired"><option value="no">Không</option><option value="yes">Có</option></select></Field>
+                    <Field label="Tình trạng hóa đơn"><select className={inputClass()} defaultValue={order.invoiceRequired ? "yes" : "no"} name="invoiceRequired"><option value="yes">Có</option><option value="no">Không</option></select></Field>
                   </div>
                 </SectionDetails>
 
@@ -5390,7 +5329,7 @@ function OrdersPanel({
                 </select>
               </Field>
               <Field label="Người tạo nguồn"><input className={inputClass()} name="sourceOwnerName" /></Field>
-              <Field label="Xuất hóa đơn"><select className={inputClass()} name="invoiceRequired"><option value="no">Không</option><option value="yes">Có</option></select></Field>
+              <Field label="Tình trạng hóa đơn"><select className={inputClass()} defaultValue="yes" name="invoiceRequired"><option value="yes">Có</option><option value="no">Không</option></select></Field>
               <Field label="Sale">
                 <select className={inputClass()} name="salesOwner">
                   {salesOwnerOptions.map((name) => <option key={name}>{name}</option>)}
@@ -6230,12 +6169,6 @@ function CustomersPanel({
 }
 
 function DriverTripBrief({ driver, order, vehicle }: { driver?: Driver; order: DispatchOrder; vehicle?: Vehicle }) {
-  const expenseFuel = order.driverExpenseFuel ?? 0;
-  const expenseToll = order.driverExpenseToll ?? 0;
-  const expenseParking = order.driverExpenseParking ?? 0;
-  const expenseWater = order.driverExpenseWater ?? 0;
-  const expenseOther = order.driverExpenseOther ?? 0;
-  const expenseTotal = expenseFuel + expenseToll + expenseParking + expenseWater + expenseOther;
   const collectedAmount = order.driverCollectedAmount ?? 0;
 
   return (
@@ -6262,20 +6195,12 @@ function DriverTripBrief({ driver, order, vehicle }: { driver?: Driver; order: D
           {order.salesNote || order.customerConfirmationNote || "Xe sạch, có mặt trước giờ đón 15 phút.\nTài xế chủ động gọi khách trước khi đến.\nĐón đúng vị trí đã xác nhận."}
         </div>
       </div>
-      <div className="mt-3 grid gap-3 border-t border-line pt-3 sm:grid-cols-2">
+      <div className="mt-3 border-t border-line pt-3">
         <div>
           <p className="font-semibold text-ink">Thông báo thu hộ</p>
           <p className="mt-2 text-slate-700">Thu hộ khách: <span className="font-medium text-ink">{money(collectedAmount)}</span></p>
           <p className="text-slate-700">Thu thêm: <span className="font-medium text-ink">{money(Math.max(order.amountDue - collectedAmount, 0))}</span></p>
           <p className="text-slate-700">Tổng cần thu hộ: <span className="font-medium text-ink">{money(order.amountDue)}</span></p>
-        </div>
-        <div>
-          <p className="font-semibold text-ink">Chi phí</p>
-          <p className="mt-2 text-slate-700">Cầu đường: <span className="font-medium text-ink">{money(expenseToll)}</span></p>
-          <p className="text-slate-700">Bãi xe: <span className="font-medium text-ink">{money(expenseParking)}</span></p>
-          <p className="text-slate-700">Xăng/dầu: <span className="font-medium text-ink">{money(expenseFuel)}</span></p>
-          <p className="text-slate-700">Chi phí khác: <span className="font-medium text-ink">{money(expenseWater + expenseOther)}</span></p>
-          <p className="text-slate-700">Tổng chi phí: <span className="font-medium text-ink">{money(expenseTotal)}</span></p>
         </div>
       </div>
     </section>
@@ -6351,9 +6276,6 @@ function DriverMobilePanel({
   const completedTripsToday = todayDriverOrders.filter((order) => order.dispatchStatus === "completed");
   const completedTrips = driverOrders.filter((order) => order.dispatchStatus === "completed");
   const reportTrip = selectedTrip?.dispatchStatus === "completed" ? selectedTrip : completedTripsToday[completedTripsToday.length - 1] ?? completedTrips[completedTrips.length - 1];
-  const reportTripExpenseTotal = reportTrip
-    ? (reportTrip.driverExpenseFuel ?? 0) + (reportTrip.driverExpenseToll ?? 0) + (reportTrip.driverExpenseParking ?? 0) + (reportTrip.driverExpenseWater ?? 0) + (reportTrip.driverExpenseOther ?? 0)
-    : 0;
   const reportTripCollectedAmount = reportTrip?.driverCollectedAmount ?? 0;
   const nextDriverStatus = selectedTrip ? driverNextDispatchStatus(selectedTrip) : null;
   const nextTrip = activeOrder ?? upcomingTrips[0] ?? driverOrders[0];
@@ -6565,7 +6487,7 @@ function DriverMobilePanel({
             </div>
             <Badge tone={reportTrip.driverReportStatus === "reported" ? "good" : "warn"}>{reportTrip.driverReportStatus === "reported" ? "Đã báo" : "Cần báo"}</Badge>
           </div>
-          <p className="mt-2 text-sm text-slate-600">Tài xế nhập tiền thu hộ và tick các khoản chi phí thực tế. Kế toán nhìn ngay trong hồ sơ lệnh.</p>
+          <p className="mt-2 text-sm text-slate-600">Tài xế chỉ nhập tiền thu hộ và ghi chú cần đối soát.</p>
           <form
             className="mt-4 grid gap-3"
             onSubmit={(event) => {
@@ -6577,31 +6499,13 @@ function DriverMobilePanel({
               <Field label="Tiền thu hộ">
                 <input className={inputClass()} defaultValue={reportTripCollectedAmount} min="0" name="driverCollectedAmount" type="number" />
               </Field>
-              <Field label="Ghi chú báo cáo">
-                <textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="driverExpenseNote" placeholder="Ví dụ: khách trả tiền mặt, gửi xe 30k, nước 20k..." defaultValue={reportTrip.driverExpenseNote ?? ""} />
+              <Field label="Ghi chú thu hộ">
+                <textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="driverExpenseNote" placeholder="Ví dụ: khách trả tiền mặt, khách chuyển khoản, chưa thu..." defaultValue={reportTrip.driverExpenseNote ?? ""} />
               </Field>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {[
-                { key: "fuel", label: "Xăng", name: "driverExpenseFuel", checked: (reportTrip.driverExpenseFuel ?? 0) > 0, value: reportTrip.driverExpenseFuel ?? 0 },
-                { key: "toll", label: "Cầu đường", name: "driverExpenseToll", checked: (reportTrip.driverExpenseToll ?? 0) > 0, value: reportTrip.driverExpenseToll ?? 0 },
-                { key: "parking", label: "Gửi xe", name: "driverExpenseParking", checked: (reportTrip.driverExpenseParking ?? 0) > 0, value: reportTrip.driverExpenseParking ?? 0 },
-                { key: "water", label: "Nước / ăn uống", name: "driverExpenseWater", checked: (reportTrip.driverExpenseWater ?? 0) > 0, value: reportTrip.driverExpenseWater ?? 0 },
-                { key: "other", label: "Khác", name: "driverExpenseOther", checked: (reportTrip.driverExpenseOther ?? 0) > 0, value: reportTrip.driverExpenseOther ?? 0 }
-              ].map((expense) => (
-                <div className="rounded-md border border-line bg-panel p-3" key={expense.key}>
-                  <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                    <input defaultChecked={expense.checked} name={`use${expense.key.charAt(0).toUpperCase()}${expense.key.slice(1)}`} type="checkbox" value="yes" />
-                    {expense.label}
-                  </label>
-                  <input className={`${inputClass()} mt-2`} defaultValue={expense.value} min="0" name={expense.name} placeholder="0" type="number" />
-                </div>
-              ))}
-            </div>
-            <div className="grid gap-2 rounded-md border border-dashed border-line bg-panel px-3 py-2 text-sm text-slate-600 sm:grid-cols-3">
+            <div className="grid gap-2 rounded-md border border-dashed border-line bg-panel px-3 py-2 text-sm text-slate-600 sm:grid-cols-2">
               <p>Thu hộ: <span className="font-semibold text-ink">{money(reportTripCollectedAmount)}</span></p>
-              <p>Chi phí: <span className="font-semibold text-ink">{money(reportTripExpenseTotal)}</span></p>
-              <p>Cần nộp/đối soát: <span className="font-semibold text-ink">{money(Math.max(reportTripCollectedAmount - reportTripExpenseTotal, 0))}</span></p>
+              <p>Cần nộp/đối soát: <span className="font-semibold text-ink">{money(reportTripCollectedAmount)}</span></p>
             </div>
             <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!can(currentRole, "submit_driver_report") || isActionPending(`driver:report:${reportTrip.id}`)} type="submit">
               <Save size={16} /> {isActionPending(`driver:report:${reportTrip.id}`) ? "Đang gửi..." : "Gửi báo cáo"}
@@ -6611,7 +6515,7 @@ function DriverMobilePanel({
       ) : (
         <section className="border border-line bg-white p-4 shadow-sm">
           <h4 className="font-semibold text-ink">Báo cáo sau chuyến</h4>
-          <p className="mt-2 text-sm text-slate-500">Chỉ hiện khi tài xế có chuyến đã hoàn thành để nhập thu hộ và chi phí phát sinh.</p>
+          <p className="mt-2 text-sm text-slate-500">Chỉ hiện khi tài xế có chuyến đã hoàn thành để nhập tiền thu hộ.</p>
         </section>
       )}
 
@@ -6786,7 +6690,6 @@ function FinancePanel({
   selectedOrder,
   setSelectedOrderId,
   recordPayment,
-  updateActualCosts,
   updateInvoiceStatus,
   reconcileOrder,
   vehicles
@@ -6800,7 +6703,6 @@ function FinancePanel({
   selectedOrder: DispatchOrder;
   setSelectedOrderId: (id: string) => void;
   recordPayment: (event: FormEvent<HTMLFormElement>) => void;
-  updateActualCosts: (event: FormEvent<HTMLFormElement>) => void;
   updateInvoiceStatus: (nextStatus: InvoiceStatus) => void;
   reconcileOrder: () => void;
   vehicles: Vehicle[];
@@ -6851,15 +6753,8 @@ function FinancePanel({
   const canRecordPayment = can(currentRole, "record_payment");
   const canUpdateInvoice = can(currentRole, "update_invoice");
   const canCloseOrder = can(currentRole, "close_order");
-  const canUpdateActualCosts = can(currentRole, "record_payment");
   const invoiceReady = selectedOrder.invoiceStatus === "issued" || selectedOrder.invoiceStatus === "not_required";
   const selectedDriverReportCollectedAmount = selectedOrder.driverReportStatus === "reported" || selectedOrder.driverReportStatus === "reviewed" ? (selectedOrder.driverCollectedAmount ?? 0) : 0;
-  const selectedDriverReportExpenseTotal =
-    (selectedOrder.driverExpenseFuel ?? 0) +
-    (selectedOrder.driverExpenseToll ?? 0) +
-    (selectedOrder.driverExpenseParking ?? 0) +
-    (selectedOrder.driverExpenseWater ?? 0) +
-    (selectedOrder.driverExpenseOther ?? 0);
   const selectedIssues = profileIssues(selectedOrder);
   const selectedSupplierPayable = selectedOrder.vehicleOwnership === "rented" ? selectedOrder.supplierTotalWithVat ?? orderCost(selectedOrder) : 0;
   const selectedDriverHeldAmount = selectedDriverReportCollectedAmount;
@@ -6962,10 +6857,8 @@ function FinancePanel({
               <Badge tone={selectedOrder.driverReportStatus === "reviewed" ? "good" : selectedOrder.driverReportStatus === "reported" ? "info" : "warn"}>{selectedOrder.driverReportStatus === "reviewed" ? "Đã duyệt" : selectedOrder.driverReportStatus === "reported" ? "Đã báo" : "Chưa báo"}</Badge>
             </div>
             <p className="mt-1 text-sm text-slate-500">Dữ liệu này do tài xế gửi sau chuyến, kế toán dùng để đối chiếu hồ sơ.</p>
-            <div className="mt-4 grid gap-2 sm:grid-cols-3">
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
               <StatMini label="Thu hộ báo" value={money(selectedDriverReportCollectedAmount)} />
-              <StatMini label="Tổng chi phí báo" value={money(selectedDriverReportExpenseTotal)} />
-              <StatMini label="Cần nộp về" value={money(Math.max(selectedDriverReportCollectedAmount - selectedDriverReportExpenseTotal, 0))} />
               <StatMini label="Đã báo lúc" value={selectedOrder.driverReportedAt ? formatDateTime(selectedOrder.driverReportedAt) : "-"} />
             </div>
             <p className="mt-3 rounded-md border border-dashed border-line bg-panel px-3 py-2 text-xs text-slate-500">
@@ -7037,7 +6930,6 @@ function FinancePanel({
             <StatMini label="Còn nợ" value={money(debt)} />
             <StatMini label="Lãi dự kiến" value={money(orderProfit(selectedOrder))} />
             <StatMini label="Lãi thực tế" value={money(orderActualProfit(selectedOrder))} />
-            <StatMini label="Chi phí thực tế" value={money(orderActualCost(selectedOrder))} />
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <Badge tone={selectedOrder.paymentStatus === "paid" ? "good" : selectedOrder.paymentStatus === "partial" ? "warn" : "danger"}>{paymentLabels[selectedOrder.paymentStatus]}</Badge>
@@ -7049,20 +6941,8 @@ function FinancePanel({
             <button className="h-10 rounded-md border border-line bg-white px-3 text-sm font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" disabled={!canUpdateInvoice || isActionPending(`finance:invoice:${selectedOrder.id}:issued`)} onClick={() => updateInvoiceStatus("issued")} type="button">Đã xuất HĐ</button>
           </div>
         </section>
-        <form className="border border-line bg-white p-4 shadow-sm" onSubmit={updateActualCosts}>
-          <h3 className="font-semibold text-ink">5. Chi phí thực tế sau chuyến</h3>
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <Field label="Tài xế thực tế"><input className={inputClass()} defaultValue={selectedOrder.actualDriverCost ?? selectedOrder.driverCost ?? 0} min="0" name="actualDriverCost" type="number" /></Field>
-            <Field label="Xe/nhiên liệu thực tế"><input className={inputClass()} defaultValue={selectedOrder.actualVehicleCost ?? selectedOrder.vehicleCost ?? 0} min="0" name="actualVehicleCost" type="number" /></Field>
-            <Field label="Phụ phí thực tế"><input className={inputClass()} defaultValue={selectedOrder.actualOtherCost ?? selectedOrder.otherCost ?? 0} min="0" name="actualOtherCost" type="number" /></Field>
-            <div className="md:col-span-3">
-              <Field label="Ghi chú chi phí"><textarea className={textAreaClass()} defaultValue={selectedOrder.actualCostNote ?? ""} name="actualCostNote" placeholder="Cầu đường, gửi xe, phát sinh, tài xế ứng..." /></Field>
-            </div>
-          </div>
-          <button className="mt-4 h-10 w-full rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canUpdateActualCosts || isActionPending(`finance:actual-costs:${selectedOrder.id}`)} type="submit">{isActionPending(`finance:actual-costs:${selectedOrder.id}`) ? "Đang lưu..." : "Lưu chi phí thực tế"}</button>
-        </form>
         <section className="border border-line bg-white p-4 shadow-sm">
-          <h3 className="font-semibold text-ink">Các lần thanh toán</h3>
+          <h3 className="font-semibold text-ink">5. Các lần thanh toán</h3>
           <div className="mt-3 space-y-2 text-sm">
             {selectedPayments.length === 0 && <p className="text-slate-500">Chưa có thanh toán.</p>}
             {selectedPayments.map((payment) => (
