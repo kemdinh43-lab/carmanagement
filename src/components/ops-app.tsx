@@ -6179,6 +6179,15 @@ function DriverTripBrief({ driver, order, payments, vehicle }: { driver?: Driver
   const paymentNote = order.collectionAccountOwner || order.collectionBankAccount || order.collectionBankName
     ? [order.collectionAccountOwner, order.collectionBankAccount, order.collectionBankName].filter(Boolean).join(" / ")
     : order.customerConfirmationNote || "-";
+  const paymentRows = [
+    ["Tiền dịch vụ trước thuế", money(order.subtotalAmount ?? order.amountDue)],
+    ["Thuế suất", `${order.vatRate ?? 0}%`],
+    ["Tiền thuế", money(order.vatAmount ?? 0)],
+    ["Tổng phải thanh toán", money(order.amountDue)],
+    ["Đã thu / Tạm ứng", money(prepaidAmount)],
+    ["Còn phải thu", money(remainingAmount)],
+    ["Ủy quyền cho tài xế thu", money(driverCollectionAmount)]
+  ];
   const isCompanyCustomer = order.customerKind === "company";
   const serviceUserName = isCompanyCustomer ? order.contactName || order.customerName : order.customerName;
   const serviceUserAddress = isCompanyCustomer ? order.companyAddress || "-" : order.customerAddress || "-";
@@ -6223,29 +6232,32 @@ function DriverTripBrief({ driver, order, payments, vehicle }: { driver?: Driver
         </div>
       </div>
       <div className="mt-3 border-t border-line pt-3">
-        <div className="rounded-md border border-teal-100 bg-white p-3">
+        <div className="overflow-hidden rounded-md border border-line bg-white">
           <div className="flex items-start justify-between gap-3">
-            <div>
+            <div className="px-3 py-3">
               <p className="font-semibold text-ink">Thông tin thanh toán</p>
               <p className="mt-1 text-xs text-slate-500">Số tiền tài xế cần thu theo hồ sơ hiện tại.</p>
             </div>
+            <div className="px-3 py-3">
             <Badge tone={driverCollectionAmount > 0 ? "warn" : "good"}>{driverCollectionAmount > 0 ? "Cần thu" : "Đã đủ"}</Badge>
+            </div>
           </div>
-          <div className="mt-3 rounded-md bg-teal-50 px-3 py-3">
-            <p className="text-xs font-semibold uppercase text-brand">Ủy quyền cho tài xế thu</p>
-            <p className="mt-1 text-2xl font-bold text-ink">{money(driverCollectionAmount)}</p>
+          <table className="w-full border-t border-line text-sm">
+            <tbody className="divide-y divide-line">
+              {paymentRows.map(([label, value], index) => (
+                <tr className={index === paymentRows.length - 1 ? "bg-teal-50" : "bg-white"} key={label}>
+                  <td className="px-3 py-2 text-slate-700">{label}</td>
+                  <td className="px-3 py-2 text-right font-semibold text-ink">{value}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="border-t border-line bg-panel px-3 py-2 text-xs text-slate-600">
+            <p>Hình thức thanh toán: <span className="font-semibold text-ink">{order.paymentMethod || "-"}</span></p>
+            <p className="mt-1">Ghi chú thu hộ: {paymentNote}</p>
           </div>
-          <div className="mt-3 grid gap-2 text-slate-700">
-            <p className="flex justify-between gap-3"><span>Tổng phải thanh toán</span><span className="font-semibold text-ink">{money(order.amountDue)}</span></p>
-            <p className="flex justify-between gap-3"><span>Đã thu / tạm ứng</span><span className="font-semibold text-ink">{money(prepaidAmount)}</span></p>
-            <p className="flex justify-between gap-3"><span>Còn phải thu</span><span className="font-semibold text-ink">{money(remainingAmount)}</span></p>
-            <p className="flex justify-between gap-3"><span>Hình thức thanh toán</span><span className="font-semibold text-ink">{order.paymentMethod || "-"}</span></p>
-          </div>
-          <p className="mt-3 rounded-md border border-dashed border-line bg-panel px-3 py-2 text-xs text-slate-600">
-            Ghi chú thu hộ: {paymentNote}
-          </p>
           {collectedAmount > 0 && (
-            <p className="mt-2 text-xs text-slate-500">Tài xế đã báo thu hộ: <span className="font-semibold text-ink">{money(collectedAmount)}</span></p>
+            <p className="border-t border-line px-3 py-2 text-xs text-slate-500">Tài xế đã báo thu hộ: <span className="font-semibold text-ink">{money(collectedAmount)}</span></p>
           )}
         </div>
       </div>
