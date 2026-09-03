@@ -191,6 +191,28 @@ const paymentMethodLabels: Record<Payment["method"], string> = {
   other: "Khác"
 };
 
+const collectionNotePrefix = "Ghi chú thu hộ:";
+const extraChargeReasonPrefix = "Lý do phụ phí phát sinh:";
+
+function driverReportNoteParts(note?: string) {
+  const raw = (note || "").trim();
+  if (!raw) return { collectionNote: "", extraChargeReason: "" };
+  const collectionLine = raw.split("\n").find((line) => line.trim().startsWith(collectionNotePrefix));
+  const extraChargeLine = raw.split("\n").find((line) => line.trim().startsWith(extraChargeReasonPrefix));
+  if (!collectionLine && !extraChargeLine) return { collectionNote: raw, extraChargeReason: "" };
+  return {
+    collectionNote: collectionLine?.replace(collectionNotePrefix, "").trim() || "",
+    extraChargeReason: extraChargeLine?.replace(extraChargeReasonPrefix, "").trim() || ""
+  };
+}
+
+function buildDriverReportNote(collectionNote: string, extraChargeReason: string) {
+  return [
+    collectionNote ? `${collectionNotePrefix} ${collectionNote}` : "",
+    extraChargeReason ? `${extraChargeReasonPrefix} ${extraChargeReason}` : ""
+  ].filter(Boolean).join("\n");
+}
+
 const tabs = ["Dashboard", "Lệnh điều xe", "Điều hành", "Màn làm việc", "Users", "Khách hàng", "Tài chính", "Master data", "Audit"] as const;
 type Tab = (typeof tabs)[number];
 
@@ -583,6 +605,8 @@ function FinalDispatchOrderSheet({
     .sort((a, b) => new Date(a.paidAt).getTime() - new Date(b.paidAt).getTime());
   const paid = validPayments.reduce((sum, payment) => sum + payment.amount, 0);
   const debt = Math.max(order.amountDue - paid, 0);
+  const extraChargeAmount = order.driverExpenseOther ?? 0;
+  const extraChargeReason = driverReportNoteParts(order.driverExpenseNote).extraChargeReason;
   const routeLegRows = routeLegsForOrder(order).map((leg, index) => ({
     group: "Hành trình",
     label: `Chặng ${index + 1}`,
@@ -687,6 +711,9 @@ function FinalDispatchOrderSheet({
     { group: "Hành trình", label: "Tổng đã thu", value: money(paid) },
     { group: "Hành trình", label: "Còn phải thu", value: money(debt) },
     { group: "Hành trình", label: "Trạng thái thanh toán", value: paymentLabels[order.paymentStatus] },
+    { group: "Hành trình", label: "Phụ phí phát sinh", value: money(extraChargeAmount) },
+    { group: "Hành trình", label: "Lý do phụ phí phát sinh", value: extraChargeReason || "-" },
+    { group: "Hành trình", label: "Tổng sau phát sinh", value: money(order.amountDue + extraChargeAmount) },
     ...paymentRows
   ];
   const exportStatus = order.reconciliationStatus === "closed" ? "Bản chính thức" : "Bản xem trước";
@@ -797,6 +824,9 @@ function FinalDispatchOrderSheet({
         subtotal: money(order.subtotalAmount ?? order.amountDue),
         tax_amount: money(order.vatAmount ?? 0),
         total: money(order.amountDue),
+        extra_charge: money(extraChargeAmount),
+        extra_charge_reason: extraChargeReason || "-",
+        total_after_extra_charge: money(order.amountDue + extraChargeAmount),
         payment_method: order.paymentMethod || "-",
         route_legs: routeLegsForOrder(order).map((leg) => ({
           time: [leg.startAt ? timeOnly(leg.startAt) : "", leg.endAt ? timeOnly(leg.endAt) : ""].filter(Boolean).join("-") || "-",
@@ -2878,11 +2908,17 @@ export default function OpsApp() {
     const driverExpenseToll = 0;
     const driverExpenseParking = 0;
     const driverExpenseWater = 0;
-    const driverExpenseOther = 0;
-    const driverExpenseNote = String(form.get("driverExpenseNote") || "").trim();
+    const driverExpenseOther = Number(form.get("driverExtraChargeAmount") || 0);
+    const collectionNote = String(form.get("collectionNote") || "").trim();
+    const extraChargeReason = String(form.get("driverExtraChargeReason") || "").trim();
+    const driverExpenseNote = buildDriverReportNote(collectionNote, extraChargeReason);
 
-    if (collectedAmount < 0) {
+    if (collectedAmount < 0 || driverExpenseOther < 0) {
       setMessage("Số tiền báo cáo không được âm.");
+      return false;
+    }
+    if (driverExpenseOther > 0 && !extraChargeReason) {
+      setMessage("Phụ phí phát sinh cần có lý do.");
       return false;
     }
 
@@ -6337,6 +6373,8 @@ function DriverMobilePanel({
   const completedTrips = driverOrders.filter((order) => order.dispatchStatus === "completed");
   const reportTrip = selectedTrip?.dispatchStatus === "completed" ? selectedTrip : completedTripsToday[completedTripsToday.length - 1] ?? completedTrips[completedTrips.length - 1];
   const reportTripCollectedAmount = reportTrip?.driverCollectedAmount ?? 0;
+  const reportTripExtraChargeAmount = reportTrip?.driverExpenseOther ?? 0;
+  const reportTripNoteParts = driverReportNoteParts(reportTrip?.driverExpenseNote);
   const nextDriverStatus = selectedTrip ? driverNextDispatchStatus(selectedTrip) : null;
   const nextTrip = activeOrder ?? upcomingTrips[0] ?? driverOrders[0];
   const nextTripVehicle = nextTrip ? vehicles.find((item) => item.id === nextTrip.vehicleId) : undefined;
@@ -6508,11 +6546,18 @@ function DriverMobilePanel({
                 <input className={inputClass()} defaultValue={reportTripCollectedAmount} min="0" name="driverCollectedAmount" type="number" />
               </Field>
               <Field label="Ghi chú thu hộ">
-                <textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="driverExpenseNote" placeholder="Ví dụ: khách trả tiền mặt, khách chuyển khoản, chưa thu..." defaultValue={reportTrip.driverExpenseNote ?? ""} />
+                <textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="collectionNote" placeholder="Ví dụ: khách trả tiền mặt, khách chuyển khoản, chưa thu..." defaultValue={reportTripNoteParts.collectionNote} />
+              </Field>
+              <Field label="Phụ phí phát sinh">
+                <input className={inputClass()} defaultValue={reportTripExtraChargeAmount} min="0" name="driverExtraChargeAmount" type="number" />
+              </Field>
+              <Field label="Lý do phụ phí phát sinh">
+                <textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="driverExtraChargeReason" placeholder="Ví dụ: khách đổi điểm đến, đi thêm chặng, chờ thêm..." defaultValue={reportTripNoteParts.extraChargeReason} />
               </Field>
             </div>
-            <div className="grid gap-2 rounded-md border border-dashed border-line bg-panel px-3 py-2 text-sm text-slate-600 sm:grid-cols-2">
+            <div className="grid gap-2 rounded-md border border-dashed border-line bg-panel px-3 py-2 text-sm text-slate-600 sm:grid-cols-3">
               <p>Thu hộ: <span className="font-semibold text-ink">{money(reportTripCollectedAmount)}</span></p>
+              <p>Phụ phí phát sinh: <span className="font-semibold text-ink">{money(reportTripExtraChargeAmount)}</span></p>
               <p>Cần nộp/đối soát: <span className="font-semibold text-ink">{money(reportTripCollectedAmount)}</span></p>
             </div>
             <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!can(currentRole, "submit_driver_report") || isActionPending(`driver:report:${reportTrip.id}`)} type="submit">
@@ -6792,6 +6837,7 @@ function FinancePanel({
     if (order.dispatchStatus === "completed" && order.reconciliationStatus !== "closed") issues.push("Chờ đối soát");
     if (orderDebt > 0) issues.push(`Còn nợ khách ${money(orderDebt)}`);
     if (order.driverReportStatus === "reported" && (order.driverCollectedAmount ?? 0) > 0) issues.push("Có thu hộ tài xế");
+    if ((order.driverExpenseOther ?? 0) > 0) issues.push(`Có phụ phí phát sinh ${money(order.driverExpenseOther ?? 0)}`);
     if (order.driverReportStatus === "reported" && order.reconciliationStatus !== "closed") issues.push("Chờ duyệt báo cáo tài xế");
     if (order.vehicleOwnership === "rented" && (order.supplierTotalWithVat ?? 0) > 0) issues.push(`Theo dõi NCC ${money(order.supplierTotalWithVat ?? 0)}`);
     if (order.invoiceStatus !== "issued" && order.invoiceStatus !== "not_required") issues.push("Thiếu hóa đơn đầu ra");
@@ -6815,6 +6861,8 @@ function FinancePanel({
   const canCloseOrder = can(currentRole, "close_order");
   const invoiceReady = selectedOrder.invoiceStatus === "issued" || selectedOrder.invoiceStatus === "not_required";
   const selectedDriverReportCollectedAmount = selectedOrder.driverReportStatus === "reported" || selectedOrder.driverReportStatus === "reviewed" ? (selectedOrder.driverCollectedAmount ?? 0) : 0;
+  const selectedExtraChargeAmount = selectedOrder.driverExpenseOther ?? 0;
+  const selectedDriverReportNoteParts = driverReportNoteParts(selectedOrder.driverExpenseNote);
   const selectedIssues = profileIssues(selectedOrder);
   const selectedSupplierPayable = selectedOrder.vehicleOwnership === "rented" ? selectedOrder.supplierTotalWithVat ?? orderCost(selectedOrder) : 0;
   const selectedDriverHeldAmount = selectedDriverReportCollectedAmount;
@@ -6919,10 +6967,14 @@ function FinancePanel({
             <p className="mt-1 text-sm text-slate-500">Dữ liệu này do tài xế gửi sau chuyến, kế toán dùng để đối chiếu hồ sơ.</p>
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
               <StatMini label="Thu hộ báo" value={money(selectedDriverReportCollectedAmount)} />
+              <StatMini label="Phụ phí phát sinh" value={money(selectedExtraChargeAmount)} />
               <StatMini label="Đã báo lúc" value={selectedOrder.driverReportedAt ? formatDateTime(selectedOrder.driverReportedAt) : "-"} />
             </div>
             <p className="mt-3 rounded-md border border-dashed border-line bg-panel px-3 py-2 text-xs text-slate-500">
-              {selectedOrder.driverExpenseNote ?? "Chưa có ghi chú báo cáo từ tài xế."}
+              {[
+                selectedDriverReportNoteParts.collectionNote ? `Ghi chú thu hộ: ${selectedDriverReportNoteParts.collectionNote}` : "",
+                selectedDriverReportNoteParts.extraChargeReason ? `Lý do phụ phí phát sinh: ${selectedDriverReportNoteParts.extraChargeReason}` : ""
+              ].filter(Boolean).join("\n") || "Chưa có ghi chú báo cáo từ tài xế."}
             </p>
           </section>
 

@@ -280,6 +280,8 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
     kvRow([["Thuế suất", trip.tax_rate], ["Tiền hàng", trip.subtotal]]);
     kvRow([["Tiền thuế", trip.tax_amount], ["Tổng thanh toán", trip.total]]);
     kvRow([["Hình thức thanh toán", trip.payment_method], ["Số lần thanh toán", payments.length || "-"]]);
+    kvRow([["Phụ phí phát sinh", trip.extra_charge], ["Tổng sau phát sinh", trip.total_after_extra_charge]]);
+    kvRow([["Lý do phụ phí phát sinh", trip.extra_charge_reason]]);
 
     y += mm(0.9);
     section("VI. THANH TOÁN");
