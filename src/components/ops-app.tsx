@@ -595,11 +595,10 @@ function FinalDispatchOrderSheet({
   const driverPhone = transport.driverPhone;
   const driverCccd = transport.driverCccd;
   const isRentedVehicle = order.vehicleOwnership === "rented" || transport.vehicleOwnership === "partner" || transport.vehicleOwnership === "rented";
-  const ownerName = isRentedVehicle
-    ? order.supplierOwnerName || transport.ownerName || order.supplierCompanyName || "-"
-    : ownerCompanyProfile.legalName;
+  const personalOwnerName = isRentedVehicle ? order.supplierOwnerName || transport.ownerName || "-" : "-";
+  const personalOwnerCccd = isRentedVehicle ? order.supplierCccd || transport.ownerCccd || "-" : "-";
   const supplierCompanyName = isRentedVehicle
-    ? order.supplierCompanyName || transport.supplierCompanyName || ownerName
+    ? order.supplierCompanyName || transport.supplierCompanyName || order.supplierOwnerName || transport.ownerName || "-"
     : ownerCompanyProfile.legalName;
   const supplierTaxCode = isRentedVehicle ? order.supplierTaxCode || transport.supplierTaxCode || "-" : ownerCompanyProfile.taxCode || "-";
   const supplierAddress = isRentedVehicle ? order.supplierAddress || transport.supplierAddress || "-" : ownerCompanyProfile.address || "-";
@@ -651,19 +650,19 @@ function FinalDispatchOrderSheet({
     { group: "Thông tin xe", label: "Họ và tên tài xế", value: driverLabel },
     { group: "Thông tin xe", label: "CCCD", value: driverCccd },
     { group: "Thông tin xe", label: "Số điện thoại tài xế", value: driverPhone },
-    { group: "Thông tin nhà cung cấp", label: "Họ và tên chủ sở hữu xe", value: ownerName, tone: "blue" },
-    { group: "Thông tin nhà cung cấp", label: "Số CCCD", value: isRentedVehicle ? order.supplierCccd || transport.ownerCccd || "-" : "-", tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Chủ sở hữu xe cá nhân", value: personalOwnerName, tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "CCCD chủ sở hữu cá nhân", value: personalOwnerCccd, tone: "blue" },
     { group: "Thông tin nhà cung cấp", label: "Có xuất hóa đơn đầu vào được không (Có; không)", value: supplierInvoiceRequired ? "Có" : "Không", tone: "blue" },
-    { group: "Thông tin nhà cung cấp", label: "Tên đơn vị thuê ngoài", value: supplierCompanyName, tone: "blue" },
+    { group: "Thông tin nhà cung cấp", label: "Đơn vị sở hữu/NCC", value: supplierCompanyName, tone: "blue" },
     { group: "Thông tin nhà cung cấp", label: "Mã số thuế", value: supplierTaxCode, tone: "blue" },
     { group: "Thông tin nhà cung cấp", label: "Địa chỉ", value: supplierAddress, tone: "blue" },
     { group: "Thông tin nhà cung cấp", label: "Số điện thoại nhà cung cấp", value: supplierPhone, tone: "blue" },
     { group: "Thông tin nhà cung cấp", label: "Tổng tiền mua", value: money(supplierTotal), tone: "blue" },
     { group: "Thông tin nhà cung cấp", label: "Số tài khoản ngân hàng", value: supplierBankAccount, tone: "blue" },
     { group: "Thông tin nhà cung cấp", label: "Tên ngân hàng", value: supplierBankName, tone: "blue" },
-    { group: "Thông tin khách hàng", label: "Họ và tên khách hàng", value: order.customerName },
-    { group: "Thông tin khách hàng", label: "Số CCCD", value: order.customerCccd || "Không cung cấp" },
-    { group: "Thông tin khách hàng", label: "Số điện thoại", value: order.contactPhone },
+    { group: "Thông tin khách hàng", label: order.customerKind === "company" ? "Người sử dụng dịch vụ" : "Họ và tên khách hàng", value: order.customerKind === "company" ? order.contactName || order.customerName : order.customerName },
+    { group: "Thông tin khách hàng", label: order.customerKind === "company" ? "CCCD người sử dụng" : "Số CCCD", value: order.customerCccd || "Không cung cấp" },
+    { group: "Thông tin khách hàng", label: order.customerKind === "company" ? "SĐT người sử dụng" : "Số điện thoại", value: order.contactPhone },
     { group: "Thông tin khách hàng", label: "Tên công ty", value: order.companyName || "-", tone: "yellow" },
     { group: "Thông tin khách hàng", label: "Mã số thuế", value: order.taxCode || "-", tone: "yellow" },
     { group: "Thông tin khách hàng", label: "Địa chỉ", value: order.companyAddress || order.customerAddress || "-", tone: "yellow" },
@@ -769,8 +768,8 @@ function FinalDispatchOrderSheet({
         driver_phone: driverPhone
       },
       supplier: {
-        owner_name: ownerName,
-        owner_cccd: isRentedVehicle ? order.supplierCccd || transport.ownerCccd || "-" : "-",
+        owner_name: personalOwnerName,
+        owner_cccd: personalOwnerCccd,
         input_invoice: supplierInvoiceRequired ? "Có" : "Không",
         supplier_name: supplierCompanyName,
         tax_code: supplierTaxCode,
@@ -781,7 +780,8 @@ function FinalDispatchOrderSheet({
         bank_name: supplierBankName
       },
       customer: {
-        name: order.customerName,
+        kind: order.customerKind,
+        name: order.customerKind === "company" ? order.contactName || order.customerName : order.customerName,
         cccd: order.customerCccd || "Không cung cấp",
         phone: order.contactPhone,
         company: order.companyName || "-",
@@ -2648,7 +2648,7 @@ export default function OpsApp() {
       contractType,
       customerKind: kind,
       customerName: kind === "company" ? selectedCompanyProfile?.legalName ?? companyName : selectedCustomerProfile?.fullName ?? String(form.get("customerName") || "").trim(),
-      customerCccd: kind === "individual" ? customerCccd || undefined : undefined,
+      customerCccd: customerCccd || undefined,
       customerAddress: kind === "individual" ? customerAddress || undefined : undefined,
       customerBankAccount: kind === "individual" ? customerBankAccount || undefined : undefined,
       customerBankName: kind === "individual" ? customerBankName || undefined : undefined,
@@ -3471,7 +3471,7 @@ export default function OpsApp() {
       p_contract_type: contractType || null,
       p_customer_kind: kind,
       p_customer_name: customerName,
-      p_customer_cccd: kind === "individual" ? customerCccd || null : null,
+      p_customer_cccd: customerCccd || null,
       p_customer_address: kind === "individual" ? customerAddress || null : null,
       p_customer_bank_account: kind === "individual" ? customerBankAccount || null : null,
       p_customer_bank_name: kind === "individual" ? customerBankName || null : null,
@@ -4950,6 +4950,7 @@ function OrderDetailPanel({
                       <input name="customerName" type="hidden" value={order.companyName || order.customerName} />
                       <Field label="Người sử dụng dịch vụ"><input className={inputClass()} defaultValue={order.contactName ?? ""} name="contactName" required /></Field>
                       <Field label="SĐT người sử dụng"><input className={inputClass()} defaultValue={order.contactPhone} name="contactPhone" required /></Field>
+                      <Field label="CCCD người sử dụng"><input className={inputClass()} defaultValue={order.customerCccd ?? ""} name="customerCccd" /></Field>
                       <Field label="Tên công ty"><input className={inputClass()} defaultValue={order.companyName ?? order.customerName} name="companyName" required /></Field>
                       <Field label="MST"><input className={inputClass()} defaultValue={order.taxCode ?? ""} name="taxCode" /></Field>
                       <Field label="Email HĐ"><input className={inputClass()} defaultValue={order.billingEmail ?? ""} name="billingEmail" type="email" /></Field>
@@ -5004,10 +5005,10 @@ function OrderDetailPanel({
                     <Field label="Họ tên tài xế"><input className={inputClass()} defaultValue={transport.driverName === "-" ? "" : transport.driverName} name="driverFullName" /></Field>
                     <Field label="CCCD tài xế"><input className={inputClass()} defaultValue={transport.driverCccd === "-" ? "" : transport.driverCccd} name="driverCccd" /></Field>
                     <Field label="SĐT tài xế"><input className={inputClass()} defaultValue={transport.driverPhone === "-" ? "" : transport.driverPhone} name="driverPhone" /></Field>
-                    <Field label="Tên chủ xe / nhà cung cấp"><input className={inputClass()} defaultValue={order.supplierOwnerName ?? transport.ownerName ?? ""} name="supplierOwnerName" /></Field>
-                    <Field label="CCCD / MST NCC"><input className={inputClass()} defaultValue={order.supplierCccd ?? transport.ownerCccd ?? ""} name="supplierCccd" /></Field>
+                    <Field label="Chủ sở hữu xe cá nhân"><input className={inputClass()} defaultValue={order.supplierOwnerName ?? transport.ownerName ?? ""} name="supplierOwnerName" /></Field>
+                    <Field label="CCCD chủ sở hữu cá nhân"><input className={inputClass()} defaultValue={order.supplierCccd ?? transport.ownerCccd ?? ""} name="supplierCccd" /></Field>
                     <Field label="Xuất HĐ đầu vào"><select className={inputClass()} defaultValue={editSupplierInvoiceRequired ? "yes" : "no"} name="supplierInvoiceRequired"><option value="yes">Có</option><option value="no">Không</option></select></Field>
-                    <Field label="Tên đơn vị thuê ngoài"><input className={inputClass()} defaultValue={order.supplierCompanyName ?? transport.supplierCompanyName ?? ""} name="supplierCompanyName" /></Field>
+                    <Field label="Đơn vị sở hữu/NCC"><input className={inputClass()} defaultValue={order.supplierCompanyName ?? transport.supplierCompanyName ?? ""} name="supplierCompanyName" /></Field>
                     <Field label="MST NCC"><input className={inputClass()} defaultValue={order.supplierTaxCode ?? transport.supplierTaxCode ?? ""} name="supplierTaxCode" /></Field>
                     <Field label="Địa chỉ NCC"><input className={inputClass()} defaultValue={order.supplierAddress ?? transport.supplierAddress ?? ""} name="supplierAddress" /></Field>
                     <Field label="SĐT NCC"><input className={inputClass()} defaultValue={order.supplierPhone ?? transport.supplierPhone ?? ""} name="supplierPhone" /></Field>
@@ -5459,7 +5460,8 @@ function OrdersPanel({
                     </select>
                   </Field>
                   <Field label="Tên công ty mới"><input className={inputClass()} name="companyName" /></Field>
-                  <Field label="Người liên hệ mới"><input className={inputClass()} name="contactName" /></Field>
+                  <Field label="Người sử dụng dịch vụ"><input className={inputClass()} name="contactName" /></Field>
+                  <Field label="CCCD người sử dụng"><input className={inputClass()} name="customerCccd" /></Field>
                   <Field label="MST"><input className={inputClass()} name="taxCode" /></Field>
                   <Field label="Email nhận HĐ"><input className={inputClass()} name="billingEmail" type="email" /></Field>
                   <Field label="Địa chỉ công ty"><input className={inputClass()} name="companyAddress" /></Field>
@@ -5514,10 +5516,10 @@ function OrdersPanel({
                 <Field label="Họ tên tài xế"><input className={inputClass()} name="driverFullName" /></Field>
                 <Field label="CCCD tài xế"><input className={inputClass()} name="driverCccd" /></Field>
                 <Field label="SĐT tài xế"><input className={inputClass()} name="driverPhone" /></Field>
-                <Field label="Chủ xe / NCC"><input className={inputClass()} name="supplierOwnerName" /></Field>
-                <Field label="CCCD / MST NCC"><input className={inputClass()} name="supplierCccd" /></Field>
+                <Field label="Chủ sở hữu xe cá nhân"><input className={inputClass()} name="supplierOwnerName" /></Field>
+                <Field label="CCCD chủ sở hữu cá nhân"><input className={inputClass()} name="supplierCccd" /></Field>
                 <Field label="Xuất HĐ đầu vào"><select className={inputClass()} defaultValue="yes" name="supplierInvoiceRequired"><option value="yes">Có</option><option value="no">Không</option></select></Field>
-                <Field label="Tên đơn vị thuê ngoài"><input className={inputClass()} name="supplierCompanyName" /></Field>
+                <Field label="Đơn vị sở hữu/NCC"><input className={inputClass()} name="supplierCompanyName" /></Field>
                 <Field label="MST NCC"><input className={inputClass()} name="supplierTaxCode" /></Field>
                 <Field label="Địa chỉ NCC"><input className={inputClass()} name="supplierAddress" /></Field>
                 <Field label="SĐT NCC"><input className={inputClass()} name="supplierPhone" /></Field>

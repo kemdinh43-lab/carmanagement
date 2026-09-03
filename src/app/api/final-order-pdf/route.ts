@@ -96,6 +96,10 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
   const supplierInputInvoice = text(supplier.input_invoice) === "-" ? "Có" : supplier.input_invoice;
   const provinceRouteLabel = normalizedProvinceRouteLabel(management.province_route_code);
   const serviceLabel = normalizedServiceLabel(trip.service_code, trip.service_label);
+  const isCompanyCustomer = text(customer.kind, "").toLowerCase() === "company" || text(customer.company, "") !== "-";
+  const customerNameLabel = isCompanyCustomer ? "Người sử dụng dịch vụ" : "Họ và tên khách hàng";
+  const customerCccdLabel = isCompanyCustomer ? "CCCD người sử dụng" : "Số CCCD";
+  const customerPhoneLabel = isCompanyCustomer ? "SĐT người sử dụng" : "Số điện thoại";
 
   const mm = (value: number) => value * 2.8346456693;
   const company = {
@@ -237,16 +241,16 @@ async function renderFinalOrderPdf(payload: FinalOrderPayload & { order_no: stri
 
     y += mm(0.9);
     section("III. THÔNG TIN NHÀ CUNG CẤP / CHỦ SỞ HỮU XE");
-    kvRow([["Chủ sở hữu xe", supplier.owner_name], ["Số CCCD", supplier.owner_cccd]]);
-    kvRow([["Hóa đơn đầu vào", supplierInputInvoice], ["Tên đơn vị thuê ngoài", supplier.supplier_name]]);
+    kvRow([["Chủ sở hữu xe cá nhân", supplier.owner_name], ["CCCD chủ sở hữu cá nhân", supplier.owner_cccd]]);
+    kvRow([["Hóa đơn đầu vào", supplierInputInvoice], ["Đơn vị sở hữu/NCC", supplier.supplier_name]]);
     kvRow([["Mã số thuế", supplier.tax_code], ["SĐT nhà cung cấp", supplier.phone]]);
     kvRow([["Địa chỉ", supplier.address]]);
     kvRow([["Tổng tiền mua", supplier.purchase_total], ["STK / Ngân hàng", `${text(supplier.bank_account)} / ${text(supplier.bank_name)}`]]);
 
     y += mm(0.9);
     section("IV. THÔNG TIN KHÁCH HÀNG");
-    kvRow([["Họ và tên khách hàng", customer.name], ["Số CCCD", customer.cccd]]);
-    kvRow([["Số điện thoại", customer.phone], ["Tên công ty", customer.company]]);
+    kvRow([[customerNameLabel, customer.name], [customerCccdLabel, customer.cccd]]);
+    kvRow([[customerPhoneLabel, customer.phone], ["Tên công ty", customer.company]]);
     kvRow([["Mã số thuế", customer.tax_code], ["Địa chỉ", customer.address]]);
     kvRow([["Số tài khoản", customer.bank_account], ["Tên ngân hàng", customer.bank_name]]);
 
