@@ -6170,14 +6170,32 @@ function CustomersPanel({
 
 function DriverTripBrief({ driver, order, vehicle }: { driver?: Driver; order: DispatchOrder; vehicle?: Vehicle }) {
   const collectedAmount = order.driverCollectedAmount ?? 0;
+  const isCompanyCustomer = order.customerKind === "company";
+  const serviceUserName = isCompanyCustomer ? order.contactName || order.customerName : order.customerName;
+  const serviceUserAddress = isCompanyCustomer ? order.companyAddress || "-" : order.customerAddress || "-";
+  const customerRows = isCompanyCustomer
+    ? [
+        ["Người sử dụng", serviceUserName],
+        ["CCCD người sử dụng", order.customerCccd || "Không cung cấp"],
+        ["SĐT người sử dụng", order.contactPhone],
+        ["Tên đơn vị", order.companyName || order.customerName],
+        ["MST", order.taxCode || "-"],
+        ["Địa chỉ doanh nghiệp", serviceUserAddress]
+      ]
+    : [
+        ["Khách cá nhân", serviceUserName],
+        ["CCCD", order.customerCccd || "Không cung cấp"],
+        ["SĐT", order.contactPhone],
+        ["Địa chỉ", serviceUserAddress]
+      ];
 
   return (
     <section className="mt-4 rounded-md border border-line bg-panel p-3 text-sm">
       <p className="font-semibold uppercase text-ink">Thông tin chuyến xe</p>
       <div className="mt-3 space-y-2 text-slate-700">
-        <p><span className="font-semibold text-ink">Khách hàng:</span> {order.companyName || ownerCompanyProfile.legalName}</p>
-        <p><span className="font-semibold text-ink">Người sử dụng:</span> {order.contactName || order.customerName}</p>
-        <p><span className="font-semibold text-ink">SĐT:</span> {order.contactPhone}</p>
+        {customerRows.map(([label, value]) => (
+          <p key={label}><span className="font-semibold text-ink">{label}:</span> {value}</p>
+        ))}
         <p><span className="font-semibold text-ink">Hành trình:</span> {routeSummaryForOrder(order)}</p>
         <p><span className="font-semibold text-ink">Có mặt tại điểm đón:</span> {timeOnly(order.startAt)} - {dateOnly(order.startAt)}</p>
       </div>
@@ -6318,58 +6336,6 @@ function DriverMobilePanel({
           <p className="mt-3 rounded-md border border-dashed border-line bg-panel px-3 py-2 text-xs text-slate-500">Tài khoản driver chỉ xem chuyến đã gắn với hồ sơ của mình.</p>
         )}
       </div>
-
-      <section className="border border-line bg-white p-4 shadow-sm">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-sm text-slate-500">Đề xuất từ tài xế</p>
-            <h4 className="font-semibold text-ink">Báo cuốc nhanh</h4>
-          </div>
-          <Badge tone={urgent ? "warn" : "info"}>{urgent ? "Khẩn" : "Ngắn"}</Badge>
-        </div>
-        <form
-          className="mt-4 grid gap-3"
-          onSubmit={(event) => {
-            void submitDriverProposal(event).then((ok) => {
-              if (ok) setUrgent(false);
-            });
-          }}
-        >
-          <div className="grid gap-3 md:grid-cols-2">
-            <Field label="Tên khách"><input className={inputClass()} name="customerName" required /></Field>
-            <Field label="SĐT"><input className={inputClass()} name="contactPhone" required /></Field>
-            <Field label="Giờ bắt đầu"><input className={inputClass()} defaultValue={vietnamDateTimeLocalValue(new Date(now.getTime() + 60 * 60 * 1000))} name="startAt" required type="datetime-local" /></Field>
-            <Field label="Giờ kết thúc dự kiến"><input className={inputClass()} defaultValue={vietnamDateTimeLocalValue(new Date(now.getTime() + 3 * 60 * 60 * 1000))} name="endAt" required type="datetime-local" /></Field>
-            <div className="md:col-span-2">
-              <Field label="Điểm đón"><input className={inputClass()} name="pickup" required /></Field>
-            </div>
-            <div className="md:col-span-2">
-              <Field label="Điểm đến"><input className={inputClass()} name="dropoff" required /></Field>
-            </div>
-            <div className="md:col-span-2">
-              <Field label="Loại xe / số khách"><input className={inputClass()} name="serviceLabel" placeholder="Ví dụ: 4 chỗ / 2 khách / airport transfer" required /></Field>
-            </div>
-            <div className="md:col-span-2">
-              <Field label="Ghi chú"><textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="note" placeholder="Khách gọi gấp, cần đón sớm, chờ ngắn..." /></Field>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
-              <input checked={urgent} className="size-4 accent-brand" name="urgent" onChange={(event) => setUrgent(event.target.checked)} type="checkbox" value="yes" />
-              Chuyến gấp
-            </label>
-            <p className="text-xs text-slate-500">Gấp sẽ đẩy lên đầu hàng chờ cho điều hành.</p>
-          </div>
-          {urgent && (
-            <Field label="Lý do gấp">
-              <input className={inputClass()} name="urgentReason" placeholder="Ví dụ: khách vừa báo lên xe ngay, chờ sân bay..." />
-            </Field>
-          )}
-            <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!can(currentRole, "submit_driver_proposal") || isActionPending("driver:proposal")} type="submit">
-              <Save size={16} /> {isActionPending("driver:proposal") ? "Đang gửi..." : "Gửi đề xuất"}
-          </button>
-        </form>
-      </section>
 
       {nextTrip && (
         <section className="border border-line bg-white p-4 shadow-sm">
@@ -6518,6 +6484,58 @@ function DriverMobilePanel({
           <p className="mt-2 text-sm text-slate-500">Chỉ hiện khi tài xế có chuyến đã hoàn thành để nhập tiền thu hộ.</p>
         </section>
       )}
+
+      <section className="border border-line bg-white p-4 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm text-slate-500">Đề xuất từ tài xế</p>
+            <h4 className="font-semibold text-ink">Báo cuốc nhanh</h4>
+          </div>
+          <Badge tone={urgent ? "warn" : "info"}>{urgent ? "Khẩn" : "Ngắn"}</Badge>
+        </div>
+        <form
+          className="mt-4 grid gap-3"
+          onSubmit={(event) => {
+            void submitDriverProposal(event).then((ok) => {
+              if (ok) setUrgent(false);
+            });
+          }}
+        >
+          <div className="grid gap-3 md:grid-cols-2">
+            <Field label="Tên khách"><input className={inputClass()} name="customerName" required /></Field>
+            <Field label="SĐT"><input className={inputClass()} name="contactPhone" required /></Field>
+            <Field label="Giờ bắt đầu"><input className={inputClass()} defaultValue={vietnamDateTimeLocalValue(new Date(now.getTime() + 60 * 60 * 1000))} name="startAt" required type="datetime-local" /></Field>
+            <Field label="Giờ kết thúc dự kiến"><input className={inputClass()} defaultValue={vietnamDateTimeLocalValue(new Date(now.getTime() + 3 * 60 * 60 * 1000))} name="endAt" required type="datetime-local" /></Field>
+            <div className="md:col-span-2">
+              <Field label="Điểm đón"><input className={inputClass()} name="pickup" required /></Field>
+            </div>
+            <div className="md:col-span-2">
+              <Field label="Điểm đến"><input className={inputClass()} name="dropoff" required /></Field>
+            </div>
+            <div className="md:col-span-2">
+              <Field label="Loại xe / số khách"><input className={inputClass()} name="serviceLabel" placeholder="Ví dụ: 4 chỗ / 2 khách / airport transfer" required /></Field>
+            </div>
+            <div className="md:col-span-2">
+              <Field label="Ghi chú"><textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="note" placeholder="Khách gọi gấp, cần đón sớm, chờ ngắn..." /></Field>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+              <input checked={urgent} className="size-4 accent-brand" name="urgent" onChange={(event) => setUrgent(event.target.checked)} type="checkbox" value="yes" />
+              Chuyến gấp
+            </label>
+            <p className="text-xs text-slate-500">Gấp sẽ đẩy lên đầu hàng chờ cho điều hành.</p>
+          </div>
+          {urgent && (
+            <Field label="Lý do gấp">
+              <input className={inputClass()} name="urgentReason" placeholder="Ví dụ: khách vừa báo lên xe ngay, chờ sân bay..." />
+            </Field>
+          )}
+          <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!can(currentRole, "submit_driver_proposal") || isActionPending("driver:proposal")} type="submit">
+            <Save size={16} /> {isActionPending("driver:proposal") ? "Đang gửi..." : "Gửi đề xuất"}
+          </button>
+        </form>
+      </section>
 
       <section className="border border-line bg-white p-4 shadow-sm">
         <div className="flex items-center justify-between gap-3">
