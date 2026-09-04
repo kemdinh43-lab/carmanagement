@@ -4165,9 +4165,10 @@ export default function OpsApp() {
   }
 
   const driverMobileShell = currentRole === "driver" && isMobileViewport;
+  const salesShell = currentRole === "sale";
 
   return (
-    <main className={`min-h-screen ${driverMobileShell ? "bg-[#f6f9fb]" : ""}`}>
+    <main className={`min-h-screen ${driverMobileShell || salesShell ? "bg-[#f6f9fb]" : ""}`}>
       <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-line bg-white px-4 py-5 lg:block">
         <div className="flex items-center gap-3">
           <div className="grid size-10 place-items-center rounded-md bg-brand text-white">
@@ -4196,7 +4197,7 @@ export default function OpsApp() {
       </aside>
 
       <section className="lg:pl-64">
-        {!driverMobileShell && (
+        {!driverMobileShell && !salesShell && (
         <header className="border-b border-line bg-white px-5 py-4 lg:px-8">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
@@ -4249,6 +4250,79 @@ export default function OpsApp() {
           <p className="mt-3 border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm text-cyan-900">{message}</p>
         </header>
         )}
+        {salesShell && (
+          <header className="bg-[#f6f9fb] px-4 pb-3 pt-5 lg:border-b lg:border-line lg:bg-white lg:px-6 lg:py-4">
+            <div className="flex items-center gap-3 lg:grid lg:grid-cols-[auto_1fr_auto_auto]">
+              <button
+                className="grid h-12 w-12 shrink-0 place-items-center rounded-full border-2 border-blue-600 bg-white text-ink shadow-sm lg:h-11 lg:w-11"
+                type="button"
+              >
+                <Menu size={24} />
+              </button>
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-gradient-to-br from-brand to-teal-600 text-white shadow-[0_10px_24px_rgba(15,118,110,0.25)] lg:h-11 lg:w-11">
+                  <Route size={25} />
+                </div>
+                <div className="min-w-0">
+                  <h1 className="truncate text-xl font-extrabold leading-tight text-ink lg:text-lg">Chào {authLabel || "Sales"}</h1>
+                  <p className="text-sm font-medium text-slate-500">{vietnamFriendlyDate(now)}</p>
+                </div>
+              </div>
+              <div className="relative hidden w-full max-w-xl lg:block">
+                <Search className="absolute left-4 top-3.5 text-slate-400" size={18} />
+                <input
+                  className="h-12 w-full rounded-xl border border-line bg-slate-50 pl-11 pr-4 text-sm outline-none focus:border-brand focus:bg-white"
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Tìm lệnh, khách hàng, SĐT, địa điểm..."
+                  value={query}
+                />
+              </div>
+              <div className="hidden h-12 items-center gap-2 rounded-xl border border-line bg-white px-4 text-sm font-semibold text-slate-700 lg:inline-flex">
+                <CalendarClock className="text-brand" size={18} />
+                Hôm nay, {dateOnly(now.toISOString())}
+              </div>
+              <div className="relative ml-auto flex items-center gap-3 lg:ml-0" ref={notificationsRef}>
+                <button
+                  className="relative grid h-12 w-12 place-items-center rounded-full bg-white text-ink shadow-sm lg:h-11 lg:w-11 lg:border lg:border-line lg:shadow-none"
+                  onClick={() => setShowNotifications((open) => !open)}
+                  type="button"
+                >
+                  <Bell size={24} />
+                  {visibleNotifications.length > 0 && (
+                    <span className="absolute -right-1 -top-1 grid h-6 min-w-6 place-items-center rounded-full bg-red-500 px-1 text-xs font-bold text-white">
+                      {visibleNotifications.length}
+                    </span>
+                  )}
+                </button>
+                <div className="hidden items-center gap-3 border-l border-line pl-4 lg:flex">
+                  <div className="grid h-11 w-11 place-items-center rounded-full bg-teal-50 text-sm font-bold text-brand">{(authLabel || "S").slice(0, 1).toUpperCase()}</div>
+                  <div>
+                    <p className="text-sm font-bold text-ink">{authLabel || "Sales"}</p>
+                    <p className="text-xs text-slate-500">Sales</p>
+                  </div>
+                </div>
+                {showNotifications && visibleNotifications.length > 0 && (
+                  <div className="absolute right-0 top-14 z-30 w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-line bg-white p-2 text-sm shadow-xl">
+                    {visibleNotifications.slice(0, 6).map((item) => (
+                      <button
+                        className="w-full rounded-xl px-3 py-2 text-left hover:bg-slate-50"
+                        key={item.id}
+                        onClick={() => {
+                          if (item.entityId) setSelectedOrderId(item.entityId);
+                          setShowNotifications(false);
+                        }}
+                        type="button"
+                      >
+                        <p className="font-bold text-ink">{item.title}</p>
+                        <p className="mt-1 text-xs text-slate-500">{item.body}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </header>
+        )}
         {showTripCleanupConfirm && (
           <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4">
             <div className="w-full max-w-lg border border-line bg-white p-5 shadow-xl">
@@ -4289,7 +4363,7 @@ export default function OpsApp() {
             </div>
           </div>
         )}
-        {currentRole !== "driver" && (
+        {currentRole !== "driver" && !salesShell && (
         <div className="border-b border-line bg-white px-3 py-3 lg:hidden">
           <div className="flex gap-2 overflow-x-auto pb-1">
             {visibleTabs.map((item) => (
@@ -4309,7 +4383,7 @@ export default function OpsApp() {
         </div>
         )}
 
-        <div className={driverMobileShell ? "pb-28" : "space-y-6 p-5 pb-28 lg:p-8"}>
+        <div className={driverMobileShell ? "pb-28" : salesShell ? "space-y-5 px-4 pb-28 pt-2 lg:px-6 lg:py-5" : "space-y-6 p-5 pb-28 lg:p-8"}>
           {currentRole !== "driver" && currentRole !== "sale" && (
             <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <StatCard label="Chuyến hôm nay" value={String(todayOrders.length)} icon={CalendarClock} detail="Tính theo ngày chạy, không theo ngày tạo." />
@@ -4440,7 +4514,7 @@ export default function OpsApp() {
           )}
           {activeTab === "Audit" && (can(currentRole, "view_audit") ? <AuditPanel events={state.auditEvents} /> : <AccessDenied role={currentRole} />)}
         </div>
-        {currentRole !== "driver" && (
+        {currentRole !== "driver" && !salesShell && (
         <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white/95 backdrop-blur lg:hidden">
           <div className="flex gap-2 overflow-x-auto px-3 py-2">
             {visibleTabs.map((item) => {
@@ -5652,24 +5726,27 @@ function OrdersPanel({
     .filter((order) => order.source === "Driver" && order.orderStatus === "draft")
     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
   const salesOverviewCards = [
-    { label: "Chờ điều hành", value: String(filteredOrders.filter((order) => order.orderStatus === "pending_dispatch_review").length), tone: "warn" as const },
-    { label: "Cần sửa", value: String(filteredOrders.filter(isNeedFixOrder).length), tone: "danger" as const },
-    { label: "Sắp chạy", value: String(filteredOrders.filter(isSoonOrder).length), tone: "info" as const },
-    { label: "Còn phải thu", value: money(Math.max(revenueForSales - collectedForSales, 0)), tone: "good" as const }
+    { label: "Lệnh mới", value: String(filteredOrders.length), icon: ClipboardList, filter: "all" as const },
+    { label: "Chờ điều hành", value: String(filteredOrders.filter((order) => order.orderStatus === "pending_dispatch_review").length), icon: Clock3, filter: "pending" as const },
+    { label: "Chưa thu", value: String(filteredOrders.filter((order) => order.paymentStatus !== "paid").length), icon: ReceiptText, filter: "all" as const }
   ];
   const salesFilters = [
-    { key: "all", label: "Tất cả" },
-    { key: "pending", label: "Chờ duyệt" },
+    { key: "all", label: "Mới nhất" },
     { key: "need_fix", label: "Cần sửa" },
+    { key: "pending", label: "Chờ điều hành" },
     { key: "approved", label: "Đã duyệt" },
     { key: "soon", label: "Sắp chạy" }
   ] as const;
   const salesCreateSteps = [
-    { index: 1, label: "Thông tin" },
-    { index: 2, label: "Dịch vụ" },
-    { index: 3, label: "Xác nhận" }
+    { index: 1, label: "Loại khách" },
+    { index: 2, label: "Khách hàng" },
+    { index: 3, label: "Hành trình" },
+    { index: 4, label: "Dịch vụ" },
+    { index: 5, label: "Thanh toán" },
+    { index: 6, label: "Preview" }
   ];
-  const stepClass = (step: number) => salesCreateStep === step ? "block" : "hidden md:block";
+  const stepClass = (step: number) => salesCreateStep === step ? "block" : "hidden";
+  const selectedOrderCollected = selectedOrder ? payments.filter((payment) => payment.orderId === selectedOrder.id && payment.status === "valid").reduce((sum, payment) => sum + payment.amount, 0) : 0;
   const refreshSalesDraftPreview = (formElement: HTMLFormElement) => {
     const form = new FormData(formElement);
     const kind = String(form.get("customerKind") || customerKind);
@@ -5703,40 +5780,43 @@ function OrdersPanel({
   return (
     <section className={`space-y-4 ${canCreateOrder ? "pb-24 md:pb-0" : ""}`}>
       {canCreateOrder && (
-        <section className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)] md:rounded-md">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <section className={`${salesMobileView === "create" ? "hidden lg:block" : "block"} overflow-hidden rounded-[22px] border border-teal-100 bg-white shadow-[0_10px_28px_rgba(15,23,42,0.08)] lg:rounded-2xl`}>
+          <div className="flex items-center justify-between bg-gradient-to-r from-brand to-teal-600 px-4 py-4 text-white">
             <div>
-              <p className="text-sm text-slate-500">Bàn làm việc Sales</p>
-              <h3 className="text-xl font-bold text-ink">Lệnh của tôi</h3>
+              <h3 className="text-lg font-extrabold">Tổng quan hôm nay</h3>
+              <p className="mt-1 text-xs font-medium text-teal-50">Lệnh mới nhất hiện ở trên cùng</p>
             </div>
             <button
-              className="hidden h-10 items-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 md:inline-flex"
-              onClick={() => setSalesMobileView("create")}
+              className="hidden h-11 items-center gap-2 rounded-xl bg-white/15 px-4 text-sm font-bold text-white ring-1 ring-white/25 hover:bg-white/20 lg:inline-flex"
+              onClick={() => {
+                setSalesMobileView("create");
+                setSalesCreateStep(1);
+              }}
               type="button"
             >
-              <Plus size={16} /> Tạo lệnh
+              <Plus size={18} /> Tạo lệnh
             </button>
           </div>
-          <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="grid grid-cols-3 divide-x divide-line px-3 py-4">
             {salesOverviewCards.map((item) => (
               <button
-                className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-left md:rounded-md"
+                className="px-2 text-center"
                 key={item.label}
-                onClick={() => {
-                  const matched = salesFilters.find((filter) => filter.label === item.label || (item.label === "Chờ điều hành" && filter.key === "pending") || (item.label === "Cần sửa" && filter.key === "need_fix") || (item.label === "Sắp chạy" && filter.key === "soon"));
-                  if (matched) setSalesFilter(matched.key);
-                }}
+                onClick={() => setSalesFilter(item.filter)}
                 type="button"
               >
-                <p className="text-xs font-semibold uppercase text-slate-500">{item.label}</p>
-                <p className="mt-2 text-xl font-bold text-ink">{item.value}</p>
+                <span className="mx-auto grid h-9 w-9 place-items-center rounded-full bg-teal-50 text-brand">
+                  <item.icon size={18} />
+                </span>
+                <p className="mt-2 text-2xl font-extrabold text-ink">{item.value}</p>
+                <p className="text-xs font-medium text-slate-500">{item.label}</p>
               </button>
             ))}
           </div>
-          <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+          <div className="mx-3 mb-3 grid grid-cols-3 overflow-hidden rounded-full border border-line bg-slate-50 p-1 lg:flex lg:w-fit lg:rounded-xl">
             {salesFilters.map((filter) => (
               <button
-                className={`shrink-0 rounded-full border px-3 py-2 text-sm font-semibold ${salesFilter === filter.key ? "border-brand bg-teal-50 text-brand" : "border-slate-200 bg-white text-slate-600"}`}
+                className={`shrink-0 rounded-full px-3 py-2 text-sm font-bold lg:rounded-lg ${salesFilter === filter.key ? "bg-brand text-white shadow-sm" : "text-slate-600"}`}
                 key={filter.key}
                 onClick={() => setSalesFilter(filter.key)}
                 type="button"
@@ -5750,80 +5830,77 @@ function OrdersPanel({
 
       {canCreateOrder && (
       <form
-        className={`${salesMobileView === "create" ? "block" : "hidden"} rounded-[18px] border border-line bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)] md:rounded-md md:shadow-sm`}
+        className={`${salesMobileView === "create" ? "block" : "hidden"} overflow-hidden rounded-[22px] border border-line bg-white shadow-[0_10px_28px_rgba(15,23,42,0.08)]`}
         onChange={(event) => refreshSalesDraftPreview(event.currentTarget)}
         onInput={(event) => refreshSalesDraftPreview(event.currentTarget)}
         onSubmit={createOrder}
       >
-        <div className="flex flex-col gap-3 border-b border-line pb-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-2">
-            <Plus className="text-brand" size={20} />
-            <div>
-              <h3 className="font-semibold text-ink">Tạo lệnh mới</h3>
-              <p className="text-sm text-slate-500">Đi theo từng bước, cuối cùng kiểm preview rồi gửi điều hành.</p>
-            </div>
-          </div>
+        <div className="flex items-center justify-between border-b border-line px-4 py-4">
           <button
-            className="h-10 rounded-md border border-line bg-white px-3 text-sm font-semibold text-slate-700 md:hidden"
+            className="grid h-10 w-10 place-items-center rounded-full bg-white text-ink hover:bg-slate-50"
             onClick={() => setSalesMobileView("list")}
             type="button"
           >
-            Đóng
+            <ChevronLeft size={22} />
           </button>
-          <div className="grid w-full grid-cols-2 gap-2 sm:w-80">
-            <button
-              className={`h-10 rounded-md border px-3 text-sm font-semibold ${customerKind === "individual" ? "border-brand bg-teal-50 text-brand" : "border-line bg-white text-slate-600"}`}
-              onClick={() => {
-                setCustomerKind("individual");
-                setSalesDraftPreview((current) => ({ ...current, kind: "Cá nhân" }));
-              }}
-              type="button"
-            >
-              Cá nhân
-            </button>
-            <button
-              className={`h-10 rounded-md border px-3 text-sm font-semibold ${customerKind === "company" ? "border-brand bg-teal-50 text-brand" : "border-line bg-white text-slate-600"}`}
-              onClick={() => {
-                setCustomerKind("company");
-                setSalesDraftPreview((current) => ({ ...current, kind: "Doanh nghiệp" }));
-              }}
-              type="button"
-            >
-              Doanh nghiệp
-            </button>
+          <div className="text-center">
+            <h3 className="text-lg font-extrabold text-ink">Tạo lệnh</h3>
+            <p className="text-xs font-medium text-slate-500">Nhập từng phần, kiểm preview rồi gửi</p>
           </div>
-        </div>
-        <div className="mt-4 flex items-center justify-between gap-3">
           <div className="flex gap-2">
-            <button className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-slate-700" onClick={() => document.execCommand("undo")} type="button">
-              <Undo2 size={16} /> Undo
+            <button className="grid h-10 w-10 place-items-center rounded-full border border-line bg-white text-brand" onClick={() => document.execCommand("undo")} type="button">
+              <Undo2 size={18} />
             </button>
-            <button className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-slate-700" onClick={() => document.execCommand("redo")} type="button">
-              <Redo2 size={16} /> Redo
+            <button className="grid h-10 w-10 place-items-center rounded-full border border-line bg-white text-brand" onClick={() => document.execCommand("redo")} type="button">
+              <Redo2 size={18} />
             </button>
           </div>
-          <Badge tone="info">Bước {salesCreateStep}/3</Badge>
         </div>
-        <div className="mt-4 grid grid-cols-3 items-center gap-2">
+        <div className="grid grid-cols-6 gap-1 px-4 py-4">
           {salesCreateSteps.map((step) => (
             <button
-              className={`rounded-full border px-2 py-2 text-sm font-semibold ${salesCreateStep === step.index ? "border-brand bg-teal-50 text-brand" : "border-line bg-white text-slate-500"}`}
+              className="min-w-0 text-center"
               key={step.index}
               onClick={() => setSalesCreateStep(step.index)}
               type="button"
             >
-              {step.index}. {step.label}
+              <span className={`mx-auto grid h-8 w-8 place-items-center rounded-full text-xs font-extrabold ${salesCreateStep >= step.index ? "bg-brand text-white" : "bg-slate-100 text-slate-500"}`}>
+                {salesCreateStep > step.index ? <CheckCircle2 size={15} /> : step.index}
+              </span>
+              <span className={`mt-1 block truncate text-[10px] font-semibold ${salesCreateStep === step.index ? "text-brand" : "text-slate-500"}`}>{step.label}</span>
             </button>
           ))}
         </div>
         <input name="customerKind" type="hidden" value={customerKind} />
-        <div className="mt-4 space-y-4">
-          <div className={stepClass(1)}>
+        <div className="space-y-4 px-4 pb-4">
+          <div className={salesCreateStep === 1 || salesCreateStep === 2 ? "block" : "hidden"}>
           <SectionDetails
             badge={customerKind === "company" ? "Doanh nghiệp" : "Cá nhân"}
-            description="Sale chỉ cần nhập phần tạo đề xuất. Vận hành và tài chính sẽ bổ sung sau."
-            title="1. Thông tin lệnh & khách hàng"
+            description="Chọn đúng loại khách trước, các trường khách hàng vẫn giữ đầy đủ để lên PDF final."
+            title="1. Loại khách & khách hàng"
           >
+            <div className="mb-4 grid grid-cols-2 gap-2">
+              <button
+                className={`h-12 rounded-xl border px-3 text-sm font-bold ${customerKind === "individual" ? "border-brand bg-teal-50 text-brand" : "border-line bg-white text-slate-600"}`}
+                onClick={() => {
+                  setCustomerKind("individual");
+                  setSalesDraftPreview((current) => ({ ...current, kind: "Cá nhân" }));
+                }}
+                type="button"
+              >
+                Cá nhân
+              </button>
+              <button
+                className={`h-12 rounded-xl border px-3 text-sm font-bold ${customerKind === "company" ? "border-brand bg-teal-50 text-brand" : "border-line bg-white text-slate-600"}`}
+                onClick={() => {
+                  setCustomerKind("company");
+                  setSalesDraftPreview((current) => ({ ...current, kind: "Doanh nghiệp" }));
+                }}
+                type="button"
+              >
+                Doanh nghiệp
+              </button>
+            </div>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
               <Field label="Ngày lệnh"><input className={inputClass()} name="orderDate" placeholder="2026-08-25" /></Field>
               <Field label="Loại hợp đồng">
@@ -5917,11 +5994,24 @@ function OrdersPanel({
           </SectionDetails>
           </div>
 
-          <div className={stepClass(2)}>
+          <div className={stepClass(3)}>
           <SectionDetails
-            badge="Sale"
-            description="Chỉ cần đủ để mô tả chuyến và gửi đề xuất."
-            title="2. Hành trình & giá bán"
+            badge="Hành trình"
+            description="Nhập chặng, thời gian, số khách và mức ưu tiên."
+            title="3. Hành trình"
+          >
+            <div className="grid gap-3 md:grid-cols-2">
+              <RouteLegFields />
+              <Field label="Ưu tiên"><select className={inputClass()} name="priority"><option value="normal">Thường</option><option value="high">Cao</option><option value="urgent">Gấp</option></select></Field>
+            </div>
+          </SectionDetails>
+          </div>
+
+          <div className={stepClass(4)}>
+          <SectionDetails
+            badge="Dịch vụ"
+            description="Chọn dịch vụ, loại xe và cách diễn giải cho khách."
+            title="4. Dịch vụ & xe"
           >
             <div className="grid gap-3 md:grid-cols-2">
               <ServiceFields />
@@ -5934,8 +6024,17 @@ function OrdersPanel({
                   <option>Tháng</option>
                 </select>
               </Field>
-              <RouteLegFields />
-              <Field label="Ưu tiên"><select className={inputClass()} name="priority"><option value="normal">Thường</option><option value="high">Cao</option><option value="urgent">Gấp</option></select></Field>
+            </div>
+          </SectionDetails>
+          </div>
+
+          <div className={stepClass(5)}>
+          <SectionDetails
+            badge="Thanh toán"
+            description="Nhập giá bán, thuế, tạm ứng và ghi chú gửi khách."
+            title="5. Thanh toán"
+          >
+            <div className="grid gap-3 md:grid-cols-2">
               <VatCalculatorFields initialTotal={1200000} />
               <SalesPrepaymentFields initialTotal={1200000} />
               <div className="md:col-span-2">
@@ -5949,7 +6048,7 @@ function OrdersPanel({
           </div>
 
           {canOperate && (
-            <div className={stepClass(2)}>
+            <div className={stepClass(4)}>
             <SectionDetails
               badge="Điều hành"
               defaultOpen={false}
@@ -5978,7 +6077,7 @@ function OrdersPanel({
           )}
 
           {canFinance && (
-            <div className={stepClass(2)}>
+            <div className={stepClass(5)}>
             <SectionDetails
               badge="Kế toán"
               defaultOpen={false}
@@ -6004,7 +6103,7 @@ function OrdersPanel({
             </div>
           )}
 
-          <div className={stepClass(3)}>
+          <div className={stepClass(6)}>
           <SectionDetails
             badge="Ghi chú"
             defaultOpen
@@ -6038,10 +6137,10 @@ function OrdersPanel({
               onClick={() => salesCreateStep === 1 ? setSalesMobileView("list") : setSalesCreateStep((step) => Math.max(step - 1, 1))}
               type="button"
             >
-              {salesCreateStep === 1 ? "Quay lại" : "Quay lại sửa"}
+              {salesCreateStep === 1 ? "Danh sách" : "Quay lại"}
             </button>
-            {salesCreateStep < 3 ? (
-              <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-bold text-white hover:bg-teal-800 md:rounded-md" onClick={() => setSalesCreateStep((step) => Math.min(step + 1, 3))} type="button">
+            {salesCreateStep < 6 ? (
+              <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-bold text-white hover:bg-teal-800 md:rounded-md" onClick={() => setSalesCreateStep((step) => Math.min(step + 1, 6))} type="button">
                 Tiếp tục <ChevronRight size={16} />
               </button>
             ) : (
@@ -6099,12 +6198,12 @@ function OrdersPanel({
       </div>
 
       <div className={`${salesMobileView === "create" ? "hidden" : "block"} md:block`}>
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)]">
-        <div className="border border-line bg-white shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-line px-4 py-3 md:flex-row md:items-center md:justify-between">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(420px,1.05fr)]">
+        <div className="overflow-hidden rounded-[22px] border border-line bg-white shadow-[0_10px_28px_rgba(15,23,42,0.08)]">
+        <div className="flex flex-col gap-3 border-b border-line px-4 py-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h3 className="font-semibold text-ink">Lệnh điều xe</h3>
-            <p className="text-sm text-slate-500">Tìm theo tên khách, ngày, mã lệnh hoặc tuyến. Lệnh mới nhất ưu tiên lên đầu.</p>
+            <h3 className="text-lg font-extrabold text-ink">Lệnh của tôi</h3>
+            <p className="text-sm text-slate-500">Tìm nhanh theo khách, ngày, mã lệnh hoặc tuyến.</p>
           </div>
           <div className="relative w-full md:w-72">
             <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
@@ -6120,25 +6219,14 @@ function OrdersPanel({
             >
               <ChevronLeft size={16} /> Danh sách lệnh
             </button>
-            <OrderDetailPanel
-              assignments={assignments}
-              auditEvents={auditEvents}
-              currentRole={currentRole}
-              drivers={drivers}
-              order={selectedOrder}
-              payments={payments}
-              cancelOrder={cancelOrder}
-              updateOrder={updateOrder}
-              updateQuoteStatus={updateQuoteStatus}
-              vehicles={vehicles}
-            />
+            <SalesOrderPreview order={selectedOrder} collectedAmount={selectedOrderCollected} />
           </div>
         )}
-        <div className={`${salesMobileView === "detail" ? "hidden" : "space-y-3 p-3"} md:hidden`}>
+        <div className={`${salesMobileView === "detail" ? "hidden" : "space-y-3 p-3"} md:block`}>
           {visibleOrders.map((order) => (
             <div key={order.id}>
             <button
-              className={`w-full rounded-lg border px-3 py-3 text-left shadow-sm ${selectedOrderId === order.id ? "border-teal-600 bg-teal-50/70" : "border-line bg-white"}`}
+              className={`w-full rounded-2xl border px-4 py-4 text-left shadow-sm ${selectedOrderId === order.id ? "border-teal-600 bg-teal-50/70" : "border-line bg-white"}`}
               onClick={() => {
                 setSelectedOrderId(order.id);
                 setSalesMobileView("detail");
@@ -6148,23 +6236,21 @@ function OrdersPanel({
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="font-semibold text-ink">{order.code}</p>
-                  <p className="mt-1 text-xs text-slate-500">{order.salesOwner} / {order.source}</p>
+                  <p className="mt-1 text-sm text-slate-600">{order.customerName}</p>
                 </div>
                 <Badge tone={orderStatusTone(order.orderStatus)}>{orderStatusLabels[order.orderStatus]}</Badge>
               </div>
-              <div className="mt-3 space-y-1 text-sm">
-                <p className="font-medium text-slate-800">{order.customerName}</p>
-                <p className="text-slate-600">{routeSummaryForOrder(order)}</p>
-                <p className="text-xs text-slate-500">{formatDateTime(order.startAt)} - {formatDateTime(order.endAt)}</p>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Badge tone={order.customerKind === "company" ? "info" : "neutral"}>{order.customerKind === "company" ? "Doanh nghiệp" : "Cá nhân"}</Badge>
-                <Badge tone={quoteTone(order.quoteStatus)}>{quoteLabels[order.quoteStatus ?? "draft"]}</Badge>
-                <Badge tone={statusTone(order)}>{dispatchLabels[order.dispatchStatus]}</Badge>
-                <Badge tone={order.paymentStatus === "paid" ? "good" : order.paymentStatus === "partial" ? "warn" : "danger"}>{paymentLabels[order.paymentStatus]}</Badge>
+              <div className="mt-3 space-y-2 text-sm">
+                <p className="font-semibold text-slate-800">{routeSummaryForOrder(order)}</p>
+                <div className="grid grid-cols-2 gap-2 text-xs font-medium text-slate-600">
+                  <span className="inline-flex items-center gap-1"><CalendarClock size={14} /> {timeOnly(order.startAt)} - {dateOnly(order.startAt)}</span>
+                  <span className="inline-flex items-center gap-1"><UsersRound size={14} /> {order.guestCount ?? "-"} chỗ</span>
+                </div>
               </div>
               <div className="mt-3 flex items-center justify-between gap-2 text-sm">
-                <span className="font-semibold text-ink">{money(order.amountDue)}</span>
+                <span className="font-extrabold text-ink">{money(order.amountDue)}</span>
+                <Badge tone={order.paymentStatus === "paid" ? "good" : order.paymentStatus === "partial" ? "warn" : "danger"}>{paymentLabels[order.paymentStatus]}</Badge>
+                <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500">Xem preview <ChevronRight size={15} /></span>
                 {canViewInternalMoney && <span className={`font-semibold ${orderProfit(order) >= 0 ? "text-emerald-700" : "text-red-700"}`}>{money(orderProfit(order))}</span>}
               </div>
             </button>
@@ -6172,7 +6258,7 @@ function OrdersPanel({
           ))}
           {visibleOrders.length === 0 && <p className="px-1 py-3 text-sm text-slate-500">Không có lệnh phù hợp bộ lọc.</p>}
         </div>
-        <div className="hidden overflow-x-auto md:block">
+        <div className="hidden overflow-x-auto">
           <table className="w-full min-w-[1160px] border-collapse text-sm">
             <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
               <tr>
@@ -6227,18 +6313,22 @@ function OrdersPanel({
         </div>
         {selectedOrder && (
           <div className={`${canCreateOrder ? "hidden md:block" : ""} xl:sticky xl:top-4 xl:self-start`}>
-          <OrderDetailPanel
-            assignments={assignments}
-            auditEvents={auditEvents}
-            currentRole={currentRole}
-            drivers={drivers}
-            order={selectedOrder}
-            payments={payments}
-            cancelOrder={cancelOrder}
-            updateOrder={updateOrder}
-            updateQuoteStatus={updateQuoteStatus}
-            vehicles={vehicles}
-          />
+          {canCreateOrder ? (
+            <SalesOrderPreview order={selectedOrder} collectedAmount={selectedOrderCollected} />
+          ) : (
+            <OrderDetailPanel
+              assignments={assignments}
+              auditEvents={auditEvents}
+              currentRole={currentRole}
+              drivers={drivers}
+              order={selectedOrder}
+              payments={payments}
+              cancelOrder={cancelOrder}
+              updateOrder={updateOrder}
+              updateQuoteStatus={updateQuoteStatus}
+              vehicles={vehicles}
+            />
+          )}
           </div>
         )}
         </div>
@@ -6256,6 +6346,123 @@ function OrdersPanel({
         </button>
       )}
     </section>
+  );
+}
+
+function SalesOrderPreview({ collectedAmount, order }: { collectedAmount: number; order: DispatchOrder }) {
+  const remainingAmount = Math.max(order.amountDue - collectedAmount, 0);
+  return (
+    <section className="space-y-3 rounded-[22px] border border-line bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-500">Preview lệnh</p>
+          <h3 className="mt-1 text-2xl font-extrabold text-ink">{order.code}</h3>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Badge tone={orderStatusTone(order.orderStatus)}>{orderStatusLabels[order.orderStatus]}</Badge>
+          <Badge tone={order.paymentStatus === "paid" ? "good" : order.paymentStatus === "partial" ? "warn" : "danger"}>{paymentLabels[order.paymentStatus]}</Badge>
+        </div>
+      </div>
+
+      <div className="grid gap-3">
+        <section className="rounded-2xl bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.06)] ring-1 ring-slate-100">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <UserRound className="text-brand" size={18} />
+              <h4 className="font-bold text-ink">Khách hàng & doanh nghiệp</h4>
+            </div>
+            <ChevronRight className="text-slate-400" size={18} />
+          </div>
+          <div className="mt-3 divide-y divide-slate-100 text-sm">
+            <InfoLine label="Khách hàng" value={order.customerName || "-"} />
+            <InfoLine label="Người sử dụng" value={order.contactName || order.customerName || "-"} />
+            <InfoLine label="SĐT" value={order.contactPhone || "-"} />
+            <InfoLine label={order.customerKind === "company" ? "Mã số thuế" : "CCCD"} value={order.customerKind === "company" ? order.taxCode || "-" : order.customerCccd || "-"} />
+          </div>
+        </section>
+
+        <section className="rounded-2xl bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.06)] ring-1 ring-slate-100">
+          <div className="flex items-center gap-2">
+            <MapPin className="text-brand" size={18} />
+            <h4 className="font-bold text-ink">Hành trình</h4>
+          </div>
+          <div className="mt-4 grid gap-4 md:grid-cols-[1fr_auto]">
+            <div className="space-y-4 text-sm">
+              <div className="flex gap-3">
+                <span className="mt-1 h-3 w-3 rounded-full bg-brand" />
+                <div>
+                  <p className="font-bold text-ink">{timeOnly(order.startAt)} - {dateOnly(order.startAt)}</p>
+                  <p className="text-slate-600">Điểm đón</p>
+                  <p className="font-semibold text-ink">{order.pickup}</p>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <span className="mt-1 h-3 w-3 rounded-full bg-red-500" />
+                <div>
+                  <p className="font-bold text-ink">{timeOnly(order.endAt)} - {dateOnly(order.endAt)}</p>
+                  <p className="text-slate-600">Điểm trả</p>
+                  <p className="font-semibold text-ink">{order.dropoff}</p>
+                </div>
+              </div>
+            </div>
+            <div className="rounded-2xl border border-line bg-slate-50 p-4 text-center">
+              <p className="text-lg font-extrabold text-ink">{order.vehiclePlateNo || order.externalVehiclePlate || "Chưa có xe"}</p>
+              <p className="mt-1 text-sm text-slate-500">{order.serviceLabel} / {order.guestCount ?? "-"} khách</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-2xl bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.06)] ring-1 ring-slate-100">
+          <div className="flex items-center gap-2">
+            <ReceiptText className="text-brand" size={18} />
+            <h4 className="font-bold text-ink">Thanh toán</h4>
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-[1fr_180px]">
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between gap-3"><span className="text-slate-500">Tiền dịch vụ</span><strong>{money(order.subtotalAmount ?? order.amountDue)}</strong></div>
+              <div className="flex justify-between gap-3"><span className="text-slate-500">Thuế suất</span><strong>{order.vatRate ?? 0}%</strong></div>
+              <div className="flex justify-between gap-3"><span className="text-slate-500">Đã thu / tạm ứng</span><strong>{money(collectedAmount)}</strong></div>
+              <div className="flex justify-between gap-3 border-t border-line pt-2"><span className="font-semibold text-ink">Còn phải thu</span><strong className="text-brand">{money(remainingAmount)}</strong></div>
+            </div>
+            <div className="grid place-items-center rounded-2xl bg-teal-50 p-4 text-center">
+              <div>
+                <p className="text-xs font-bold uppercase text-brand">Tổng cộng</p>
+                <p className="mt-1 text-2xl font-extrabold text-brand">{money(order.amountDue)}</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-2xl bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.06)] ring-1 ring-slate-100">
+          <div className="flex items-center gap-2">
+            <FileText className="text-brand" size={18} />
+            <h4 className="font-bold text-ink">Ghi chú / lịch sử gửi điều hành</h4>
+          </div>
+          <p className="mt-3 text-sm text-slate-600">{order.salesNote || order.quoteNote || "-"}</p>
+        </section>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-3">
+        <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-line bg-white px-3 text-sm font-bold text-slate-700" type="button">
+          <UserRound size={16} /> Sửa khách hàng
+        </button>
+        <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-line bg-white px-3 text-sm font-bold text-slate-700" type="button">
+          <MapPin size={16} /> Sửa hành trình
+        </button>
+        <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-brand px-3 text-sm font-bold text-white" type="button">
+          <Navigation size={16} /> Gửi lại điều hành
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function InfoLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-start justify-between gap-4 py-2 first:pt-0 last:pb-0">
+      <span className="shrink-0 text-slate-500">{label}</span>
+      <span className="min-w-0 text-right font-semibold text-ink">{value}</span>
+    </div>
   );
 }
 
