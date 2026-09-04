@@ -4293,7 +4293,7 @@ export default function OpsApp() {
         )}
 
         <div className={driverMobileShell ? "pb-28" : "space-y-6 p-5 pb-28 lg:p-8"}>
-          {currentRole !== "driver" && (
+          {currentRole !== "driver" && currentRole !== "sale" && (
             <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <StatCard label="Chuyến hôm nay" value={String(todayOrders.length)} icon={CalendarClock} detail="Tính theo ngày chạy, không theo ngày tạo." />
               <StatCard label="Chờ duyệt" value={String(pendingDispatchReviewCount)} icon={ClipboardList} detail="Sale đã gửi đề xuất, điều hành cần xét duyệt." />
@@ -5590,6 +5590,25 @@ function OrdersPanel({
   const canOperate = can(currentRole, "assign_vehicle");
   const canFinance = can(currentRole, "record_payment") || can(currentRole, "update_invoice") || can(currentRole, "close_order");
   const canViewInternalMoney = currentRole === "accountant" || currentRole === "manager" || currentRole === "admin";
+  const [salesMobileView, setSalesMobileView] = useState<"list" | "create" | "detail">("list");
+  const [salesFilter, setSalesFilter] = useState<"all" | "pending" | "need_fix" | "approved" | "soon">("all");
+  const [nowMs] = useState(() => Date.now());
+  const nextDayMs = nowMs + 24 * 60 * 60 * 1000;
+  const isNeedFixOrder = (order: DispatchOrder) => order.quoteStatus === "rejected" || order.orderStatus === "cancelled";
+  const isSoonOrder = (order: DispatchOrder) => {
+    const startMs = new Date(order.startAt).getTime();
+    return startMs >= nowMs && startMs <= nextDayMs;
+  };
+  const visibleOrders = filteredOrders.filter((order) => {
+    if (salesFilter === "pending") return order.orderStatus === "pending_dispatch_review";
+    if (salesFilter === "need_fix") return isNeedFixOrder(order);
+    if (salesFilter === "approved") return order.orderStatus === "confirmed";
+    if (salesFilter === "soon") return isSoonOrder(order);
+    return true;
+  });
+  const validPaymentsForOrders = payments.filter((payment) => payment.status === "valid" && filteredOrders.some((order) => order.id === payment.orderId));
+  const collectedForSales = validPaymentsForOrders.reduce((sum, payment) => sum + payment.amount, 0);
+  const revenueForSales = filteredOrders.reduce((sum, order) => sum + order.amountDue, 0);
   const quoteStats = filteredOrders.reduce(
     (acc, order) => {
       const status = order.quoteStatus ?? "draft";
@@ -5602,11 +5621,70 @@ function OrdersPanel({
   const driverDraftProposals = filteredOrders
     .filter((order) => order.source === "Driver" && order.orderStatus === "draft")
     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+  const salesOverviewCards = [
+    { label: "Chờ điều hành", value: String(filteredOrders.filter((order) => order.orderStatus === "pending_dispatch_review").length), tone: "warn" as const },
+    { label: "Cần sửa", value: String(filteredOrders.filter(isNeedFixOrder).length), tone: "danger" as const },
+    { label: "Sắp chạy", value: String(filteredOrders.filter(isSoonOrder).length), tone: "info" as const },
+    { label: "Còn phải thu", value: money(Math.max(revenueForSales - collectedForSales, 0)), tone: "good" as const }
+  ];
+  const salesFilters = [
+    { key: "all", label: "Tất cả" },
+    { key: "pending", label: "Chờ duyệt" },
+    { key: "need_fix", label: "Cần sửa" },
+    { key: "approved", label: "Đã duyệt" },
+    { key: "soon", label: "Sắp chạy" }
+  ] as const;
 
   return (
-    <section className="space-y-4">
+    <section className={`space-y-4 ${canCreateOrder ? "pb-24 md:pb-0" : ""}`}>
       {canCreateOrder && (
-      <form className="border border-line bg-white p-4 shadow-sm" onSubmit={createOrder}>
+        <section className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)] md:rounded-md">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-sm text-slate-500">Bàn làm việc Sales</p>
+              <h3 className="text-xl font-bold text-ink">Lệnh của tôi</h3>
+            </div>
+            <button
+              className="hidden h-10 items-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 md:inline-flex"
+              onClick={() => setSalesMobileView("create")}
+              type="button"
+            >
+              <Plus size={16} /> Tạo lệnh
+            </button>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {salesOverviewCards.map((item) => (
+              <button
+                className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-left md:rounded-md"
+                key={item.label}
+                onClick={() => {
+                  const matched = salesFilters.find((filter) => filter.label === item.label || (item.label === "Chờ điều hành" && filter.key === "pending") || (item.label === "Cần sửa" && filter.key === "need_fix") || (item.label === "Sắp chạy" && filter.key === "soon"));
+                  if (matched) setSalesFilter(matched.key);
+                }}
+                type="button"
+              >
+                <p className="text-xs font-semibold uppercase text-slate-500">{item.label}</p>
+                <p className="mt-2 text-xl font-bold text-ink">{item.value}</p>
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+            {salesFilters.map((filter) => (
+              <button
+                className={`shrink-0 rounded-full border px-3 py-2 text-sm font-semibold ${salesFilter === filter.key ? "border-brand bg-teal-50 text-brand" : "border-slate-200 bg-white text-slate-600"}`}
+                key={filter.key}
+                onClick={() => setSalesFilter(filter.key)}
+                type="button"
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {canCreateOrder && (
+      <form className={`${salesMobileView === "create" ? "block" : "hidden"} rounded-[18px] border border-line bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)] md:block md:rounded-md md:shadow-sm`} onSubmit={createOrder}>
         <div className="flex flex-col gap-3 border-b border-line pb-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-2">
             <Plus className="text-brand" size={20} />
@@ -5615,6 +5693,13 @@ function OrdersPanel({
               <p className="text-sm text-slate-500">Nhập theo luồng sale: khách hàng, hành trình, báo giá.</p>
             </div>
           </div>
+          <button
+            className="h-10 rounded-md border border-line bg-white px-3 text-sm font-semibold text-slate-700 md:hidden"
+            onClick={() => setSalesMobileView("list")}
+            type="button"
+          >
+            Đóng
+          </button>
           <div className="grid w-full grid-cols-2 gap-2 sm:w-80">
             <button
               className={`h-10 rounded-md border px-3 text-sm font-semibold ${customerKind === "individual" ? "border-brand bg-teal-50 text-brand" : "border-line bg-white text-slate-600"}`}
@@ -5865,14 +5950,14 @@ function OrdersPanel({
         </section>
       )}
 
-      <div className="grid gap-3 md:grid-cols-4">
+      <div className={`${canCreateOrder ? "hidden md:grid" : "grid"} gap-3 md:grid-cols-4`}>
         <StatMini label="Báo giá nháp" value={String(quoteStats.draft)} />
         <StatMini label="Đã gửi khách" value={String(quoteStats.sent)} />
         <StatMini label="Khách duyệt" value={String(quoteStats.approved)} />
         {canViewInternalMoney && <StatMini label="Biên thấp < 15%" value={String(lowMarginCount)} />}
       </div>
 
-      <div>
+      <div className={`${salesMobileView === "create" ? "hidden" : "block"} md:block`}>
         <div className="border border-line bg-white shadow-sm">
         <div className="flex flex-col gap-3 border-b border-line px-4 py-3 md:flex-row md:items-center md:justify-between">
           <div>
@@ -5885,11 +5970,14 @@ function OrdersPanel({
           </div>
         </div>
         <div className="space-y-3 p-3 md:hidden">
-          {filteredOrders.map((order) => (
+          {visibleOrders.map((order) => (
+            <div key={order.id}>
             <button
               className={`w-full rounded-lg border px-3 py-3 text-left shadow-sm ${selectedOrderId === order.id ? "border-teal-600 bg-teal-50/70" : "border-line bg-white"}`}
-              key={order.id}
-              onClick={() => setSelectedOrderId(order.id)}
+              onClick={() => {
+                setSelectedOrderId(order.id);
+                setSalesMobileView(selectedOrderId === order.id && salesMobileView === "detail" ? "list" : "detail");
+              }}
               type="button"
             >
               <div className="flex items-start justify-between gap-3">
@@ -5915,8 +6003,25 @@ function OrdersPanel({
                 {canViewInternalMoney && <span className={`font-semibold ${orderProfit(order) >= 0 ? "text-emerald-700" : "text-red-700"}`}>{money(orderProfit(order))}</span>}
               </div>
             </button>
+            {selectedOrderId === order.id && selectedOrder && salesMobileView === "detail" && (
+              <div className="mt-3 rounded-[18px] border border-teal-200 bg-white p-3 shadow-sm">
+                <OrderDetailPanel
+                  assignments={assignments}
+                  auditEvents={auditEvents}
+                  currentRole={currentRole}
+                  drivers={drivers}
+                  order={selectedOrder}
+                  payments={payments}
+                  cancelOrder={cancelOrder}
+                  updateOrder={updateOrder}
+                  updateQuoteStatus={updateQuoteStatus}
+                  vehicles={vehicles}
+                />
+              </div>
+            )}
+            </div>
           ))}
-          {filteredOrders.length === 0 && <p className="px-1 py-3 text-sm text-slate-500">Không có lệnh phù hợp bộ lọc.</p>}
+          {visibleOrders.length === 0 && <p className="px-1 py-3 text-sm text-slate-500">Không có lệnh phù hợp bộ lọc.</p>}
         </div>
         <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[1160px] border-collapse text-sm">
@@ -5938,7 +6043,7 @@ function OrdersPanel({
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
-              {filteredOrders.map((order) => (
+              {visibleOrders.map((order) => (
                 <tr key={order.id} className={`cursor-pointer align-top hover:bg-slate-50 ${selectedOrderId === order.id ? "bg-teal-50/60" : ""}`} onClick={() => setSelectedOrderId(order.id)}>
                   <td className="px-4 py-4">
                     <p className="font-semibold text-ink">{order.code}</p>
@@ -5973,6 +6078,7 @@ function OrdersPanel({
         </div>
       </div>
       {selectedOrder && (
+        <div className={canCreateOrder ? "hidden md:block" : ""}>
         <OrderDetailPanel
           assignments={assignments}
           auditEvents={auditEvents}
@@ -5985,6 +6091,19 @@ function OrdersPanel({
           updateQuoteStatus={updateQuoteStatus}
           vehicles={vehicles}
         />
+        </div>
+      )}
+      {canCreateOrder && salesMobileView !== "create" && (
+        <button
+          className="fixed bottom-20 left-1/2 z-40 inline-flex h-14 -translate-x-1/2 items-center gap-2 rounded-full bg-gradient-to-r from-brand to-teal-600 px-6 text-base font-bold text-white shadow-[0_12px_30px_rgba(15,118,110,0.30)] md:hidden"
+          onClick={() => {
+            setSalesMobileView("create");
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+          type="button"
+        >
+          <Plus size={20} /> Tạo lệnh
+        </button>
       )}
     </section>
   );
