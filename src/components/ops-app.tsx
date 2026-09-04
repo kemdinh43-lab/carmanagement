@@ -326,6 +326,12 @@ type StaticPinPoint = {
   lng: number;
 };
 
+type DriverSuccessState = {
+  title: string;
+  detail: string;
+  orderCode?: string;
+};
+
 const staticLocationRules: Array<{ aliases: string[]; label: string; note: string; lat: number; lng: number }> = [
   { aliases: ["da nang airport", "sân bay da nang", "sân bay đà nẵng", "airport"], label: "Da Nang Airport", note: "Sân bay / điểm đón nhanh", lat: 16.0439, lng: 108.1992 },
   { aliases: ["four seasons nam hai", "nam hai"], label: "Four Seasons Nam Hai", note: "Khu resort ven biển", lat: 15.9114, lng: 108.3459 },
@@ -6603,6 +6609,81 @@ function DriverTripBrief({ driver, order, payments, vehicle }: { driver?: Driver
   );
 }
 
+function SwipeAction({
+  disabled = false,
+  loading = false,
+  label,
+  onComplete
+}: {
+  disabled?: boolean;
+  loading?: boolean;
+  label: string;
+  onComplete: () => void;
+}) {
+  const [dragX, setDragX] = useState(0);
+  const [startX, setStartX] = useState<number | null>(null);
+  const threshold = 190;
+  const maxDrag = 260;
+
+  function endDrag() {
+    if (disabled || loading) {
+      setDragX(0);
+      setStartX(null);
+      return;
+    }
+    if (dragX >= threshold) {
+      onComplete();
+    }
+    setDragX(0);
+    setStartX(null);
+  }
+
+  return (
+    <div
+      className={`relative h-14 overflow-hidden rounded-xl bg-gradient-to-r from-brand to-teal-600 shadow-[0_10px_24px_rgba(15,118,110,0.25)] ${disabled ? "opacity-60" : ""}`}
+      onPointerCancel={endDrag}
+      onPointerDown={(event) => {
+        if (disabled || loading) return;
+        setStartX(event.clientX);
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }}
+      onPointerMove={(event) => {
+        if (startX === null || disabled || loading) return;
+        setDragX(Math.max(0, Math.min(event.clientX - startX, maxDrag)));
+      }}
+      onPointerUp={endDrag}
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+    >
+      <div className="absolute inset-0 flex items-center justify-center text-base font-bold text-white">
+        {loading ? "Đang cập nhật..." : `Vuốt để ${label.toLowerCase()}`}
+      </div>
+      <div
+        className="absolute left-1 top-1 grid size-12 place-items-center rounded-lg bg-white text-brand shadow-md transition-transform"
+        style={{ transform: `translateX(${dragX}px)` }}
+      >
+        <ChevronRight size={24} />
+      </div>
+    </div>
+  );
+}
+
+function DriverSuccessCard({ success, onClose }: { success: DriverSuccessState; onClose: () => void }) {
+  return (
+    <section className="rounded-[22px] border border-emerald-200 bg-white p-6 text-center shadow-[0_14px_36px_rgba(15,23,42,0.12)]">
+      <span className="mx-auto grid size-16 place-items-center rounded-full bg-emerald-50 text-emerald-600">
+        <CheckCircle2 size={34} />
+      </span>
+      <h3 className="mt-4 text-xl font-bold text-ink">{success.title}</h3>
+      <p className="mt-2 text-sm text-slate-600">{success.detail}</p>
+      {success.orderCode && <p className="mt-3 text-sm font-semibold text-brand">{success.orderCode}</p>}
+      <button className="mt-5 h-12 w-full rounded-xl bg-brand px-4 text-base font-bold text-white" onClick={onClose} type="button">
+        Quay lại hôm nay
+      </button>
+    </section>
+  );
+}
+
 function DriverMobilePanel({
   authDriverId,
   currentRole,
@@ -6635,11 +6716,13 @@ function DriverMobilePanel({
   setSelectedOrderId: (id: string) => void;
   submitDriverProposal: (event: FormEvent<HTMLFormElement>) => Promise<boolean>;
   submitDriverTripReport: (event: FormEvent<HTMLFormElement>) => Promise<boolean>;
-  updateOrderDispatchStatus: (orderId: string, nextStatus: DispatchStatus, reason: string, actor?: string) => void;
+  updateOrderDispatchStatus: (orderId: string, nextStatus: DispatchStatus, reason: string, actor?: string) => Promise<void> | void;
   vehicles: Vehicle[];
 }) {
   const [urgent, setUrgent] = useState(false);
   const [driverView, setDriverView] = useState<"today" | "proposal">("today");
+  const [driverNotificationsOpen, setDriverNotificationsOpen] = useState(false);
+  const [driverSuccess, setDriverSuccess] = useState<DriverSuccessState | null>(null);
   const lockedDriverId = currentRole === "driver" ? authDriverId : undefined;
   const selectedDriver = drivers.find((driver) => driver.id === (lockedDriverId ?? mobileDriverId)) ?? drivers[0];
   const nowMs = now.getTime();
@@ -6698,11 +6781,39 @@ function DriverMobilePanel({
             <p className="text-sm text-slate-500">{vietnamFriendlyDate(now)}</p>
           </div>
         </div>
-        <button className="relative grid size-11 place-items-center rounded-full text-ink" onClick={() => setDriverView("today")} type="button">
+        <button className="relative grid size-11 place-items-center rounded-full text-ink" onClick={() => setDriverNotificationsOpen((open) => !open)} type="button">
           <Bell size={24} />
           {driverNotifications.length > 0 && <span className="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-red-500 text-[11px] font-bold text-white">{Math.min(driverNotifications.length, 9)}</span>}
         </button>
       </div>
+
+      {driverNotificationsOpen && (
+        <section className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)]">
+          <div className="flex items-center justify-between gap-3">
+            <h4 className="text-lg font-bold text-ink">Thông báo</h4>
+            <Badge tone={driverNotifications.length > 0 ? "info" : "good"}>{driverNotifications.length} mới</Badge>
+          </div>
+          <div className="mt-3 space-y-2">
+            {driverNotifications.length === 0 && <p className="text-sm text-slate-500">Chưa có thông báo dành cho tài xế.</p>}
+            {driverNotifications.map((notification) => (
+              <button
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-left"
+                key={notification.id}
+                onClick={() => {
+                  if (notification.entityId) setSelectedOrderId(notification.entityId);
+                  setDriverNotificationsOpen(false);
+                  setDriverView("today");
+                }}
+                type="button"
+              >
+                <p className="font-bold text-ink">{notification.title}</p>
+                <p className="mt-1 text-sm text-slate-600">{notification.body}</p>
+                <p className="mt-2 text-xs text-slate-500">{formatDateTime(notification.createdAt)}</p>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {currentRole !== "driver" && (
         <div className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-sm">
@@ -6729,6 +6840,9 @@ function DriverMobilePanel({
       )}
 
       {driverView === "today" && (
+        driverSuccess ? (
+          <DriverSuccessCard success={driverSuccess} onClose={() => setDriverSuccess(null)} />
+        ) : (
         <>
       {nextTrip && (
         <section className="space-y-3">
@@ -6747,14 +6861,20 @@ function DriverMobilePanel({
             </a>
           </div>
           {selectedTrip === nextTrip && nextDriverStatus && (
-            <button
-              className="h-14 w-full rounded-xl bg-gradient-to-r from-brand to-teal-600 px-3 text-lg font-bold text-white shadow-[0_10px_24px_rgba(15,118,110,0.25)] hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-              disabled={!canUpdate || isActionPending(`dispatch:status:${selectedTrip.id}:${nextDriverStatus}`)}
-              onClick={() => updateOrderDispatchStatus(selectedTrip.id, nextDriverStatus, driverActionLabel(selectedTrip), "Driver")}
-              type="button"
-            >
-              {isActionPending(`dispatch:status:${selectedTrip.id}:${nextDriverStatus}`) ? "Đang cập nhật..." : driverActionLabel(selectedTrip)}
-            </button>
+            <SwipeAction
+              disabled={!canUpdate}
+              label={driverActionLabel(selectedTrip)}
+              loading={isActionPending(`dispatch:status:${selectedTrip.id}:${nextDriverStatus}`)}
+              onComplete={() => {
+                void Promise.resolve(updateOrderDispatchStatus(selectedTrip.id, nextDriverStatus, driverActionLabel(selectedTrip), "Driver")).then(() => {
+                  setDriverSuccess({
+                    title: nextDriverStatus === "completed" ? "Đã hoàn thành cuốc" : `Đã ${driverActionLabel(selectedTrip).toLowerCase()}`,
+                    detail: nextDriverStatus === "completed" ? "Bạn có thể gửi báo cáo sau chuyến để kế toán đối soát." : driverActionDetail({ ...selectedTrip, dispatchStatus: nextDriverStatus }),
+                    orderCode: selectedTrip.code
+                  });
+                });
+              }}
+            />
           )}
         </section>
       )}
@@ -6832,7 +6952,18 @@ function DriverMobilePanel({
           <form
             className="mt-4 grid gap-3"
             onSubmit={(event) => {
-              void submitDriverTripReport(event);
+              const reportForm = new FormData(event.currentTarget);
+              const collectedValue = Number(reportForm.get("driverCollectedAmount") || 0);
+              const extraChargeValue = Number(reportForm.get("driverExtraChargeAmount") || 0);
+              void submitDriverTripReport(event).then((ok) => {
+                if (ok) {
+                  setDriverSuccess({
+                    title: "Đã gửi báo cáo chuyến",
+                    detail: `Thu hộ ${money(collectedValue)}, phụ phí phát sinh ${money(extraChargeValue)}.`,
+                    orderCode: reportTrip.code
+                  });
+                }
+              });
             }}
           >
             <input name="orderId" type="hidden" value={reportTrip.id} />
@@ -6868,6 +6999,7 @@ function DriverMobilePanel({
       )}
 
         </>
+        )
       )}
 
       {driverView === "proposal" && (
@@ -6921,25 +7053,6 @@ function DriverMobilePanel({
             <Save size={16} /> {isActionPending("driver:proposal") ? "Đang gửi..." : "Gửi đề xuất"}
           </button>
         </form>
-      </section>
-      )}
-
-      {driverView === "today" && (
-      <section className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)]">
-        <div className="flex items-center justify-between gap-3">
-          <h4 className="font-semibold text-ink">Thông báo từ điều hành</h4>
-          <Badge tone={driverNotifications.length > 0 ? "info" : "good"}>{driverNotifications.length} gần nhất</Badge>
-        </div>
-        <div className="mt-3 space-y-2">
-          {driverNotifications.length === 0 && <p className="text-sm text-slate-500">Chưa có thông báo dành cho tài xế.</p>}
-          {driverNotifications.map((notification) => (
-            <article className="rounded-md border border-line bg-panel p-3" key={notification.id}>
-              <p className="font-semibold text-ink">{notification.title}</p>
-              <p className="mt-1 text-sm text-slate-600">{notification.body}</p>
-              <p className="mt-2 text-xs text-slate-500">{formatDateTime(notification.createdAt)}</p>
-            </article>
-          ))}
-        </div>
       </section>
       )}
 
