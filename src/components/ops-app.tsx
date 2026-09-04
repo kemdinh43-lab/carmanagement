@@ -13,6 +13,7 @@ import {
   Clock3,
   FileText,
   MapPin,
+  Menu,
   Navigation,
   PhoneCall,
   Plus,
@@ -1270,6 +1271,15 @@ function vietnamDateTimeLiveLabel(value = new Date()) {
     second: "2-digit",
     hour12: false
   }).format(value);
+}
+
+function vietnamFriendlyDate(value = new Date()) {
+  const parts = vietnamDateParts(value);
+  const weekday = new Intl.DateTimeFormat("vi-VN", {
+    timeZone: vietnamTimeZone,
+    weekday: "long"
+  }).format(value);
+  return `${weekday}, ${parts.day}/${parts.month}/${parts.year}`;
 }
 
 function vietnamMonthLabel(value = new Date()) {
@@ -4131,8 +4141,10 @@ export default function OpsApp() {
     );
   }
 
+  const driverMobileShell = currentRole === "driver" && isMobileViewport;
+
   return (
-    <main className="min-h-screen">
+    <main className={`min-h-screen ${driverMobileShell ? "bg-[#f6f9fb]" : ""}`}>
       <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-line bg-white px-4 py-5 lg:block">
         <div className="flex items-center gap-3">
           <div className="grid size-10 place-items-center rounded-md bg-brand text-white">
@@ -4161,6 +4173,7 @@ export default function OpsApp() {
       </aside>
 
       <section className="lg:pl-64">
+        {!driverMobileShell && (
         <header className="border-b border-line bg-white px-5 py-4 lg:px-8">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
@@ -4212,6 +4225,7 @@ export default function OpsApp() {
           </div>
           <p className="mt-3 border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm text-cyan-900">{message}</p>
         </header>
+        )}
         {showTripCleanupConfirm && (
           <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4">
             <div className="w-full max-w-lg border border-line bg-white p-5 shadow-xl">
@@ -4272,7 +4286,7 @@ export default function OpsApp() {
         </div>
         )}
 
-        <div className="space-y-6 p-5 pb-28 lg:p-8">
+        <div className={driverMobileShell ? "pb-28" : "space-y-6 p-5 pb-28 lg:p-8"}>
           {currentRole !== "driver" && (
             <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <StatCard label="Chuyến hôm nay" value={String(todayOrders.length)} icon={CalendarClock} detail="Tính theo ngày chạy, không theo ngày tạo." />
@@ -4403,6 +4417,7 @@ export default function OpsApp() {
           )}
           {activeTab === "Audit" && (can(currentRole, "view_audit") ? <AuditPanel events={state.auditEvents} /> : <AccessDenied role={currentRole} />)}
         </div>
+        {currentRole !== "driver" && (
         <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white/95 backdrop-blur lg:hidden">
           <div className="flex gap-2 overflow-x-auto px-3 py-2">
             {visibleTabs.map((item) => {
@@ -4421,6 +4436,7 @@ export default function OpsApp() {
             })}
           </div>
         </nav>
+        )}
       </section>
     </main>
   );
@@ -6515,8 +6531,8 @@ function DriverTripBrief({ driver, order, payments, vehicle }: { driver?: Driver
       ];
 
   return (
-    <section className="mt-4 overflow-hidden rounded-lg border border-line bg-white text-sm shadow-sm">
-      <div className="bg-brand px-4 py-3 text-white">
+    <section className="overflow-hidden rounded-[18px] border border-slate-200 bg-white text-sm shadow-[0_12px_32px_rgba(15,23,42,0.10)]">
+      <div className="bg-gradient-to-r from-brand to-teal-600 px-4 py-3 text-white">
         <div className="flex items-center justify-between gap-3">
           <p className="flex items-center gap-2 text-base font-semibold"><Car size={18} /> Chuyến tiếp theo</p>
           <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-semibold">{timeOnly(order.startAt)} đón khách</span>
@@ -6540,8 +6556,8 @@ function DriverTripBrief({ driver, order, payments, vehicle }: { driver?: Driver
               </div>
             </div>
           </div>
-          <div className="rounded-lg border border-line bg-panel p-3 text-center">
-            <p className="text-lg font-bold text-ink">{order.externalVehiclePlate || order.vehiclePlateNo || vehicle?.plateNo || "-"}</p>
+          <div className="self-start rounded-xl border border-slate-200 bg-white p-3 text-center shadow-sm">
+            <p className="text-xl font-bold text-ink">{order.externalVehiclePlate || order.vehiclePlateNo || vehicle?.plateNo || "-"}</p>
             <p className="mt-1 text-xs text-slate-500">{vehicle ? `${vehicle.type} - ${vehicle.seats} chỗ` : order.externalVehicleType || "Chưa rõ xe"}</p>
           </div>
         </div>
@@ -6553,7 +6569,7 @@ function DriverTripBrief({ driver, order, payments, vehicle }: { driver?: Driver
             ))}
             <p><span className="font-semibold text-ink">Hành trình:</span> {routeSummaryForOrder(order)}</p>
           </div>
-          <div className="rounded-lg bg-teal-50 p-3 text-center">
+          <div className="rounded-xl bg-teal-50 p-3 text-center">
             <p className="text-xs font-bold uppercase text-brand">Cần thu</p>
             <p className="mt-1 text-2xl font-bold text-brand">{money(driverCollectionAmount)}</p>
           </div>
@@ -6668,22 +6684,36 @@ function DriverMobilePanel({
   const canUpdate = can(currentRole, "update_dispatch_status");
 
   return (
-    <section className="mx-auto max-w-[520px] space-y-4 pb-24">
-      <div className="border border-line bg-white p-4 shadow-sm">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="grid size-10 place-items-center rounded-md bg-teal-50 text-brand">
-              <Smartphone size={20} />
-            </span>
+    <section className="mx-auto max-w-[520px] space-y-4 px-4 pb-24 pt-6">
+      <div className="flex items-center justify-between gap-4">
+        <button className="grid size-11 place-items-center rounded-full text-ink" type="button">
+          <Menu size={26} />
+        </button>
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <span className="grid size-12 shrink-0 place-items-center rounded-full bg-gradient-to-br from-brand to-teal-600 text-white shadow-md">
+            <Route size={24} />
+          </span>
+          <div className="min-w-0">
+            <h3 className="truncate text-xl font-bold text-ink">Chào {selectedDriver?.fullName ?? "tài xế"}</h3>
+            <p className="text-sm text-slate-500">{vietnamFriendlyDate(now)}</p>
+          </div>
+        </div>
+        <button className="relative grid size-11 place-items-center rounded-full text-ink" onClick={() => setDriverView("today")} type="button">
+          <Bell size={24} />
+          {driverNotifications.length > 0 && <span className="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-red-500 text-[11px] font-bold text-white">{Math.min(driverNotifications.length, 9)}</span>}
+        </button>
+      </div>
+
+      {currentRole !== "driver" && (
+        <div className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-sm text-slate-500">Màn tài xế cá nhân</p>
+              <p className="text-sm text-slate-500">Xem hộ màn tài xế</p>
               <h3 className="text-lg font-semibold text-ink">{selectedDriver?.fullName ?? "Chưa chọn tài xế"}</h3>
               <p className="text-xs text-slate-500">{selectedDriver?.phone ?? "Chưa có số điện thoại"}</p>
             </div>
+            <Badge tone={canUpdate ? "good" : "warn"}>{roleLabels[currentRole]}</Badge>
           </div>
-          <Badge tone={canUpdate ? "good" : "warn"}>{roleLabels[currentRole]}</Badge>
-        </div>
-        {currentRole !== "driver" ? (
           <div className="mt-4">
             <Field label="Tài xế">
               <select className={inputClass()} onChange={(event) => setMobileDriverId(event.target.value)} value={selectedDriver?.id ?? ""}>
@@ -6695,43 +6725,30 @@ function DriverMobilePanel({
               </select>
             </Field>
           </div>
-        ) : (
-          <p className="mt-3 rounded-md border border-dashed border-line bg-panel px-3 py-2 text-xs text-slate-500">Tài khoản driver chỉ xem chuyến đã gắn với hồ sơ của mình.</p>
-        )}
-      </div>
+        </div>
+      )}
 
       {driverView === "today" && (
         <>
       {nextTrip && (
-        <section className="border border-line bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm text-slate-500">Chuyến tiếp theo</p>
-              <h3 className="font-semibold text-ink">{nextTrip.code}</h3>
-            </div>
-            <Badge tone={statusTone(nextTrip)}>{dispatchLabels[nextTrip.dispatchStatus]}</Badge>
-          </div>
-          <p className="mt-2 text-sm text-slate-600">
-            {timeOnly(nextTrip.startAt)} - {timeOnly(nextTrip.endAt)} · {routeSummaryForOrder(nextTrip)}
-          </p>
-          <p className="mt-1 text-xs text-slate-500">{driverActionDetail(nextTrip)}</p>
+        <section className="space-y-3">
           <DriverTripBrief driver={selectedDriver} order={nextTrip} payments={payments} vehicle={nextTripVehicle} />
-          <div className="mt-3 flex flex-wrap gap-2">
-            <a className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50" href={`tel:${nextTrip.contactPhone}`}>
+          <div className="grid grid-cols-2 gap-3">
+            <a className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-brand shadow-sm hover:bg-slate-50" href={`tel:${nextTrip.contactPhone}`}>
               <PhoneCall size={16} /> Gọi khách
             </a>
             <a
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-brand shadow-sm hover:bg-slate-50"
               href={mapsRouteUrlForOrder(nextTrip)}
               rel="noreferrer"
               target="_blank"
             >
-              <Route size={16} /> Mở Google Maps
+              <Navigation size={16} /> Chỉ đường
             </a>
           </div>
           {selectedTrip === nextTrip && nextDriverStatus && (
             <button
-              className="mt-3 h-10 w-full rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+              className="h-14 w-full rounded-xl bg-gradient-to-r from-brand to-teal-600 px-3 text-lg font-bold text-white shadow-[0_10px_24px_rgba(15,118,110,0.25)] hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300"
               disabled={!canUpdate || isActionPending(`dispatch:status:${selectedTrip.id}:${nextDriverStatus}`)}
               onClick={() => updateOrderDispatchStatus(selectedTrip.id, nextDriverStatus, driverActionLabel(selectedTrip), "Driver")}
               type="button"
@@ -6743,14 +6760,14 @@ function DriverMobilePanel({
       )}
 
       {driverProposals.length > 0 && (
-        <section className="border border-line bg-white p-4 shadow-sm">
+        <section className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)]">
           <div className="flex items-center justify-between gap-3">
             <h4 className="font-semibold text-ink">Đề xuất của tôi</h4>
             <Badge tone="warn">{driverProposals.length} chờ xử lý</Badge>
           </div>
           <div className="mt-3 space-y-2">
             {driverProposals.slice(0, 3).map((order) => (
-              <article className="rounded-md border border-line bg-panel p-3" key={order.id}>
+              <article className="rounded-xl border border-slate-200 bg-slate-50 p-3" key={order.id}>
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-xs font-semibold uppercase text-slate-500">{order.code}</p>
@@ -6769,36 +6786,29 @@ function DriverMobilePanel({
       )}
 
       {todayDriverOrders.length > 0 && (
-        <section className="border border-line bg-white p-4 shadow-sm">
+        <section className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)]">
           <div className="flex items-center justify-between gap-3">
-            <h4 className="font-semibold text-ink">Lịch hôm nay</h4>
+            <h4 className="text-lg font-bold text-ink">Lịch hôm nay</h4>
             <Badge tone="info">{todayDriverOrders.length} chuyến</Badge>
           </div>
-          <div className="mt-3 space-y-3">
+          <div className="mt-3 divide-y divide-slate-100">
             {todayDriverOrders.map((order) => {
               const vehicle = vehicles.find((item) => item.id === order.vehicleId);
+              const isSelected = order.id === selectedTrip?.id;
               return (
                 <button
-                  className={`w-full rounded-md border p-3 text-left ${order.id === selectedTrip?.id ? "border-brand bg-teal-50" : "border-line bg-panel"}`}
+                  className={`grid w-full grid-cols-[72px_28px_1fr_auto] items-center gap-2 rounded-xl px-2 py-3 text-left ${isSelected ? "border border-teal-200 bg-teal-50" : "border border-transparent bg-white"}`}
                   key={order.id}
                   onClick={() => setSelectedOrderId(order.id)}
                   type="button"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-semibold uppercase text-slate-500">{order.code}</p>
-                      <p className="mt-1 font-semibold text-ink">
-                        {timeOnly(order.startAt)} · {order.serviceLabel}
-                      </p>
-                    </div>
-                    <Badge tone={statusTone(order)}>{dispatchLabels[order.dispatchStatus]}</Badge>
+                  <p className={`text-lg font-bold ${isSelected ? "text-brand" : "text-ink"}`}>{timeOnly(order.startAt)}</p>
+                  <span className={`mx-auto size-4 rounded-full border-4 ${isSelected ? "border-teal-100 bg-brand" : "border-slate-200 bg-white"}`} />
+                  <div className="min-w-0">
+                    <p className="truncate font-bold text-ink">{routeSummaryForOrder(order)}</p>
+                    <p className="mt-1 truncate text-sm text-slate-500">{order.customerName} · {vehicle?.plateNo ?? "Chưa xe"}</p>
                   </div>
-                  <p className="mt-2 text-sm text-slate-600">
-                    {routeSummaryForOrder(order)}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {vehicle?.plateNo ?? "Chưa xe"} · {driverActionDetail(order)}
-                  </p>
+                  <ChevronRight className="text-slate-400" size={18} />
                 </button>
               );
             })}
@@ -6807,11 +6817,11 @@ function DriverMobilePanel({
       )}
 
       {reportTrip ? (
-        <section className="border border-line bg-white p-4 shadow-sm" key={reportTrip.id}>
+        <section className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)]" key={reportTrip.id}>
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-sm text-slate-500">Báo cáo sau chuyến</p>
-              <h4 className="font-semibold text-ink">{reportTrip.code}</h4>
+              <h4 className="text-lg font-bold text-ink">{reportTrip.code}</h4>
               <p className="mt-1 text-xs text-slate-500">
                 {routeSummaryForOrder(reportTrip)}
               </p>
@@ -6840,19 +6850,19 @@ function DriverMobilePanel({
                 <textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="driverExtraChargeReason" placeholder="Ví dụ: khách đổi điểm đến, đi thêm chặng, chờ thêm..." defaultValue={reportTripNoteParts.extraChargeReason} />
               </Field>
             </div>
-            <div className="grid gap-2 rounded-md border border-dashed border-line bg-panel px-3 py-2 text-sm text-slate-600 sm:grid-cols-3">
+            <div className="grid gap-2 rounded-xl border border-dashed border-teal-200 bg-teal-50 px-3 py-2 text-sm text-slate-600 sm:grid-cols-3">
               <p>Thu hộ: <span className="font-semibold text-ink">{money(reportTripCollectedAmount)}</span></p>
               <p>Phụ phí phát sinh: <span className="font-semibold text-ink">{money(reportTripExtraChargeAmount)}</span></p>
               <p>Cần nộp/đối soát: <span className="font-semibold text-ink">{money(reportTripCollectedAmount)}</span></p>
             </div>
-            <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!can(currentRole, "submit_driver_report") || isActionPending(`driver:report:${reportTrip.id}`)} type="submit">
+            <button className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand to-teal-600 px-4 text-base font-bold text-white shadow-[0_10px_24px_rgba(15,118,110,0.22)] hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!can(currentRole, "submit_driver_report") || isActionPending(`driver:report:${reportTrip.id}`)} type="submit">
               <Save size={16} /> {isActionPending(`driver:report:${reportTrip.id}`) ? "Đang gửi..." : "Gửi báo cáo"}
             </button>
           </form>
         </section>
       ) : (
-        <section className="border border-line bg-white p-4 shadow-sm">
-          <h4 className="font-semibold text-ink">Báo cáo sau chuyến</h4>
+        <section className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)]">
+          <h4 className="text-lg font-bold text-ink">Báo cáo sau chuyến</h4>
           <p className="mt-2 text-sm text-slate-500">Chỉ hiện khi tài xế có chuyến đã hoàn thành để nhập tiền thu hộ.</p>
         </section>
       )}
@@ -6861,11 +6871,11 @@ function DriverMobilePanel({
       )}
 
       {driverView === "proposal" && (
-      <section className="border border-line bg-white p-4 shadow-sm">
+      <section className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)]">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-sm text-slate-500">Đề xuất từ tài xế</p>
-            <h4 className="font-semibold text-ink">Báo cuốc nhanh</h4>
+            <h4 className="text-lg font-bold text-ink">Báo cuốc nhanh</h4>
           </div>
           <Badge tone={urgent ? "warn" : "info"}>{urgent ? "Khẩn" : "Ngắn"}</Badge>
         </div>
@@ -6907,7 +6917,7 @@ function DriverMobilePanel({
               <input className={inputClass()} name="urgentReason" placeholder="Ví dụ: khách vừa báo lên xe ngay, chờ sân bay..." />
             </Field>
           )}
-          <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!can(currentRole, "submit_driver_proposal") || isActionPending("driver:proposal")} type="submit">
+          <button className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand to-teal-600 px-4 text-base font-bold text-white shadow-[0_10px_24px_rgba(15,118,110,0.22)] hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!can(currentRole, "submit_driver_proposal") || isActionPending("driver:proposal")} type="submit">
             <Save size={16} /> {isActionPending("driver:proposal") ? "Đang gửi..." : "Gửi đề xuất"}
           </button>
         </form>
@@ -6915,7 +6925,7 @@ function DriverMobilePanel({
       )}
 
       {driverView === "today" && (
-      <section className="border border-line bg-white p-4 shadow-sm">
+      <section className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)]">
         <div className="flex items-center justify-between gap-3">
           <h4 className="font-semibold text-ink">Thông báo từ điều hành</h4>
           <Badge tone={driverNotifications.length > 0 ? "info" : "good"}>{driverNotifications.length} gần nhất</Badge>
@@ -6933,17 +6943,17 @@ function DriverMobilePanel({
       </section>
       )}
 
-      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white/95 px-6 py-3 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur lg:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-6 py-3 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur lg:hidden">
         <div className="mx-auto grid max-w-[520px] grid-cols-2 gap-3">
           <button
-            className={`flex h-12 items-center justify-center gap-2 rounded-md text-sm font-semibold ${driverView === "today" ? "bg-teal-50 text-brand" : "text-slate-500"}`}
+            className={`flex h-12 items-center justify-center gap-2 rounded-xl text-sm font-bold ${driverView === "today" ? "bg-teal-50 text-brand" : "text-slate-500"}`}
             onClick={() => setDriverView("today")}
             type="button"
           >
             <Smartphone size={18} /> Hôm nay
           </button>
           <button
-            className={`flex h-12 items-center justify-center gap-2 rounded-md text-sm font-semibold ${driverView === "proposal" ? "bg-teal-50 text-brand" : "text-slate-500"}`}
+            className={`flex h-12 items-center justify-center gap-2 rounded-xl text-sm font-bold ${driverView === "proposal" ? "bg-teal-50 text-brand" : "text-slate-500"}`}
             onClick={() => setDriverView("proposal")}
             type="button"
           >
