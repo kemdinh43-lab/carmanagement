@@ -25,6 +25,8 @@ import {
   ShieldCheck,
   Smartphone,
   TrendingUp,
+  Undo2,
+  Redo2,
   UserPlus,
   UserRound,
   UsersRound
@@ -2369,7 +2371,22 @@ export default function OpsApp() {
     const normalized = query.trim().toLowerCase();
     if (!normalized) return state.orders;
     return state.orders.filter((order) =>
-      [order.code, order.customerName, order.companyName, order.contactName, order.contactPhone, order.taxCode, order.pickup, order.dropoff, order.salesOwner, order.source]
+      [
+        order.code,
+        order.customerName,
+        order.companyName,
+        order.contactName,
+        order.contactPhone,
+        order.taxCode,
+        order.pickup,
+        order.dropoff,
+        order.salesOwner,
+        order.source,
+        order.orderDate,
+        order.startAt,
+        order.endAt,
+        dateOnly(order.startAt)
+      ]
         .filter(Boolean)
         .some((value) => value!.toLowerCase().includes(normalized))
     );
@@ -5592,6 +5609,17 @@ function OrdersPanel({
   const canViewInternalMoney = currentRole === "accountant" || currentRole === "manager" || currentRole === "admin";
   const [salesMobileView, setSalesMobileView] = useState<"list" | "create" | "detail">("list");
   const [salesFilter, setSalesFilter] = useState<"all" | "pending" | "need_fix" | "approved" | "soon">("all");
+  const [salesCreateStep, setSalesCreateStep] = useState(1);
+  const [salesDraftPreview, setSalesDraftPreview] = useState({
+    customer: "Chưa nhập khách",
+    phone: "Chưa nhập SĐT",
+    route: "Chưa nhập hành trình",
+    time: "Chưa nhập thời gian",
+    total: money(1200000),
+    prepaid: money(0),
+    remaining: money(1200000),
+    kind: customerKind === "company" ? "Doanh nghiệp" : "Cá nhân"
+  });
   const [nowMs] = useState(() => Date.now());
   const nextDayMs = nowMs + 24 * 60 * 60 * 1000;
   const isNeedFixOrder = (order: DispatchOrder) => order.quoteStatus === "rejected" || order.orderStatus === "cancelled";
@@ -5599,13 +5627,15 @@ function OrdersPanel({
     const startMs = new Date(order.startAt).getTime();
     return startMs >= nowMs && startMs <= nextDayMs;
   };
-  const visibleOrders = filteredOrders.filter((order) => {
-    if (salesFilter === "pending") return order.orderStatus === "pending_dispatch_review";
-    if (salesFilter === "need_fix") return isNeedFixOrder(order);
-    if (salesFilter === "approved") return order.orderStatus === "confirmed";
-    if (salesFilter === "soon") return isSoonOrder(order);
-    return true;
-  });
+  const visibleOrders = filteredOrders
+    .filter((order) => {
+      if (salesFilter === "pending") return order.orderStatus === "pending_dispatch_review";
+      if (salesFilter === "need_fix") return isNeedFixOrder(order);
+      if (salesFilter === "approved") return order.orderStatus === "confirmed";
+      if (salesFilter === "soon") return isSoonOrder(order);
+      return true;
+    })
+    .sort((a, b) => new Date(b.startAt).getTime() - new Date(a.startAt).getTime() || b.code.localeCompare(a.code));
   const validPaymentsForOrders = payments.filter((payment) => payment.status === "valid" && filteredOrders.some((order) => order.id === payment.orderId));
   const collectedForSales = validPaymentsForOrders.reduce((sum, payment) => sum + payment.amount, 0);
   const revenueForSales = filteredOrders.reduce((sum, order) => sum + order.amountDue, 0);
@@ -5634,6 +5664,41 @@ function OrdersPanel({
     { key: "approved", label: "Đã duyệt" },
     { key: "soon", label: "Sắp chạy" }
   ] as const;
+  const salesCreateSteps = [
+    { index: 1, label: "Thông tin" },
+    { index: 2, label: "Dịch vụ" },
+    { index: 3, label: "Xác nhận" }
+  ];
+  const stepClass = (step: number) => salesCreateStep === step ? "block" : "hidden md:block";
+  const refreshSalesDraftPreview = (formElement: HTMLFormElement) => {
+    const form = new FormData(formElement);
+    const kind = String(form.get("customerKind") || customerKind);
+    const customer = kind === "company"
+      ? String(form.get("companyName") || form.get("contactName") || "Chưa nhập doanh nghiệp")
+      : String(form.get("customerName") || "Chưa nhập khách");
+    const contactName = String(form.get("contactName") || customer);
+    const phone = String(form.get("contactPhone") || "Chưa nhập SĐT");
+    const pickups = form.getAll("routeLegPickup").map(String).filter(Boolean);
+    const dropoffs = form.getAll("routeLegDropoff").map(String).filter(Boolean);
+    const starts = form.getAll("routeLegStartAt").map(String).filter(Boolean);
+    const ends = form.getAll("routeLegEndAt").map(String).filter(Boolean);
+    const pickup = pickups[0] || String(form.get("pickup") || "Chưa nhập điểm đi");
+    const dropoff = dropoffs[dropoffs.length - 1] || String(form.get("dropoff") || "Chưa nhập điểm đến");
+    const startAt = starts[0] || String(form.get("startAt") || "");
+    const endAt = ends[ends.length - 1] || String(form.get("endAt") || "");
+    const total = Number(form.get("amountDue") || 0);
+    const prepaid = Number(form.get("prepaymentAmount") || 0);
+    setSalesDraftPreview({
+      customer: kind === "company" ? `${customer} / ${contactName}` : customer,
+      phone,
+      route: `${pickup} -> ${dropoff}`,
+      time: [startAt, endAt].filter(Boolean).join(" - ") || "Chưa nhập thời gian",
+      total: money(total),
+      prepaid: money(prepaid),
+      remaining: money(Math.max(total - prepaid, 0)),
+      kind: kind === "company" ? "Doanh nghiệp" : "Cá nhân"
+    });
+  };
 
   return (
     <section className={`space-y-4 ${canCreateOrder ? "pb-24 md:pb-0" : ""}`}>
@@ -5684,13 +5749,18 @@ function OrdersPanel({
       )}
 
       {canCreateOrder && (
-      <form className={`${salesMobileView === "create" ? "block" : "hidden"} rounded-[18px] border border-line bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)] md:block md:rounded-md md:shadow-sm`} onSubmit={createOrder}>
+      <form
+        className={`${salesMobileView === "create" ? "block" : "hidden"} rounded-[18px] border border-line bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)] md:rounded-md md:shadow-sm`}
+        onChange={(event) => refreshSalesDraftPreview(event.currentTarget)}
+        onInput={(event) => refreshSalesDraftPreview(event.currentTarget)}
+        onSubmit={createOrder}
+      >
         <div className="flex flex-col gap-3 border-b border-line pb-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-2">
             <Plus className="text-brand" size={20} />
             <div>
               <h3 className="font-semibold text-ink">Tạo lệnh mới</h3>
-              <p className="text-sm text-slate-500">Nhập theo luồng sale: khách hàng, hành trình, báo giá.</p>
+              <p className="text-sm text-slate-500">Đi theo từng bước, cuối cùng kiểm preview rồi gửi điều hành.</p>
             </div>
           </div>
           <button
@@ -5703,22 +5773,52 @@ function OrdersPanel({
           <div className="grid w-full grid-cols-2 gap-2 sm:w-80">
             <button
               className={`h-10 rounded-md border px-3 text-sm font-semibold ${customerKind === "individual" ? "border-brand bg-teal-50 text-brand" : "border-line bg-white text-slate-600"}`}
-              onClick={() => setCustomerKind("individual")}
+              onClick={() => {
+                setCustomerKind("individual");
+                setSalesDraftPreview((current) => ({ ...current, kind: "Cá nhân" }));
+              }}
               type="button"
             >
               Cá nhân
             </button>
             <button
               className={`h-10 rounded-md border px-3 text-sm font-semibold ${customerKind === "company" ? "border-brand bg-teal-50 text-brand" : "border-line bg-white text-slate-600"}`}
-              onClick={() => setCustomerKind("company")}
+              onClick={() => {
+                setCustomerKind("company");
+                setSalesDraftPreview((current) => ({ ...current, kind: "Doanh nghiệp" }));
+              }}
               type="button"
             >
               Doanh nghiệp
             </button>
           </div>
         </div>
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <div className="flex gap-2">
+            <button className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-slate-700" onClick={() => document.execCommand("undo")} type="button">
+              <Undo2 size={16} /> Undo
+            </button>
+            <button className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold text-slate-700" onClick={() => document.execCommand("redo")} type="button">
+              <Redo2 size={16} /> Redo
+            </button>
+          </div>
+          <Badge tone="info">Bước {salesCreateStep}/3</Badge>
+        </div>
+        <div className="mt-4 grid grid-cols-3 items-center gap-2">
+          {salesCreateSteps.map((step) => (
+            <button
+              className={`rounded-full border px-2 py-2 text-sm font-semibold ${salesCreateStep === step.index ? "border-brand bg-teal-50 text-brand" : "border-line bg-white text-slate-500"}`}
+              key={step.index}
+              onClick={() => setSalesCreateStep(step.index)}
+              type="button"
+            >
+              {step.index}. {step.label}
+            </button>
+          ))}
+        </div>
         <input name="customerKind" type="hidden" value={customerKind} />
         <div className="mt-4 space-y-4">
+          <div className={stepClass(1)}>
           <SectionDetails
             badge={customerKind === "company" ? "Doanh nghiệp" : "Cá nhân"}
             description="Sale chỉ cần nhập phần tạo đề xuất. Vận hành và tài chính sẽ bổ sung sau."
@@ -5815,7 +5915,9 @@ function OrdersPanel({
               )}
             </div>
           </SectionDetails>
+          </div>
 
+          <div className={stepClass(2)}>
           <SectionDetails
             badge="Sale"
             description="Chỉ cần đủ để mô tả chuyến và gửi đề xuất."
@@ -5844,8 +5946,10 @@ function OrdersPanel({
               </div>
             </div>
           </SectionDetails>
+          </div>
 
           {canOperate && (
+            <div className={stepClass(2)}>
             <SectionDetails
               badge="Điều hành"
               defaultOpen={false}
@@ -5870,9 +5974,11 @@ function OrdersPanel({
                 <Field label="Ngân hàng NCC"><input className={inputClass()} name="supplierBankName" /></Field>
               </div>
             </SectionDetails>
+            </div>
           )}
 
           {canFinance && (
+            <div className={stepClass(2)}>
             <SectionDetails
               badge="Kế toán"
               defaultOpen={false}
@@ -5895,20 +6001,55 @@ function OrdersPanel({
                 <Field label="Ngân hàng thu"><input className={inputClass()} name="collectionBankName" /></Field>
               </div>
             </SectionDetails>
+            </div>
           )}
 
+          <div className={stepClass(3)}>
           <SectionDetails
             badge="Ghi chú"
-            defaultOpen={false}
+            defaultOpen
             description="Ghi chú sale và điều hành, giữ ngắn gọn nhưng đủ đọc."
             title="5. Ghi chú & phát hành"
           >
             <Field label="Ghi chú cho điều hành"><textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="salesNote" placeholder="Yêu cầu loại xe, khách VIP, cần xác nhận sớm..." /></Field>
           </SectionDetails>
 
-          <button className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canCreateOrder || isActionPending("order:create")} type="submit">
-            <Save size={16} /> {isActionPending("order:create") ? "Đang gửi..." : "Gửi điều hành"}
-          </button>
+          <section className="rounded-[18px] border border-teal-100 bg-teal-50/50 p-4 md:rounded-md">
+            <div className="flex items-center gap-2">
+              <FileText className="text-brand" size={20} />
+              <h4 className="font-semibold text-ink">Preview trước khi gửi</h4>
+            </div>
+            <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
+              <StatMini label="Loại khách" value={salesDraftPreview.kind} />
+              <StatMini label="Khách / người dùng" value={salesDraftPreview.customer} />
+              <StatMini label="SĐT" value={salesDraftPreview.phone} />
+              <StatMini label="Thời gian" value={salesDraftPreview.time} />
+              <div className="md:col-span-2"><StatMini label="Hành trình" value={salesDraftPreview.route} /></div>
+              <StatMini label="Tổng thanh toán" value={salesDraftPreview.total} />
+              <StatMini label="Đã thu / tạm ứng" value={salesDraftPreview.prepaid} />
+              <StatMini label="Còn phải thu" value={salesDraftPreview.remaining} />
+            </div>
+          </section>
+          </div>
+
+          <div className="sticky bottom-20 z-20 grid gap-2 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-[0_10px_28px_rgba(15,23,42,0.12)] backdrop-blur md:static md:grid-cols-[160px_1fr] md:rounded-none md:border-0 md:bg-transparent md:p-0 md:shadow-none">
+            <button
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-brand bg-white px-4 text-sm font-bold text-brand md:rounded-md"
+              onClick={() => salesCreateStep === 1 ? setSalesMobileView("list") : setSalesCreateStep((step) => Math.max(step - 1, 1))}
+              type="button"
+            >
+              {salesCreateStep === 1 ? "Quay lại" : "Quay lại sửa"}
+            </button>
+            {salesCreateStep < 3 ? (
+              <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-bold text-white hover:bg-teal-800 md:rounded-md" onClick={() => setSalesCreateStep((step) => Math.min(step + 1, 3))} type="button">
+                Tiếp tục <ChevronRight size={16} />
+              </button>
+            ) : (
+              <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-bold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300 md:rounded-md" disabled={!canCreateOrder || isActionPending("order:create")} type="submit">
+                <Save size={16} /> {isActionPending("order:create") ? "Đang gửi..." : "Xác nhận & Gửi đề xuất"}
+              </button>
+            )}
+          </div>
         </div>
       </form>
       )}
@@ -5958,25 +6099,49 @@ function OrdersPanel({
       </div>
 
       <div className={`${salesMobileView === "create" ? "hidden" : "block"} md:block`}>
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)]">
         <div className="border border-line bg-white shadow-sm">
         <div className="flex flex-col gap-3 border-b border-line px-4 py-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h3 className="font-semibold text-ink">Lệnh điều xe</h3>
-            <p className="text-sm text-slate-500">Click một lệnh để thao tác ở tab Điều hành/Tài chính.</p>
+            <p className="text-sm text-slate-500">Tìm theo tên khách, ngày, mã lệnh hoặc tuyến. Lệnh mới nhất ưu tiên lên đầu.</p>
           </div>
           <div className="relative w-full md:w-72">
             <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
             <input className={`${inputClass()} pl-9`} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm số lệnh, khách, SĐT..." value={query} />
           </div>
         </div>
-        <div className="space-y-3 p-3 md:hidden">
+        {selectedOrder && salesMobileView === "detail" && (
+          <div className="space-y-3 p-3 md:hidden">
+            <button
+              className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-white px-3 text-sm font-bold text-slate-700"
+              onClick={() => setSalesMobileView("list")}
+              type="button"
+            >
+              <ChevronLeft size={16} /> Danh sách lệnh
+            </button>
+            <OrderDetailPanel
+              assignments={assignments}
+              auditEvents={auditEvents}
+              currentRole={currentRole}
+              drivers={drivers}
+              order={selectedOrder}
+              payments={payments}
+              cancelOrder={cancelOrder}
+              updateOrder={updateOrder}
+              updateQuoteStatus={updateQuoteStatus}
+              vehicles={vehicles}
+            />
+          </div>
+        )}
+        <div className={`${salesMobileView === "detail" ? "hidden" : "space-y-3 p-3"} md:hidden`}>
           {visibleOrders.map((order) => (
             <div key={order.id}>
             <button
               className={`w-full rounded-lg border px-3 py-3 text-left shadow-sm ${selectedOrderId === order.id ? "border-teal-600 bg-teal-50/70" : "border-line bg-white"}`}
               onClick={() => {
                 setSelectedOrderId(order.id);
-                setSalesMobileView(selectedOrderId === order.id && salesMobileView === "detail" ? "list" : "detail");
+                setSalesMobileView("detail");
               }}
               type="button"
             >
@@ -6003,22 +6168,6 @@ function OrdersPanel({
                 {canViewInternalMoney && <span className={`font-semibold ${orderProfit(order) >= 0 ? "text-emerald-700" : "text-red-700"}`}>{money(orderProfit(order))}</span>}
               </div>
             </button>
-            {selectedOrderId === order.id && selectedOrder && salesMobileView === "detail" && (
-              <div className="mt-3 rounded-[18px] border border-teal-200 bg-white p-3 shadow-sm">
-                <OrderDetailPanel
-                  assignments={assignments}
-                  auditEvents={auditEvents}
-                  currentRole={currentRole}
-                  drivers={drivers}
-                  order={selectedOrder}
-                  payments={payments}
-                  cancelOrder={cancelOrder}
-                  updateOrder={updateOrder}
-                  updateQuoteStatus={updateQuoteStatus}
-                  vehicles={vehicles}
-                />
-              </div>
-            )}
             </div>
           ))}
           {visibleOrders.length === 0 && <p className="px-1 py-3 text-sm text-slate-500">Không có lệnh phù hợp bộ lọc.</p>}
@@ -6076,23 +6225,24 @@ function OrdersPanel({
           </table>
         </div>
         </div>
-      </div>
-      {selectedOrder && (
-        <div className={canCreateOrder ? "hidden md:block" : ""}>
-        <OrderDetailPanel
-          assignments={assignments}
-          auditEvents={auditEvents}
-          currentRole={currentRole}
-          drivers={drivers}
-          order={selectedOrder}
-          payments={payments}
-          cancelOrder={cancelOrder}
-          updateOrder={updateOrder}
-          updateQuoteStatus={updateQuoteStatus}
-          vehicles={vehicles}
-        />
+        {selectedOrder && (
+          <div className={`${canCreateOrder ? "hidden md:block" : ""} xl:sticky xl:top-4 xl:self-start`}>
+          <OrderDetailPanel
+            assignments={assignments}
+            auditEvents={auditEvents}
+            currentRole={currentRole}
+            drivers={drivers}
+            order={selectedOrder}
+            payments={payments}
+            cancelOrder={cancelOrder}
+            updateOrder={updateOrder}
+            updateQuoteStatus={updateQuoteStatus}
+            vehicles={vehicles}
+          />
+          </div>
+        )}
         </div>
-      )}
+      </div>
       {canCreateOrder && salesMobileView !== "create" && (
         <button
           className="fixed bottom-20 left-1/2 z-40 inline-flex h-14 -translate-x-1/2 items-center gap-2 rounded-full bg-gradient-to-r from-brand to-teal-600 px-6 text-base font-bold text-white shadow-[0_12px_30px_rgba(15,118,110,0.30)] md:hidden"
