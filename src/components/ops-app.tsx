@@ -216,17 +216,59 @@ function buildDriverReportNote(collectionNote: string, extraChargeReason: string
 const tabs = ["Dashboard", "Lệnh điều xe", "Điều hành", "Màn làm việc", "Users", "Khách hàng", "Tài chính", "Master data", "Audit"] as const;
 type Tab = (typeof tabs)[number];
 
+const roleHomeTab: Record<AppRole, Tab> = {
+  sale: "Lệnh điều xe",
+  dispatcher: "Điều hành",
+  driver: "Màn làm việc",
+  accountant: "Tài chính",
+  manager: "Dashboard",
+  admin: "Dashboard"
+};
+
+const roleVisibleTabs: Record<AppRole, Tab[]> = {
+  sale: ["Lệnh điều xe", "Khách hàng"],
+  dispatcher: ["Điều hành", "Lệnh điều xe"],
+  driver: ["Màn làm việc"],
+  accountant: ["Tài chính", "Lệnh điều xe"],
+  manager: ["Dashboard", "Điều hành", "Tài chính", "Lệnh điều xe"],
+  admin: ["Dashboard", "Điều hành", "Tài chính", "Lệnh điều xe", "Users", "Khách hàng", "Master data", "Audit"]
+};
+
+const roleTabLabels: Partial<Record<AppRole, Partial<Record<Tab, string>>>> = {
+  sale: {
+    "Lệnh điều xe": "Lệnh của tôi",
+    "Khách hàng": "Khách hàng"
+  },
+  dispatcher: {
+    "Điều hành": "Bảng điều hành",
+    "Lệnh điều xe": "Hồ sơ lệnh"
+  },
+  driver: {
+    "Màn làm việc": "Hôm nay"
+  },
+  accountant: {
+    "Tài chính": "Cần đối soát",
+    "Lệnh điều xe": "Hồ sơ lệnh"
+  },
+  manager: {
+    "Dashboard": "Tổng quan",
+    "Điều hành": "Điều hành",
+    "Tài chính": "Tài chính",
+    "Lệnh điều xe": "Hồ sơ lệnh"
+  },
+  admin: {
+    "Dashboard": "Tổng quan",
+    "Master data": "Quản trị dữ liệu",
+    "Users": "Người dùng"
+  }
+};
+
+function tabLabel(tab: Tab, role: AppRole) {
+  return roleTabLabels[role]?.[tab] ?? tab;
+}
+
 function canViewTab(tab: Tab, role: AppRole) {
-  if (tab === "Dashboard") return role !== "driver";
-  if (tab === "Lệnh điều xe") return role !== "driver";
-  if (tab === "Điều hành") return can(role, "assign_vehicle");
-  if (tab === "Màn làm việc") return true;
-  if (tab === "Users") return role === "admin";
-  if (tab === "Khách hàng") return can(role, "create_order");
-  if (tab === "Tài chính") return can(role, "record_payment") || can(role, "update_invoice") || can(role, "close_order");
-  if (tab === "Master data") return can(role, "manage_master_data");
-  if (tab === "Audit") return can(role, "view_audit");
-  return false;
+  return roleVisibleTabs[role].includes(tab);
 }
 
 const initialState: OpsState = {
@@ -566,6 +608,56 @@ function VatCalculatorFields({ initialSubtotal = 0, initialVatRate = 0, initialT
       <Field label="Tiền thuế"><input className={inputClass()} min="0" name="vatAmount" readOnly type="number" value={vatAmount} /></Field>
       <Field label="Tổng thanh toán"><input className={inputClass()} min="0" name="amountDue" onChange={(event) => changeTotal(Number(event.target.value))} required type="number" value={total} /></Field>
     </>
+  );
+}
+
+function SalesPrepaymentFields({ initialTotal = 0 }: { initialTotal?: number }) {
+  const [total, setTotal] = useState(initialTotal);
+  const [prepaid, setPrepaid] = useState(0);
+  const remaining = Math.max(total - prepaid, 0);
+
+  function readTotalFromForm(target: HTMLInputElement) {
+    const amountInput = target.form?.elements.namedItem("amountDue") as HTMLInputElement | null;
+    const nextTotal = Number(amountInput?.value || initialTotal || 0);
+    setTotal(Number.isFinite(nextTotal) ? nextTotal : 0);
+  }
+
+  return (
+    <div className="grid gap-3 rounded-md border border-teal-100 bg-teal-50/50 p-3 md:col-span-2">
+      <div className="grid gap-3 md:grid-cols-2">
+        <Field label="Đã thu / Tạm ứng trước chuyến">
+          <input
+            className={inputClass()}
+            min="0"
+            name="prepaymentAmount"
+            onChange={(event) => {
+              readTotalFromForm(event.currentTarget);
+              const nextValue = Number(event.currentTarget.value || 0);
+              setPrepaid(Number.isFinite(nextValue) ? nextValue : 0);
+            }}
+            onFocus={(event) => readTotalFromForm(event.currentTarget)}
+            placeholder="0"
+            type="number"
+          />
+        </Field>
+        <Field label="Hình thức tạm ứng">
+          <select className={inputClass()} defaultValue="bank_transfer" name="prepaymentMethod">
+            <option value="bank_transfer">Chuyển khoản</option>
+            <option value="cash">Tiền mặt</option>
+            <option value="card">Thẻ</option>
+            <option value="other">Khác</option>
+          </select>
+        </Field>
+      </div>
+      <div className="grid gap-2 text-sm sm:grid-cols-3">
+        <StatMini label="Tổng phải thanh toán" value={money(total)} />
+        <StatMini label="Đã thu / Tạm ứng" value={money(prepaid)} />
+        <StatMini label="Còn phải thu" value={money(remaining)} />
+      </div>
+      <Field label="Ghi chú thu hộ cho tài xế / kế toán">
+        <input className={inputClass()} name="prepaymentNote" placeholder="Ví dụ: khách cọc trước, phần còn lại tài xế thu..." />
+      </Field>
+    </div>
   );
 }
 
@@ -1880,7 +1972,7 @@ export default function OpsApp() {
 
   const currentRole = roleState ?? "manager";
   const visibleTabs = useMemo(() => tabs.filter((item) => canViewTab(item, currentRole)), [currentRole]);
-  const activeTab = visibleTabs.includes(tab) ? tab : visibleTabs[0] ?? "Dashboard";
+  const activeTab = visibleTabs.includes(tab) ? tab : roleHomeTab[currentRole];
   const isVisibleNotification = (item: AppNotification) => {
     if (currentRole === "admin" || currentRole === "manager") return true;
     if (item.audience !== currentRole) return false;
@@ -2144,6 +2236,7 @@ export default function OpsApp() {
           "app_vehicles",
           "app_dispatch_orders",
           "app_dispatch_assignments",
+          "app_payments",
           "app_notifications"
         ] as const)
       : (isMobileViewport
@@ -2320,6 +2413,25 @@ export default function OpsApp() {
       return false;
     }
     return true;
+  }
+
+  function applySalesPrepayment(order: DispatchOrder, payment: Payment, paymentStatus: DispatchOrder["paymentStatus"]) {
+    setState((current) => ({
+      ...current,
+      payments: [payment, ...current.payments],
+      orders: current.orders.map((item) => (item.id === order.id ? { ...item, paymentStatus } : item)),
+      auditEvents: [
+        audit({
+          actor: "Sale",
+          entityType: "payment",
+          entityId: payment.id,
+          action: "recorded_sales_prepayment",
+          reason: `${money(payment.amount)} / ${payment.method}`
+        }),
+        ...current.auditEvents
+      ]
+    }));
+    setMessage(`Đã gửi đề xuất điều xe ${order.code} và ghi tạm ứng ${money(payment.amount)}.`);
   }
 
   function orderRpcPayload(order: DispatchOrder) {
@@ -2560,6 +2672,7 @@ export default function OpsApp() {
     const driverCost = Number(form.get("driverCost") || 0);
     const vehicleCost = Number(form.get("vehicleCost") || 0);
     const otherCost = Number(form.get("otherCost") || 0);
+    const prepaymentAmount = Number(form.get("prepaymentAmount") || 0);
     const routeLegs = parseRouteLegs(form);
     const primaryRoute = primaryLegValues(routeLegs, startAt, endAt);
     const kind = String(form.get("customerKind")) as DispatchOrder["customerKind"];
@@ -2621,8 +2734,8 @@ export default function OpsApp() {
       return;
     }
 
-    if (amountDue < 0 || driverCost < 0 || vehicleCost < 0 || otherCost < 0) {
-      setMessage("Giá bán và chi phí không được âm.");
+    if (amountDue < 0 || driverCost < 0 || vehicleCost < 0 || otherCost < 0 || prepaymentAmount < 0) {
+      setMessage("Giá bán, tạm ứng và chi phí không được âm.");
       return;
     }
 
@@ -2753,6 +2866,37 @@ export default function OpsApp() {
     if (!syncedTransportFields) return;
 
     runCommand("order.submit_proposal", (current) => submitDispatchProposal(current, order, audit), `Đã gửi đề xuất điều xe ${order.code} vào hàng chờ điều hành xét duyệt.`);
+    if (prepaymentAmount > 0) {
+      const prepayment: Payment = {
+        id: makeId("pay"),
+        orderId: order.id,
+        amount: prepaymentAmount,
+        status: "valid",
+        paidAt: new Date().toISOString(),
+        method: String(form.get("prepaymentMethod") || "bank_transfer") as Payment["method"],
+        collector: order.salesOwner,
+        reference: "Tạm ứng trước chuyến",
+        note: String(form.get("prepaymentNote") || "").trim() || undefined
+      };
+      const paymentStatus = calculatePaymentStatus(order.amountDue, [prepayment]);
+      const savedPrepayment = await runSupabaseRpc(
+        "record_sales_prepayment",
+        {
+          p_payment_id: prepayment.id,
+          p_order_id: order.id,
+          p_amount: prepayment.amount,
+          p_method: prepayment.method,
+          p_paid_at: prepayment.paidAt,
+          p_collector: prepayment.collector ?? null,
+          p_bank_account: prepayment.bankAccount ?? null,
+          p_bank_name: prepayment.bankName ?? null,
+          p_note: prepayment.note ?? null
+        },
+        `Không lưu được tạm ứng ${order.code}`
+      );
+      if (!savedPrepayment) return;
+      applySalesPrepayment(order, prepayment, paymentStatus);
+    }
     setSelectedOrderId(order.id);
     setTab("Lệnh điều xe");
     (["dispatcher", "manager", "admin"] as AppNotification["audience"][]).forEach((audience) => {
@@ -3370,6 +3514,7 @@ export default function OpsApp() {
     const canEditDispatch = can(currentRole, "assign_vehicle");
     const canEditVehicleSupplier = canEditDispatch || can(currentRole, "record_payment");
     const canEditFinance = can(currentRole, "record_payment") || can(currentRole, "update_invoice") || can(currentRole, "close_order");
+    const canEditInternalCosts = canEditSales && (currentRole === "manager" || currentRole === "admin");
     const startAt = canEditSales ? String(form.get("startAt") ?? "") : toDateTimeInput(selectedOrder.startAt);
     const endAt = canEditSales ? String(form.get("endAt") ?? "") : toDateTimeInput(selectedOrder.endAt);
     const nextStartAt = canEditSales ? toIsoFromInput(startAt) : selectedOrder.startAt;
@@ -3437,9 +3582,9 @@ export default function OpsApp() {
       amountDue: selectedOrder.amountDue
     };
     const amountDue = vatValues.amountDue;
-    const driverCost = readNumber("driverCost", selectedOrder.driverCost ?? 0, canEditSales);
-    const vehicleCost = readNumber("vehicleCost", selectedOrder.vehicleCost ?? 0, canEditSales);
-    const otherCost = readNumber("otherCost", selectedOrder.otherCost ?? 0, canEditSales);
+    const driverCost = readNumber("driverCost", selectedOrder.driverCost ?? 0, canEditInternalCosts);
+    const vehicleCost = readNumber("vehicleCost", selectedOrder.vehicleCost ?? 0, canEditInternalCosts);
+    const otherCost = readNumber("otherCost", selectedOrder.otherCost ?? 0, canEditInternalCosts);
     const paymentMethod = readMaybeText("paymentMethod", selectedOrder.paymentMethod, canEditFinance);
     const payer = readMaybeText("payer", selectedOrder.payer, canEditFinance);
     const collectionAccountOwner = readMaybeText("collectionAccountOwner", selectedOrder.collectionAccountOwner, canEditFinance);
@@ -4009,7 +4154,7 @@ export default function OpsApp() {
               }}
               type="button"
             >
-              {item}
+              {tabLabel(item, currentRole)}
             </button>
           ))}
         </nav>
@@ -4019,13 +4164,17 @@ export default function OpsApp() {
         <header className="border-b border-line bg-white px-5 py-4 lg:px-8">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <p className="text-sm text-slate-500">Pilot vận hành local - {vietnamDateTimeLiveLabel(now)}</p>
-              <h2 className="text-2xl font-semibold text-ink">{activeTab}</h2>
+              <p className="text-sm text-slate-500">{roleLabels[currentRole]} - {vietnamDateTimeLiveLabel(now)}</p>
+              <h2 className="text-2xl font-semibold text-ink">{tabLabel(activeTab, currentRole)}</h2>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Badge tone={supabaseConfigured ? "good" : "info"}>{supabaseConfigured ? "Supabase config ready" : "Local demo mode"}</Badge>
+              {currentRole === "admin" && (
+                <>
+                  <Badge tone={supabaseConfigured ? "good" : "info"}>{supabaseConfigured ? "Supabase config ready" : "Local demo mode"}</Badge>
+                  <Badge tone="good">Audit on</Badge>
+                </>
+              )}
               <Badge tone="info">{authLabel}</Badge>
-              <Badge tone="good">Audit on</Badge>
               <Badge tone="info">{roleLabels[currentRole]}</Badge>
               <div className="relative" ref={notificationsRef}>
                 <button
@@ -4047,7 +4196,7 @@ export default function OpsApp() {
                 )}
               </div>
               <Link className="inline-flex h-9 items-center rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50" href="/auth">Auth</Link>
-              {canCleanTripData && (
+              {currentRole === "admin" && canCleanTripData && (
                 <button
                   className="inline-flex h-9 items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 text-sm font-medium text-amber-900 hover:bg-amber-100"
                   onClick={() => {
@@ -4103,6 +4252,7 @@ export default function OpsApp() {
             </div>
           </div>
         )}
+        {currentRole !== "driver" && (
         <div className="border-b border-line bg-white px-3 py-3 lg:hidden">
           <div className="flex gap-2 overflow-x-auto pb-1">
             {visibleTabs.map((item) => (
@@ -4115,11 +4265,12 @@ export default function OpsApp() {
                 }}
                 type="button"
               >
-                {item}
+                {tabLabel(item, currentRole)}
               </button>
             ))}
           </div>
         </div>
+        )}
 
         <div className="space-y-6 p-5 pb-28 lg:p-8">
           {currentRole !== "driver" && (
@@ -4317,6 +4468,47 @@ function DispatchBoard({
   setSelectedOrderId: (id: string) => void;
   vehicles: Vehicle[];
 }) {
+  if (compact) {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="font-semibold text-ink">Bảng điều hành hôm nay</h3>
+            <p className="text-sm text-slate-500">Card gọn cho mobile, chạm để mở chi tiết phân xe.</p>
+          </div>
+          <Badge tone="info">{orders.length} chuyến</Badge>
+        </div>
+        {[...orders].sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime()).map((order) => {
+          const assignment = assignments.find((item) => item.dispatchOrderId === order.id && item.status === "active");
+          const vehicle = vehicles.find((item) => item.id === (assignment?.vehicleId ?? order.vehicleId));
+          const driver = drivers.find((item) => item.id === (assignment?.driverId ?? order.driverId));
+          const needsAttention = order.dispatchStatus === "waiting_assignment" || order.changedNearStart || order.driverAckStatus === "pending";
+          return (
+            <button
+              className={`w-full rounded-lg border p-3 text-left shadow-sm ${selectedOrderId === order.id ? "border-brand bg-teal-50" : "border-line bg-white"}`}
+              key={order.id}
+              onClick={() => setSelectedOrderId(order.id)}
+              type="button"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-lg font-semibold text-ink">{timeOnly(order.startAt)} · {order.code}</p>
+                  <p className="mt-1 text-sm text-slate-600">{routeSummaryForOrder(order)}</p>
+                </div>
+                <Badge tone={needsAttention ? "warn" : "good"}>{needsAttention ? "Cần xử lý" : "Ổn"}</Badge>
+              </div>
+              <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
+                <p><span className="text-slate-500">Khách:</span> <span className="font-semibold text-ink">{order.customerName}</span></p>
+                <p><span className="text-slate-500">Xe:</span> <span className="font-semibold text-ink">{vehicle ? `${vehicle.plateNo} / ${vehicle.seats} chỗ` : "Chưa phân"}</span></p>
+                <p><span className="text-slate-500">Tài xế:</span> <span className="font-semibold text-ink">{driver?.fullName ?? "Chưa phân"}</span></p>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     <div className="border border-line bg-white shadow-sm">
       <div className="flex flex-col gap-2 border-b border-line px-4 py-3 md:flex-row md:items-center md:justify-between">
@@ -4746,6 +4938,8 @@ function OrderDetailPanel({
   const salesEditable = can(currentRole, "create_order");
   const dispatchEditable = can(currentRole, "assign_vehicle") || can(currentRole, "record_payment");
   const financeEditable = can(currentRole, "record_payment") || can(currentRole, "update_invoice") || can(currentRole, "close_order");
+  const internalCostEditable = salesEditable && (currentRole === "manager" || currentRole === "admin");
+  const canViewInternalMoney = currentRole === "accountant" || currentRole === "manager" || currentRole === "admin";
   const notesEditable = salesEditable || can(currentRole, "assign_vehicle");
   const readiness = orderReadiness(order);
 
@@ -4820,11 +5014,15 @@ function OrderDetailPanel({
         <div className="border border-line bg-panel p-3">
           <p className="font-medium text-ink">Báo giá</p>
           <p className="mt-2 text-slate-600">Giá bán: {money(order.amountDue)}</p>
-          <p className="mt-1 text-slate-600">Chi phí: {money(cost)}</p>
-          <p className={`mt-1 font-semibold ${profit >= 0 ? "text-emerald-700" : "text-red-700"}`}>Lãi dự kiến: {money(profit)}</p>
-          <p className="mt-1 text-slate-600">Chi phí thực tế: {money(orderActualCost(order))}</p>
-          <p className={`mt-1 font-semibold ${orderActualProfit(order) >= 0 ? "text-emerald-700" : "text-red-700"}`}>Lãi thực tế: {money(orderActualProfit(order))}</p>
-          <p className={`mt-1 font-semibold ${margin >= 0.15 ? "text-emerald-700" : "text-red-700"}`}>Biên: {Math.round(margin * 100)}%</p>
+          {canViewInternalMoney && (
+            <>
+              <p className="mt-1 text-slate-600">Chi phí: {money(cost)}</p>
+              <p className={`mt-1 font-semibold ${profit >= 0 ? "text-emerald-700" : "text-red-700"}`}>Lãi dự kiến: {money(profit)}</p>
+              <p className="mt-1 text-slate-600">Chi phí thực tế: {money(orderActualCost(order))}</p>
+              <p className={`mt-1 font-semibold ${orderActualProfit(order) >= 0 ? "text-emerald-700" : "text-red-700"}`}>Lãi thực tế: {money(orderActualProfit(order))}</p>
+              <p className={`mt-1 font-semibold ${margin >= 0.15 ? "text-emerald-700" : "text-red-700"}`}>Biên: {Math.round(margin * 100)}%</p>
+            </>
+          )}
           {order.quoteNote && <p className="mt-2 text-xs text-slate-500">{order.quoteNote}</p>}
         </div>
         <div className="border border-line bg-panel p-3">
@@ -4958,9 +5156,13 @@ function OrderDetailPanel({
                     <RouteLegFields initialLegs={order.routeLegs?.length ? order.routeLegs : [{ pickup: order.pickup, dropoff: order.dropoff, startAt: order.startAt, endAt: order.endAt }]} />
                     <Field label="Ưu tiên"><select className={inputClass()} defaultValue={order.priority ?? "normal"} name="priority"><option value="normal">Thường</option><option value="high">Cao</option><option value="urgent">Gấp</option></select></Field>
                     <VatCalculatorFields initialSubtotal={order.subtotalAmount ?? 0} initialVatRate={order.vatRate ?? 0} initialTotal={order.amountDue} />
-                    <Field label="Chi phí tài xế"><input className={inputClass()} defaultValue={order.driverCost ?? 0} min="0" name="driverCost" type="number" /></Field>
-                    <Field label="Chi phí xe"><input className={inputClass()} defaultValue={order.vehicleCost ?? 0} min="0" name="vehicleCost" type="number" /></Field>
-                    <Field label="Phụ phí"><input className={inputClass()} defaultValue={order.otherCost ?? 0} min="0" name="otherCost" type="number" /></Field>
+                    {internalCostEditable && (
+                      <>
+                        <Field label="Chi phí tài xế"><input className={inputClass()} defaultValue={order.driverCost ?? 0} min="0" name="driverCost" type="number" /></Field>
+                        <Field label="Chi phí xe"><input className={inputClass()} defaultValue={order.vehicleCost ?? 0} min="0" name="vehicleCost" type="number" /></Field>
+                        <Field label="Phụ phí nội bộ"><input className={inputClass()} defaultValue={order.otherCost ?? 0} min="0" name="otherCost" type="number" /></Field>
+                      </>
+                    )}
                     <div className="md:col-span-3">
                       <Field label="Ghi chú báo giá"><textarea className={`${inputClass()} min-h-20 resize-none py-2`} defaultValue={order.quoteNote ?? ""} name="quoteNote" placeholder="Bao gồm/chưa gồm phí cầu đường, giờ chờ, VAT..." /></Field>
                     </div>
@@ -5090,9 +5292,63 @@ function DashboardPanel({
   compact?: boolean;
 }) {
   const pendingReviewOrders = orders.filter((order) => order.orderStatus === "pending_dispatch_review");
+  const todayOrders = orders.filter((order) => orderDateKey(order) === vietnamDateKey());
+  const unassignedOrders = orders.filter((order) => order.orderStatus === "confirmed" && order.dispatchStatus === "waiting_assignment");
+  const driverPendingOrders = orders.filter((order) => order.driverAckStatus === "pending");
+  const overdueFinanceOrders = orders.filter((order) => order.dispatchStatus === "completed" && order.reconciliationStatus !== "closed");
+  const attentionItems = [
+    { label: "Lệnh chờ duyệt", detail: "Sale đã gửi đề xuất, điều hành cần xét duyệt.", count: pendingReviewOrders.length, tone: "warn" as const, tab: "Điều hành" as Tab },
+    { label: "Chuyến chưa phân công", detail: "Cần gán xe và tài xế.", count: unassignedOrders.length, tone: "warn" as const, tab: "Điều hành" as Tab },
+    { label: "Tài xế chưa chấp nhận", detail: "Đã phân xe nhưng tài xế chưa nhận chuyến.", count: driverPendingOrders.length, tone: "info" as const, tab: "Điều hành" as Tab },
+    { label: "Đối soát quá hạn", detail: "Chuyến hoàn thành nhưng hồ sơ chưa đóng.", count: overdueFinanceOrders.length, tone: "danger" as const, tab: "Tài chính" as Tab }
+  ];
+  const overviewCards = [
+    { label: "Chuyến hôm nay", value: String(todayOrders.length), icon: CalendarClock },
+    { label: "Chờ phân công", value: String(unassignedOrders.length), icon: UserRound },
+    { label: "Đang thực hiện", value: String(orders.filter((order) => order.dispatchStatus === "in_progress").length), icon: Route },
+    { label: "Công nợ cần xử lý", value: String(overdueFinanceOrders.length), icon: Banknote }
+  ];
+
+  const overview = (
+    <section className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {overviewCards.map(({ icon: Icon, label, value }) => (
+          <div className="rounded-lg border border-slate-800 bg-slate-800 p-4 text-white shadow-sm" key={label}>
+            <span className="grid size-10 place-items-center rounded-full bg-brand text-white"><Icon size={20} /></span>
+            <p className="mt-4 text-sm text-slate-200">{label}</p>
+            <p className="mt-1 text-3xl font-bold">{value}</p>
+          </div>
+        ))}
+      </div>
+      <section className="rounded-lg border border-line bg-white shadow-sm">
+        <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+          <h3 className="font-semibold text-ink">Cần chú ý</h3>
+          <Badge tone="info">{attentionItems.reduce((sum, item) => sum + item.count, 0)} việc</Badge>
+        </div>
+        <div className="divide-y divide-line">
+          {attentionItems.map((item) => (
+            <button
+              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-panel"
+              key={item.label}
+              onClick={() => setTab(item.tab)}
+              type="button"
+            >
+              <div>
+                <p className="font-semibold text-ink">{item.label}</p>
+                <p className="mt-1 text-sm text-slate-500">{item.detail}</p>
+              </div>
+              <Badge tone={item.tone}>{item.count}</Badge>
+            </button>
+          ))}
+        </div>
+      </section>
+    </section>
+  );
+
   if (compact) {
     return (
       <section className="space-y-4">
+        {overview}
         <div className="border border-line bg-white p-4 shadow-sm">
           <div className="flex items-center gap-2">
             <CalendarClock className="text-brand" size={20} />
@@ -5153,6 +5409,7 @@ function DashboardPanel({
 
   return (
     <section className="space-y-4">
+      {overview}
       <DispatchReviewQueue
         canReview={can(currentRole, "assign_vehicle")}
         isActionPending={isActionPending}
@@ -5310,6 +5567,7 @@ function OrdersPanel({
   const canCreateOrder = can(currentRole, "create_order");
   const canOperate = can(currentRole, "assign_vehicle");
   const canFinance = can(currentRole, "record_payment") || can(currentRole, "update_invoice") || can(currentRole, "close_order");
+  const canViewInternalMoney = currentRole === "accountant" || currentRole === "manager" || currentRole === "admin";
   const quoteStats = filteredOrders.reduce(
     (acc, order) => {
       const status = order.quoteStatus ?? "draft";
@@ -5325,6 +5583,7 @@ function OrdersPanel({
 
   return (
     <section className="space-y-4">
+      {canCreateOrder && (
       <form className="border border-line bg-white p-4 shadow-sm" onSubmit={createOrder}>
         <div className="flex flex-col gap-3 border-b border-line pb-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-2">
@@ -5469,9 +5728,7 @@ function OrdersPanel({
               <RouteLegFields />
               <Field label="Ưu tiên"><select className={inputClass()} name="priority"><option value="normal">Thường</option><option value="high">Cao</option><option value="urgent">Gấp</option></select></Field>
               <VatCalculatorFields initialTotal={1200000} />
-              <Field label="Chi phí tài xế"><input className={inputClass()} defaultValue="350000" min="0" name="driverCost" type="number" /></Field>
-              <Field label="Chi phí xe"><input className={inputClass()} defaultValue="350000" min="0" name="vehicleCost" type="number" /></Field>
-              <Field label="Phụ phí"><input className={inputClass()} defaultValue="0" min="0" name="otherCost" type="number" /></Field>
+              <SalesPrepaymentFields initialTotal={1200000} />
               <div className="md:col-span-2">
                 <Field label="Ghi chú báo giá"><textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="quoteNote" placeholder="Bao gồm/chưa gồm phí cầu đường, giờ chờ, VAT..." /></Field>
               </div>
@@ -5543,10 +5800,11 @@ function OrdersPanel({
           </SectionDetails>
 
           <button className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canCreateOrder || isActionPending("order:create")} type="submit">
-            <Save size={16} /> {isActionPending("order:create") ? "Đang tạo..." : "Tạo lệnh"}
+            <Save size={16} /> {isActionPending("order:create") ? "Đang gửi..." : "Gửi điều hành"}
           </button>
         </div>
       </form>
+      )}
 
       {canCreateOrder && driverDraftProposals.length > 0 && (
         <section className="border border-amber-200 bg-amber-50 shadow-sm">
@@ -5589,7 +5847,7 @@ function OrdersPanel({
         <StatMini label="Báo giá nháp" value={String(quoteStats.draft)} />
         <StatMini label="Đã gửi khách" value={String(quoteStats.sent)} />
         <StatMini label="Khách duyệt" value={String(quoteStats.approved)} />
-        <StatMini label="Biên thấp < 15%" value={String(lowMarginCount)} />
+        {canViewInternalMoney && <StatMini label="Biên thấp < 15%" value={String(lowMarginCount)} />}
       </div>
 
       <div>
@@ -5632,7 +5890,7 @@ function OrdersPanel({
               </div>
               <div className="mt-3 flex items-center justify-between gap-2 text-sm">
                 <span className="font-semibold text-ink">{money(order.amountDue)}</span>
-                <span className={`font-semibold ${orderProfit(order) >= 0 ? "text-emerald-700" : "text-red-700"}`}>{money(orderProfit(order))}</span>
+                {canViewInternalMoney && <span className={`font-semibold ${orderProfit(order) >= 0 ? "text-emerald-700" : "text-red-700"}`}>{money(orderProfit(order))}</span>}
               </div>
             </button>
           ))}
@@ -5653,8 +5911,8 @@ function OrdersPanel({
                 <th className="px-4 py-3 font-semibold">Thanh toán</th>
                 <th className="px-4 py-3 font-semibold">Hóa đơn</th>
                 <th className="px-4 py-3 font-semibold">Giá trị</th>
-                <th className="px-4 py-3 font-semibold">Lãi dự kiến</th>
-                <th className="px-4 py-3 font-semibold">Biên</th>
+                {canViewInternalMoney && <th className="px-4 py-3 font-semibold">Lãi dự kiến</th>}
+                {canViewInternalMoney && <th className="px-4 py-3 font-semibold">Biên</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
@@ -5677,12 +5935,14 @@ function OrdersPanel({
                   <td className="px-4 py-4"><Badge tone={order.paymentStatus === "paid" ? "good" : order.paymentStatus === "partial" ? "warn" : "danger"}>{paymentLabels[order.paymentStatus]}</Badge></td>
                   <td className="px-4 py-4"><Badge tone={order.invoiceStatus === "issued" || order.invoiceStatus === "not_required" ? "good" : "warn"}>{invoiceLabels[order.invoiceStatus]}</Badge></td>
                   <td className="px-4 py-4 font-semibold">{money(order.amountDue)}</td>
-                  <td className={`px-4 py-4 font-semibold ${orderProfit(order) >= 0 ? "text-emerald-700" : "text-red-700"}`}>{money(orderProfit(order))}</td>
-                  <td className="px-4 py-4">
-                    <Badge tone={orderMargin(order) >= 0.25 ? "good" : orderMargin(order) >= 0.15 ? "warn" : "danger"}>
-                      {Math.round(orderMargin(order) * 100)}%
-                    </Badge>
-                  </td>
+                  {canViewInternalMoney && <td className={`px-4 py-4 font-semibold ${orderProfit(order) >= 0 ? "text-emerald-700" : "text-red-700"}`}>{money(orderProfit(order))}</td>}
+                  {canViewInternalMoney && (
+                    <td className="px-4 py-4">
+                      <Badge tone={orderMargin(order) >= 0.25 ? "good" : orderMargin(order) >= 0.15 ? "warn" : "danger"}>
+                        {Math.round(orderMargin(order) * 100)}%
+                      </Badge>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -5972,6 +6232,15 @@ function DispatchPanel({
       </div>
       {compact ? (
         <div className="space-y-4">
+          <DispatchBoard
+            assignments={assignments}
+            compact
+            drivers={drivers}
+            orders={orders}
+            selectedOrderId={selectedOrder.id}
+            setSelectedOrderId={setSelectedOrderId}
+            vehicles={vehicles}
+          />
           <section className="border border-line bg-white p-4 shadow-sm">
             <div className="flex items-center gap-2">
               <CalendarClock className="text-brand" size={20} />
@@ -6246,41 +6515,52 @@ function DriverTripBrief({ driver, order, payments, vehicle }: { driver?: Driver
       ];
 
   return (
-    <section className="mt-4 rounded-md border border-line bg-panel p-3 text-sm">
-      <p className="font-semibold uppercase text-ink">Thông tin chuyến xe</p>
-      <div className="mt-3 space-y-2 text-slate-700">
-        {customerRows.map(([label, value]) => (
-          <p key={label}><span className="font-semibold text-ink">{label}:</span> {value}</p>
-        ))}
-        <p><span className="font-semibold text-ink">Hành trình:</span> {routeSummaryForOrder(order)}</p>
-        <p><span className="font-semibold text-ink">Có mặt tại điểm đón:</span> {timeOnly(order.startAt)} - {dateOnly(order.startAt)}</p>
-      </div>
-      <div className="mt-3 border-t border-line pt-3">
-        <p className="font-semibold text-ink">Thông tin xe</p>
-        <div className="mt-2 space-y-1 text-slate-700">
-          <p>Biển số: <span className="font-medium text-ink">{order.externalVehiclePlate || order.vehiclePlateNo || vehicle?.plateNo || "-"}</span></p>
-          <p>Tài xế: <span className="font-medium text-ink">{order.externalDriverName || order.driverFullName || driver?.fullName || "-"}</span></p>
-          <p>SĐT tài xế: <span className="font-medium text-ink">{order.externalDriverPhone || order.driverPhone || driver?.phone || "-"}</span></p>
+    <section className="mt-4 overflow-hidden rounded-lg border border-line bg-white text-sm shadow-sm">
+      <div className="bg-brand px-4 py-3 text-white">
+        <div className="flex items-center justify-between gap-3">
+          <p className="flex items-center gap-2 text-base font-semibold"><Car size={18} /> Chuyến tiếp theo</p>
+          <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-semibold">{timeOnly(order.startAt)} đón khách</span>
         </div>
       </div>
-      <div className="mt-3 border-t border-line pt-3">
-        <p className="font-semibold text-ink">Lưu ý</p>
-        <div className="mt-2 whitespace-pre-wrap text-slate-700">
-          {order.salesNote || order.customerConfirmationNote || "Xe sạch, có mặt trước giờ đón 15 phút.\nTài xế chủ động gọi khách trước khi đến.\nĐón đúng vị trí đã xác nhận."}
-        </div>
-      </div>
-      <div className="mt-3 border-t border-line pt-3">
-        <div className="overflow-hidden rounded-md border border-line bg-white">
-          <div className="flex items-start justify-between gap-3">
-            <div className="px-3 py-3">
-              <p className="font-semibold text-ink">Thông tin thanh toán</p>
-              <p className="mt-1 text-xs text-slate-500">Số tiền tài xế cần thu theo hồ sơ hiện tại.</p>
-            </div>
-            <div className="px-3 py-3">
-            <Badge tone={driverCollectionAmount > 0 ? "warn" : "good"}>{driverCollectionAmount > 0 ? "Cần thu" : "Đã đủ"}</Badge>
+      <div className="p-4">
+        <div className="grid gap-4 sm:grid-cols-[1fr_150px]">
+          <div className="space-y-3">
+            <div className="grid grid-cols-[18px_1fr] gap-3">
+              <span className="mt-1 size-4 rounded-full border-4 border-teal-100 bg-brand" />
+              <div>
+                <p className="text-lg font-semibold text-ink">{timeOnly(order.startAt)} Đón khách</p>
+                <p className="text-slate-600">{order.pickup}</p>
+              </div>
+              <span className="ml-[7px] min-h-7 border-l border-dashed border-brand/60" />
+              <div />
+              <span className="mt-1 size-4 rounded-full bg-rose-500" />
+              <div>
+                <p className="text-lg font-semibold text-ink">{timeOnly(order.endAt)} Trả khách</p>
+                <p className="text-slate-600">{order.dropoff}</p>
+              </div>
             </div>
           </div>
-          <table className="w-full border-t border-line text-sm">
+          <div className="rounded-lg border border-line bg-panel p-3 text-center">
+            <p className="text-lg font-bold text-ink">{order.externalVehiclePlate || order.vehiclePlateNo || vehicle?.plateNo || "-"}</p>
+            <p className="mt-1 text-xs text-slate-500">{vehicle ? `${vehicle.type} - ${vehicle.seats} chỗ` : order.externalVehicleType || "Chưa rõ xe"}</p>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 border-t border-line pt-4 sm:grid-cols-[1fr_190px]">
+          <div className="space-y-1 text-slate-700">
+            {customerRows.map(([label, value]) => (
+              <p key={label}><span className="font-semibold text-ink">{label}:</span> {value}</p>
+            ))}
+            <p><span className="font-semibold text-ink">Hành trình:</span> {routeSummaryForOrder(order)}</p>
+          </div>
+          <div className="rounded-lg bg-teal-50 p-3 text-center">
+            <p className="text-xs font-bold uppercase text-brand">Cần thu</p>
+            <p className="mt-1 text-2xl font-bold text-brand">{money(driverCollectionAmount)}</p>
+          </div>
+        </div>
+
+        <div className="mt-4 overflow-hidden rounded-md border border-line">
+          <table className="w-full text-sm">
             <tbody className="divide-y divide-line">
               {paymentRows.map(([label, value], index) => (
                 <tr className={index === paymentRows.length - 1 ? "bg-teal-50" : "bg-white"} key={label}>
@@ -6297,6 +6577,10 @@ function DriverTripBrief({ driver, order, payments, vehicle }: { driver?: Driver
           {collectedAmount > 0 && (
             <p className="border-t border-line px-3 py-2 text-xs text-slate-500">Tài xế đã báo thu hộ: <span className="font-semibold text-ink">{money(collectedAmount)}</span></p>
           )}
+        </div>
+
+        <div className="mt-4 rounded-md border border-dashed border-line bg-panel px-3 py-2 text-xs text-slate-600">
+          {order.salesNote || order.customerConfirmationNote || "Xe sạch, có mặt trước giờ đón 15 phút. Tài xế chủ động gọi khách trước khi đến."}
         </div>
       </div>
     </section>
@@ -6339,6 +6623,7 @@ function DriverMobilePanel({
   vehicles: Vehicle[];
 }) {
   const [urgent, setUrgent] = useState(false);
+  const [driverView, setDriverView] = useState<"today" | "proposal">("today");
   const lockedDriverId = currentRole === "driver" ? authDriverId : undefined;
   const selectedDriver = drivers.find((driver) => driver.id === (lockedDriverId ?? mobileDriverId)) ?? drivers[0];
   const nowMs = now.getTime();
@@ -6383,7 +6668,7 @@ function DriverMobilePanel({
   const canUpdate = can(currentRole, "update_dispatch_status");
 
   return (
-    <section className="mx-auto max-w-[520px] space-y-4">
+    <section className="mx-auto max-w-[520px] space-y-4 pb-24">
       <div className="border border-line bg-white p-4 shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -6397,10 +6682,6 @@ function DriverMobilePanel({
             </div>
           </div>
           <Badge tone={canUpdate ? "good" : "warn"}>{roleLabels[currentRole]}</Badge>
-        </div>
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <StatMini label="Hôm nay" value={String(todayDriverOrders.length)} />
-          <StatMini label="Sắp tới" value={String(upcomingTrips.length)} />
         </div>
         {currentRole !== "driver" ? (
           <div className="mt-4">
@@ -6419,6 +6700,8 @@ function DriverMobilePanel({
         )}
       </div>
 
+      {driverView === "today" && (
+        <>
       {nextTrip && (
         <section className="border border-line bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between gap-3">
@@ -6574,6 +6857,10 @@ function DriverMobilePanel({
         </section>
       )}
 
+        </>
+      )}
+
+      {driverView === "proposal" && (
       <section className="border border-line bg-white p-4 shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -6625,7 +6912,9 @@ function DriverMobilePanel({
           </button>
         </form>
       </section>
+      )}
 
+      {driverView === "today" && (
       <section className="border border-line bg-white p-4 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <h4 className="font-semibold text-ink">Thông báo từ điều hành</h4>
@@ -6642,6 +6931,26 @@ function DriverMobilePanel({
           ))}
         </div>
       </section>
+      )}
+
+      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white/95 px-6 py-3 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur lg:hidden">
+        <div className="mx-auto grid max-w-[520px] grid-cols-2 gap-3">
+          <button
+            className={`flex h-12 items-center justify-center gap-2 rounded-md text-sm font-semibold ${driverView === "today" ? "bg-teal-50 text-brand" : "text-slate-500"}`}
+            onClick={() => setDriverView("today")}
+            type="button"
+          >
+            <Smartphone size={18} /> Hôm nay
+          </button>
+          <button
+            className={`flex h-12 items-center justify-center gap-2 rounded-md text-sm font-semibold ${driverView === "proposal" ? "bg-teal-50 text-brand" : "text-slate-500"}`}
+            onClick={() => setDriverView("proposal")}
+            type="button"
+          >
+            <ClipboardList size={18} /> Báo cuốc
+          </button>
+        </div>
+      </nav>
     </section>
   );
 }
