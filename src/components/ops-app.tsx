@@ -7865,7 +7865,7 @@ function SwipeAction({
   );
 }
 
-function DriverSuccessCard({ success, onClose }: { success: DriverSuccessState; onClose: () => void }) {
+function DriverSuccessCard({ onClose, onHistory, success }: { onClose: () => void; onHistory: () => void; success: DriverSuccessState }) {
   return (
     <section className="rounded-[26px] border border-emerald-200 bg-white p-7 text-center shadow-[0_18px_44px_rgba(15,23,42,0.14)]">
       <span className="mx-auto grid size-20 place-items-center rounded-full bg-gradient-to-br from-brand to-teal-600 text-white shadow-[0_14px_28px_rgba(15,118,110,0.25)]">
@@ -7874,8 +7874,11 @@ function DriverSuccessCard({ success, onClose }: { success: DriverSuccessState; 
       <h3 className="mt-5 text-2xl font-extrabold text-ink">{success.title}</h3>
       <p className="mt-2 text-sm text-slate-600">{success.detail}</p>
       {success.orderCode && <p className="mt-4 text-lg font-extrabold text-ink">{success.orderCode}</p>}
-      <button className="mt-6 h-12 w-full rounded-xl bg-brand px-4 text-base font-bold text-white" onClick={onClose} type="button">
-        Quay lại hôm nay
+      <button className="mt-6 h-12 w-full rounded-xl bg-brand px-4 text-base font-bold text-white" onClick={onHistory} type="button">
+        Xem lịch sử chuyến
+      </button>
+      <button className="mt-3 h-12 w-full rounded-xl border border-teal-200 bg-white px-4 text-base font-bold text-brand" onClick={onClose} type="button">
+        Về trang chủ
       </button>
     </section>
   );
@@ -8102,6 +8105,7 @@ function DriverMobilePanel({
   const [driverChecklist, setDriverChecklist] = useState<Record<string, boolean>>({ papers: true, clean: true, contact: true });
   const [driverNotificationsOpen, setDriverNotificationsOpen] = useState(false);
   const [driverSuccess, setDriverSuccess] = useState<DriverSuccessState | null>(null);
+  const collectionFormRef = useRef<HTMLFormElement | null>(null);
   const lockedDriverId = currentRole === "driver" ? authDriverId : undefined;
   const selectedDriver = drivers.find((driver) => driver.id === (lockedDriverId ?? mobileDriverId)) ?? drivers[0];
   const nowMs = now.getTime();
@@ -8151,10 +8155,11 @@ function DriverMobilePanel({
   const pendingCollectionCount = todayDriverOrders.filter((order) => driverPaymentSnapshot(order, payments).driverCollectionAmount > 0).length;
   const canUpdate = can(currentRole, "update_dispatch_status");
   const actionButton = selectedTrip && nextDriverStatus ? (
-    <button
-      className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand to-teal-600 px-4 text-base font-extrabold text-white shadow-[0_12px_26px_rgba(15,118,110,0.24)] disabled:cursor-not-allowed disabled:opacity-60"
+    <SwipeAction
       disabled={!canUpdate || isActionPending(`dispatch:status:${selectedTrip.id}:${nextDriverStatus}`)}
-      onClick={() => {
+      label={nextDriverStatus === "in_progress" ? "Bắt đầu chuyến" : nextDriverStatus === "driver_accepted" ? "Sẵn sàng khởi hành" : "Hoàn thành chuyến"}
+      loading={isActionPending(`dispatch:status:${selectedTrip.id}:${nextDriverStatus}`)}
+      onComplete={() => {
         void Promise.resolve(updateOrderDispatchStatus(selectedTrip.id, nextDriverStatus, driverActionLabel(selectedTrip), "Driver")).then(() => {
           setDriverSuccess({
             title: nextDriverStatus === "completed" ? "Hoàn thành chuyến đi!" : `Đã ${driverActionLabel(selectedTrip).toLowerCase()}`,
@@ -8163,14 +8168,12 @@ function DriverMobilePanel({
           });
         });
       }}
-      type="button"
-    >
-      <Navigation size={18} /> {isActionPending(`dispatch:status:${selectedTrip.id}:${nextDriverStatus}`) ? "Đang cập nhật..." : driverActionLabel(selectedTrip)}
-    </button>
+    />
   ) : null;
   const collectionForm = collectionTrip ? (
     <form
       className="grid gap-3"
+      ref={collectionFormRef}
       onSubmit={(event) => {
         const reportForm = new FormData(event.currentTarget);
         const collectedValue = Number(reportForm.get("driverCollectedAmount") || 0);
@@ -8206,9 +8209,12 @@ function DriverMobilePanel({
       <Field label="Lý do phụ phí">
         <textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="driverExtraChargeReason" placeholder="Khách đổi điểm đến, đi thêm chặng..." defaultValue={reportTripNoteParts.extraChargeReason} />
       </Field>
-      <button className="h-12 rounded-xl bg-brand px-4 text-base font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-60" disabled={!can(currentRole, "submit_driver_report") || isActionPending(`driver:report:${collectionTrip.id}`)} type="submit">
-        {isActionPending(`driver:report:${collectionTrip.id}`) ? "Đang xác nhận..." : "Xác nhận đã thu"}
-      </button>
+      <SwipeAction
+        disabled={!can(currentRole, "submit_driver_report") || isActionPending(`driver:report:${collectionTrip.id}`)}
+        label="Xác nhận đã thu"
+        loading={isActionPending(`driver:report:${collectionTrip.id}`)}
+        onComplete={() => collectionFormRef.current?.requestSubmit()}
+      />
     </form>
   ) : null;
 
@@ -8335,7 +8341,17 @@ function DriverMobilePanel({
       )}
 
       {driverSuccess ? (
-        <DriverSuccessCard success={driverSuccess} onClose={() => setDriverSuccess(null)} />
+        <DriverSuccessCard
+          onClose={() => {
+            setDriverSuccess(null);
+            setDriverView("today");
+          }}
+          onHistory={() => {
+            setDriverSuccess(null);
+            setDriverView("schedule");
+          }}
+          success={driverSuccess}
+        />
       ) : (
         <>
         <div className="hidden grid-cols-3 gap-4 lg:grid">
