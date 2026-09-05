@@ -25,3 +25,61 @@ select,
 textarea {
   font: inherit;
 }
+
+/* Dispatch uses compact operational surfaces at both viewport sizes. */
+.dispatch-ui { color: #0f172a; background: #f7faf9; font-size: 13px; letter-spacing: 0; font-feature-settings: "cv02", "cv03", "cv04", "cv11", "tnum"; }
+.dispatch-ui :is(section, form, button, input, select, textarea) { min-width: 0; }
+.dispatch-ui :is(section, form) { border-radius: 8px; box-shadow: none; }
+.dispatch-ui :is(.rounded-xl, .rounded-2xl, .rounded-3xl) { border-radius: 8px; }
+.dispatch-ui .font-extrabold { font-weight: 600; }
+.dispatch-ui .text-sm { font-size: 12px; line-height: 1.5; }
+.dispatch-ui .text-base { font-size: 13px; line-height: 1.5; }
+.dispatch-ui .text-xl { font-size: 16px; line-height: 1.4; }
+.dispatch-ui .text-2xl { font-size: 18px; line-height: 1.4; }
+.dispatch-ui .shadow-sm { box-shadow: 0 2px 8px -2px rgba(15, 23, 42, 0.06); }
+.dispatch-ui h3 { overflow-wrap: anywhere; }
+.dispatch-ui .dispatch-workspace { display: grid; grid-template-columns: minmax(0, 1.38fr) minmax(0, .82fr) minmax(210px, .5fr); gap: 12px; align-items: start; }
+.dispatch-ui .dispatch-workspace > section { min-height: 520px; }
+.dispatch-ui .dispatch-orders-layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.dispatch-ui .dispatch-calendar-layout { display: grid; grid-template-columns: 160px minmax(0, 1fr) 230px; gap: 12px; align-items: stretch; min-height: 600px; }
+.dispatch-calendar-layout > * { min-width: 0; }
+.dispatch-ui .dispatch-workspace > section:first-child { padding: 12px; }
+.dispatch-workspace [class*="grid-cols-[1.05fr"] { grid-template-columns: minmax(0,1.05fr) minmax(0,1.2fr) 42px 32px 76px; gap: 5px; padding: 10px 8px; font-size: 11px; }
+.dispatch-ui .dispatch-metrics > button { padding: 12px; border-radius: 6px; }
+.dispatch-ui .dispatch-metrics .text-3xl { font-size: 23px; }
+.dispatch-ui .dispatch-metrics .size-11 { width: 32px; height: 32px; border-radius: 6px; }
+.dispatch-ui .dispatch-metrics svg { width: 17px; height: 17px; }
+.dispatch-ui .dispatch-calendar-layout .min-w-\[760px\] { min-width: 520px; }
+.dispatch-ui .dispatch-calendar-layout .grid-cols-\[120px_1fr\] { grid-template-columns: 84px minmax(0, 1fr); }
+.dispatch-ui .dispatch-calendar-layout > section { padding: 12px; }
+.dispatch-ui .dispatch-primary { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; width: 100%; border-radius: 8px; background: #0a9b81; color: white; font-weight: 600; box-shadow: 0 8px 18px rgba(10, 155, 129, 0.14); }
+.dispatch-ui .dispatch-primary:disabled { background: #cbd5e1; }
+.dispatch-trip-card { box-shadow: 0 2px 10px -2px rgba(15, 23, 42, 0.06); }
+.dispatch-detail-card { overflow: hidden; }
+.dispatch-success { min-height: 100dvh; display: flex; flex-direction: column; justify-content: center; gap: 10px; border: 0; background: #fff; padding: 32px 20px; text-align: center; }
+.dispatch-success h3 { font-size: 20px; font-weight: 700; color: #0f172a; }
+.dispatch-success p { color: #64748b; font-weight: 600; }
+.dispatch-mobile-header { position: sticky; top: 0; z-index: 40; display: flex; align-items: center; justify-content: space-between; min-height: 56px; background: white; gap: 8px; padding: 6px 0; border-bottom: 1px solid #f1f5f9; }
+.dispatch-mobile-header h2 { font-size: 16px; font-weight: 700; color: #0f172a; }
+.dispatch-mobile-header > button { display: grid; place-items: center; width: 40px; height: 40px; flex-shrink: 0; border-radius: 9999px; color: #334155; }
+.dispatch-mobile-header > button:active { background: #f1f5f9; }
+.dispatch-alerts { position: absolute; z-index: 50; top: 52px; right: 0; width: 300px; max-width: 90vw; max-height: 360px; overflow: auto; padding: 14px; border: 1px solid #dde6ed; border-radius: 8px; background: white; box-shadow: 0 8px 30px #14243a20; }
+.dispatch-alerts button { display: block; width: 100%; text-align: left; padding: 10px 0; border-bottom: 1px solid #edf1f4; overflow-wrap: anywhere; }
+.dispatch-date { position: relative; width: 100%; border: 1px solid #e2e8f0; border-radius: 12px; min-height: 42px; padding: 8px 12px; background: #fff; box-shadow: 0 2px 8px -2px rgba(15, 23, 42, 0.05); }
+@media (max-width: 1023px) {
+  .dispatch-ui { background: #f4f6f8; min-height: 100dvh; }
+  .dispatch-ui > .lg\:hidden { padding: 0 12px; }
+  .dispatch-ui .dispatch-metrics { gap: 8px; }
+  .dispatch-ui .dispatch-metrics > button { padding: 14px; min-height: 96px; }
+  .dispatch-ui .dispatch-metrics .text-4xl { font-size: 23px; color: #0a9b81; }
+  .dispatch-ui .dispatch-metrics .text-base { font-size: 11px; margin-top: 4px; color: #64748b; }
+  .dispatch-overview > section h3 { font-size: 15px; }
+  .dispatch-ui .dispatch-overview button.w-full { padding: 10px; }
+  .dispatch-ui .dispatch-overview .mt-3 { margin-top: 8px; }
+  .dispatch-ui .fixed.bottom-0 { padding: 6px 10px max(8px, env(safe-area-inset-bottom)); box-shadow: none; }
+  .dispatch-ui .fixed.bottom-0 button { background: transparent; padding: 5px 0; font-size: 10px; }
+  .dispatch-ui .dispatch-assignment { border: 0; padding-inline: 0; background: transparent; }
+  .dispatch-ui .dispatch-assignment .mt-5 { margin-top: 16px; }
+  .dispatch-ui .dispatch-assignment h3 { font-size: 16px; }
+  .dispatch-ui .dispatch-detail-card { margin-bottom: 16px; }
+}

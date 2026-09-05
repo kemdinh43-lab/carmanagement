@@ -3409,6 +3409,7 @@ export default function OpsApp() {
         }));
         const link = tripAccessUrl(tripToken);
         setMessage(`Đã phân xe thuê ngoài cho ${selectedOrder.code}. Trip Link: ${link}`);
+        window.dispatchEvent(new CustomEvent("dispatch-assignment-saved", { detail: { orderId: selectedOrder.id } }));
         notify({ audience: "dispatcher", eventType: "external_driver_assigned", title: "Đã phân xe thuê ngoài", body: `${selectedOrder.code} / ${externalDriverName} / ${externalVehiclePlate}`, entityId: selectedOrder.id });
         notify({ audience: "accountant", eventType: "supplier_profile_needed", title: "Cần hoàn thiện hồ sơ NCC", body: `${selectedOrder.code} đã dùng xe thuê ngoài.`, entityId: selectedOrder.id });
         return;
@@ -3485,6 +3486,7 @@ export default function OpsApp() {
         (current) => assignVehicleDriver(current, selectedOrder.id, assignment, currentAssignment?.id, reason, audit, false),
         currentAssignment ? `Đã đổi xe/tài xế cho ${selectedOrder.code}.` : `Đã phân xe/tài xế cho ${selectedOrder.code}.`
       );
+      window.dispatchEvent(new CustomEvent("dispatch-assignment-saved", { detail: { orderId: selectedOrder.id } }));
       notify({
         audience: "driver",
         eventType: "driver_assigned",
@@ -7219,6 +7221,19 @@ function DispatchPanel({
   const [desktopView, setDesktopView] = useState<"desk" | "orders" | "detail" | "schedule" | "assign">("desk");
   const [detailTab, setDetailTab] = useState<"overview" | "route" | "payment">("overview");
   const [scheduleMode, setScheduleMode] = useState<"vehicle" | "timeline">("vehicle");
+  const [dispatchSearch, setDispatchSearch] = useState("");
+  const [queueFilter, setQueueFilter] = useState("Tất cả");
+  const [seatFilter, setSeatFilter] = useState("");
+  const [vehicleStatusFilter, setVehicleStatusFilter] = useState("");
+  const [assignmentStep, setAssignmentStep] = useState(0);
+  const [showDispatchAlerts, setShowDispatchAlerts] = useState(false);
+  useEffect(() => {
+    const onSaved = (event: Event) => {
+      if ((event as CustomEvent<{ orderId: string }>).detail.orderId === selectedOrder.id) setAssignmentStep(2);
+    };
+    window.addEventListener("dispatch-assignment-saved", onSaved);
+    return () => window.removeEventListener("dispatch-assignment-saved", onSaved);
+  }, [selectedOrder.id]);
   const [selectedScheduleVehicleId, setSelectedScheduleVehicleId] = useState(selectedOrder.vehicleId ?? vehicles[0]?.id ?? "unassigned");
   const activeAssignment = assignments.find((assignment) => assignment.dispatchOrderId === selectedOrder.id && assignment.status === "active");
   const vehicle = vehicles.find((item) => item.id === selectedOrder.vehicleId);
@@ -7227,8 +7242,12 @@ function DispatchPanel({
   const canUpdateDispatchStatus = can(currentRole, "update_dispatch_status");
   const pendingReviewOrders = orders.filter((order) => order.orderStatus === "pending_dispatch_review");
   const confirmedOrders = orders.filter((order) => order.orderStatus === "confirmed");
-  const dispatchQueue = orders
+  const dispatchBaseQueue = orders
     .filter((order) => order.orderStatus === "pending_dispatch_review" || order.dispatchStatus === "waiting_assignment" || order.dispatchStatus === "assigned" || order.dispatchStatus === "driver_accepted" || order.dispatchStatus === "in_progress")
+    .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+  const dispatchQueue = dispatchBaseQueue
+    .filter((order) => `${order.code} ${order.customerName} ${routeSummaryForOrder(order)}`.toLocaleLowerCase("vi").includes(dispatchSearch.toLocaleLowerCase("vi")))
+    .filter((order) => queueFilter === "Tất cả" || (queueFilter === "Chờ điều xe" ? order.dispatchStatus === "waiting_assignment" || order.orderStatus === "pending_dispatch_review" : queueFilter === "Đang chạy" ? order.dispatchStatus === "in_progress" : order.dispatchStatus === "assigned" || order.dispatchStatus === "driver_accepted"))
     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
   const todayKey = dateKey(calendarDay);
   const todayOrders = confirmedOrders
@@ -7238,7 +7257,7 @@ function DispatchPanel({
   const soonOrders = confirmedOrders.filter((order) => order.dispatchStatus === "assigned" || order.dispatchStatus === "driver_accepted");
   const runningOrders = confirmedOrders.filter((order) => order.dispatchStatus === "in_progress");
   const completedToday = confirmedOrders.filter((order) => order.dispatchStatus === "completed" && orderDateKey(order) === todayKey);
-  const urgentOrders = dispatchQueue
+  const urgentOrders = dispatchBaseQueue
     .filter((order) => order.changedNearStart || order.priority === "urgent" || order.dispatchStatus === "waiting_assignment")
     .slice(0, 4);
   const currentAssignmentHistory = assignments.filter((item) => item.dispatchOrderId === selectedOrder.id);
@@ -7499,11 +7518,11 @@ function DispatchPanel({
     const canSubmitAssignment = canAssignSelectedOrder &&
       blockingAssignmentIssues.length === 0 &&
       (assignmentMode === "rented" || Boolean(selectedAssignmentChoice.vehicleId && selectedAssignmentChoice.driverId));
-    const selectedVehicleOrderCount = draftVehicle ? todayOrders.filter((order) => order.vehicleId === draftVehicle.id).length : 0;
-    const selectedDriverOrderCount = draftDriver ? todayOrders.filter((order) => order.driverId === draftDriver.id).length : 0;
+
+    if (assignmentStep === 2) return <section className="dispatch-success"><CheckCircle2 size={64} className="mx-auto text-emerald-600" /><h3>Đã điều xe thành công</h3><p className="font-mono text-lg font-bold text-slate-900">{selectedOrder.code}</p><p>{draftVehicle?.plateNo ?? selectedVehicleLabel}</p><p>{draftDriver?.fullName ?? selectedDriverLabel}</p><button className="dispatch-primary" onClick={() => { setAssignmentStep(0); setMobileView("detail"); setDesktopView("detail"); }} type="button">Xem chi tiết lệnh</button><button className="mt-3 w-full py-3 text-brand" onClick={() => { setAssignmentStep(0); setMobileView("orders"); setDesktopView("orders"); }} type="button">Quay về danh sách</button></section>;
 
     return (
-      <form className={`rounded-[22px] border border-line bg-white shadow-sm ${compactForm ? "p-4" : "p-5"}`} onSubmit={assignOrder}>
+      <form className={`dispatch-assignment border border-line bg-white ${compactForm ? "p-4 pb-24" : "p-5"}`} onSubmit={assignOrder}>
         <input name="assignmentMode" type="hidden" value={assignmentMode} />
         {assignmentMode === "company" && (
           <>
@@ -7513,15 +7532,15 @@ function DispatchPanel({
         )}
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-sm font-extrabold text-slate-500">Điều xe</p>
-            <h3 className="text-2xl font-extrabold leading-tight text-ink">Chọn xe phù hợp</h3>
+            <p className="text-sm font-extrabold text-slate-500">Điều xe cho lệnh</p>
+            <h3 className="text-xl font-extrabold leading-tight text-ink">{selectedOrder.code}</h3>
           </div>
           <Badge tone={canAssignSelectedOrder ? "good" : "warn"}>{canAssignSelectedOrder ? "Có thể điều" : "Chưa duyệt"}</Badge>
         </div>
 
         <div className="mt-5 grid grid-cols-3 gap-2 text-center text-xs font-extrabold text-slate-500">
           {["Chọn xe", "Xác nhận", "Hoàn tất"].map((label, index) => {
-            const active = index === 0 || (index === 1 && selectedAssignmentChoice.vehicleId && selectedAssignmentChoice.driverId);
+            const active = index <= assignmentStep;
             return (
               <div className="relative" key={label}>
                 {index > 0 && <span className="absolute right-1/2 top-3 -z-0 h-px w-full bg-slate-200" />}
@@ -7532,7 +7551,7 @@ function DispatchPanel({
           })}
         </div>
 
-        <div className="mt-5 rounded-2xl border border-line bg-slate-50 p-4">
+        <div className="mt-5 rounded-2xl border border-line bg-gradient-to-br from-slate-50 to-slate-100/80 p-3.5">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-sm font-extrabold text-slate-500">Thông tin lệnh</p>
@@ -7540,7 +7559,7 @@ function DispatchPanel({
             </div>
             <Badge tone={statusTone(selectedOrder)}>{dispatchLabels[selectedOrder.dispatchStatus]}</Badge>
           </div>
-          <div className="mt-3 grid gap-2 text-sm font-semibold text-slate-600 sm:grid-cols-2">
+          <div className="mt-3 grid gap-2 text-xs font-semibold text-slate-600 sm:grid-cols-2">
             <span className="truncate">{routeSummaryForOrder(selectedOrder)}</span>
             <span>{dateOnly(selectedOrder.startAt)} · {timeOnly(selectedOrder.startAt)}</span>
             <span>{selectedOrder.guestCount ?? "-"} khách</span>
@@ -7548,7 +7567,7 @@ function DispatchPanel({
           </div>
         </div>
 
-        <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1">
+        <div className={`${assignmentStep !== 0 ? "hidden" : ""} mt-5 grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1`}>
           {[
             { id: "company", label: "Xe công ty" },
             { id: "rented", label: "Thuê ngoài" }
@@ -7571,21 +7590,22 @@ function DispatchPanel({
 
           {assignmentMode === "company" ? (
             <>
-              <section>
+              <section className={assignmentStep !== 0 ? "hidden" : ""}>
                 <div className="mb-3 flex items-center justify-between gap-3">
-                  <h4 className="font-extrabold text-ink">Chọn xe phù hợp</h4>
-                  <span className="text-xs font-bold text-slate-500">{vehicles.length} xe</span>
+                  <h4 className="font-extrabold text-ink">Chọn xe phù hợp gần nhất</h4>
+                  <span className="rounded-full bg-teal-50 px-2 py-0.5 text-xs font-bold text-brand">Đề xuất thông minh</span>
                 </div>
                 <div className="grid gap-2">
-                  {vehicles.slice(0, compactForm ? 4 : 5).map((item) => {
+                  {vehicles.map((item, index) => {
                     const selected = selectedAssignmentChoice.vehicleId === item.id;
+                    const defaultDriver = drivers.find((driverItem) => driverItem.id === item.defaultDriverId);
+                    const dayTrips = todayOrders.filter((order) => order.vehicleId === item.id).length;
                     return (
                       <button
-                        className={`flex items-center justify-between gap-3 rounded-2xl border p-3 text-left transition ${selected ? "border-brand bg-teal-50 shadow-sm" : "border-line bg-white hover:border-teal-200"} ${item.status !== "active" ? "opacity-50" : ""}`}
+                        className={`flex items-start justify-between gap-3 rounded-2xl border p-3.5 text-left transition ${selected ? "border-2 border-brand bg-[#f4fff9] shadow-sm" : "border-line bg-white hover:border-teal-200"} ${item.status !== "active" ? "opacity-60" : ""}`}
                         disabled={item.status !== "active"}
                         key={item.id}
                         onClick={() => {
-                          const defaultDriver = drivers.find((driverItem) => driverItem.id === item.defaultDriverId);
                           setAssignmentChoice({
                             orderId: selectedOrder.id,
                             driverId: defaultDriver?.id ?? selectedAssignmentChoice.driverId,
@@ -7595,14 +7615,15 @@ function DispatchPanel({
                         type="button"
                       >
                         <span className="flex min-w-0 items-center gap-3">
-                          <span className={`grid size-10 shrink-0 place-items-center rounded-xl ${selected ? "bg-brand text-white" : "bg-blue-50 text-blue-700"}`}><Car size={19} /></span>
+                          <span className={`grid size-10 shrink-0 place-items-center rounded-xl ${selected ? "bg-teal-50 text-brand" : "bg-slate-100 text-slate-600"}`}><Car size={21} /></span>
                           <span className="min-w-0">
-                            <span className="block truncate font-extrabold text-ink">{item.plateNo}</span>
-                            <span className="block truncate text-xs font-semibold text-slate-500">{item.type} · {item.seats} chỗ · {selectedVehicleOrderCount} chuyến hôm nay</span>
+                            <span className="block truncate font-extrabold text-ink">{item.plateNo} {index === 0 && <span className="ml-1 rounded bg-brand px-1.5 py-0.5 text-[10px] text-white">Tối ưu nhất</span>}</span>
+                            <span className="block truncate text-xs font-semibold text-slate-500">{item.type} · {item.seats} chỗ</span>
+                            <span className="block truncate text-[11px] text-slate-500">Tài xế: <strong className="text-slate-800">{defaultDriver?.fullName ?? "Chưa gán mặc định"}</strong></span>
+                            <span className={`block truncate text-[11px] font-medium ${dayTrips === 0 ? "text-brand" : "text-amber-700"}`}>{dayTrips === 0 ? "Đang rảnh trong ngày" : `${dayTrips} chuyến hôm nay`}</span>
                           </span>
                         </span>
                         <span className="flex shrink-0 items-center gap-2">
-                          <Badge tone={item.status === "active" ? "good" : "warn"}>{item.status === "active" ? "Sẵn sàng" : item.status}</Badge>
                           <span className={`grid size-5 place-items-center rounded-full border ${selected ? "border-brand bg-brand text-white" : "border-slate-300 bg-white"}`}>{selected && <CheckCircle2 size={14} />}</span>
                         </span>
                       </button>
@@ -7611,13 +7632,13 @@ function DispatchPanel({
                 </div>
               </section>
 
-              <section>
+              <section className={assignmentStep !== 0 ? "hidden" : ""}>
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <h4 className="font-extrabold text-ink">Chọn tài xế</h4>
                   <span className="text-xs font-bold text-slate-500">{drivers.length} tài xế</span>
                 </div>
                 <div className="grid gap-2">
-                  {drivers.slice(0, compactForm ? 4 : 5).map((item) => {
+                  {drivers.map((item) => {
                     const selected = selectedAssignmentChoice.driverId === item.id;
                     const initials = item.fullName.split(" ").slice(-2).map((part) => part[0]).join("").toUpperCase();
                     return (
@@ -7639,7 +7660,7 @@ function DispatchPanel({
                           <span className={`grid size-10 shrink-0 place-items-center rounded-full text-sm font-extrabold ${selected ? "bg-brand text-white" : "bg-slate-100 text-slate-700"}`}>{initials || "TX"}</span>
                           <span className="min-w-0">
                             <span className="block truncate font-extrabold text-ink">{item.fullName}</span>
-                            <span className="block truncate text-xs font-semibold text-slate-500">{item.phone} · {selectedDriverOrderCount} chuyến hôm nay</span>
+                            <span className="block truncate text-xs font-semibold text-slate-500">{item.phone} · {todayOrders.filter((order) => order.driverId === item.id).length} chuyến hôm nay</span>
                           </span>
                         </span>
                         <span className="flex shrink-0 items-center gap-2">
@@ -7652,7 +7673,7 @@ function DispatchPanel({
                 </div>
               </section>
 
-              <section className="rounded-2xl border border-line bg-slate-50 p-4">
+              <section className={`${assignmentStep !== 1 ? "hidden" : ""} rounded-2xl border border-line bg-slate-50 p-4`}>
                 <h4 className="font-extrabold text-ink">Xác nhận</h4>
                 <div className="mt-3 grid gap-2 text-sm">
                   <InfoLine label="Xe" value={draftVehicle ? vehicleOptionLabel(draftVehicle) : "Chưa chọn xe"} />
@@ -7671,7 +7692,7 @@ function DispatchPanel({
                   )}
                 </div>
               </section>
-              <Field label="Ghi chú phân công"><textarea className={textAreaClass()} name="reason" placeholder="Ví dụ: ưu tiên xe quen tuyến, khách đổi giờ..." /></Field>
+              <div className={assignmentStep !== 1 ? "hidden" : ""}><Field label="Ghi chú phân công"><textarea className={textAreaClass()} name="reason" placeholder="Ghi chú phân công" /></Field></div>
             </>
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
@@ -7687,11 +7708,12 @@ function DispatchPanel({
           )}
         </div>
 
-        <button className="mt-5 inline-flex h-13 min-h-13 w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-4 text-base font-extrabold text-white shadow-[0_12px_26px_rgba(15,118,110,0.20)] hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canSubmitAssignment || isActionPending(`dispatch:assign:${selectedOrder.id}`)} type="submit">
+        {assignmentStep === 0 && assignmentMode === "company" ? <button className="dispatch-primary mt-5" disabled={!canSubmitAssignment} onClick={() => setAssignmentStep(1)} type="button">Tiếp tục <ChevronRight size={17} /></button> : <button className="dispatch-primary mt-5" disabled={!canSubmitAssignment || isActionPending(`dispatch:assign:${selectedOrder.id}`)} type="submit">
           <Car size={19} /> {isActionPending(`dispatch:assign:${selectedOrder.id}`) ? "Đang điều xe..." : "Xác nhận điều xe"}
-        </button>
+        </button>}
+        {assignmentStep === 1 && <button className="mt-3 w-full py-2 text-sm text-brand" onClick={() => setAssignmentStep(0)} type="button">Quay lại chọn xe</button>}
 
-        {currentAssignmentHistory.length > 0 && (
+        {false && currentAssignmentHistory.length > 0 && (
           <div className="mt-4 rounded-2xl border border-line bg-slate-50 p-4">
             <p className="text-sm font-extrabold text-ink">Lịch sử phân xe</p>
             <div className="mt-2 space-y-2 text-sm font-semibold text-slate-600">
@@ -7726,7 +7748,7 @@ function DispatchPanel({
       }
     ];
     const windowStart = 6 * 60;
-    const windowEnd = 21 * 60;
+    const windowEnd = 22 * 60;
     const windowSize = windowEnd - windowStart;
 
     return (
@@ -7750,13 +7772,16 @@ function DispatchPanel({
                 {visibleHours.map((hour) => <span className="border-r border-line px-2 py-2 last:border-r-0" key={hour}>{String(hour).padStart(2, "0")}:00</span>)}
               </div>
             </div>
-            {rows.slice(0, 7).map((row) => (
+            {rows.filter((row) => {
+              const item = vehicles.find((vehicle) => vehicle.id === row.id);
+              return (!seatFilter || String(item?.seats) === seatFilter) && (!vehicleStatusFilter || (vehicleStatusFilter === "busy" ? row.orders.length > 0 : vehicleStatusFilter === "free" ? row.orders.length === 0 && item?.status === "active" : item?.status !== "active"));
+            }).map((row) => (
               <div className="grid grid-cols-[120px_1fr] border-t border-line" key={row.id}>
                 <div className="border-r border-line px-3 py-3">
                   <p className="text-sm font-bold text-ink">{row.label}</p>
                   <p className="text-xs text-slate-500">{row.detail}</p>
                 </div>
-                <div className="relative h-16 bg-white">
+                <div className="relative min-h-16 bg-white" style={{ height: Math.max(64, row.orders.length * 46 + 12) }}>
                   {visibleHours.map((hour, index) => (
                     <span className="absolute inset-y-0 border-l border-line/70" key={hour} style={{ left: `${(index / visibleHours.length) * 100}%` }} />
                   ))}
@@ -7767,7 +7792,8 @@ function DispatchPanel({
                     const start = Math.max(windowStart, hourOffset(order.startAt));
                     const end = Math.min(windowEnd, hourOffset(order.endAt));
                     const left = `${Math.max(0, ((start - windowStart) / windowSize) * 100)}%`;
-                    const width = `${Math.max(12, ((Math.max(end, start + 60) - start) / windowSize) * 100)}%`;
+                    if (end <= windowStart || start >= windowEnd) return null;
+                    const width = `${Math.max(0.5, ((end - start) / windowSize) * 100)}%`;
                     const color = order.dispatchStatus === "waiting_assignment"
                       ? "bg-orange-100 text-orange-800"
                       : order.dispatchStatus === "in_progress"
@@ -7780,10 +7806,10 @@ function DispatchPanel({
                         className={`absolute top-3 h-10 truncate rounded-lg px-3 text-left text-xs font-bold shadow-sm ${color} ${order.id === selectedOrder.id ? "ring-2 ring-slate-900" : ""}`}
                         key={order.id}
                         onClick={() => selectOrder(order.id, "detail")}
-                        style={{ left, width, top: row.orders.length > 1 ? 8 + (index % 2) * 24 : 12 }}
+                        style={{ left, width, top: 6 + index * 46 }}
                         type="button"
                       >
-                        {timeOnly(order.startAt)} {routeSummaryForOrder(order)}
+                        <span className="block truncate">{routeSummaryForOrder(order)}</span><span className="block font-normal">{timeOnly(order.startAt)} - {timeOnly(order.endAt)}</span>
                       </button>
                     );
                   })}
@@ -7797,30 +7823,36 @@ function DispatchPanel({
   }
 
   function renderMobileSchedule() {
+    const hours = [6, 9, 12, 15, 18, 21];
     return (
-      <div className="space-y-3">
-        <div className="flex gap-2 overflow-x-auto pb-1">
+      <div className="space-y-3 pb-20">
+        <div className="flex gap-2 overflow-x-auto rounded-xl bg-white p-2 shadow-sm">
           {Array.from({ length: 6 }, (_, index) => {
             const date = new Date(calendarDay);
             date.setDate(calendarDay.getDate() + index - 2);
             const active = dateKey(date) === dateKey(calendarDay);
             return (
-              <button className={`min-w-14 rounded-lg px-3 py-2 text-center text-xs font-bold ${active ? "bg-brand text-white" : "bg-white text-slate-600"}`} key={date.toISOString()} onClick={() => setCalendarDay(date)} type="button">
+              <button className={`min-w-12 rounded-lg px-3 py-2 text-center text-xs font-bold ${active ? "bg-brand text-white" : "text-slate-500"}`} key={date.toISOString()} onClick={() => setCalendarDay(date)} type="button">
                 <span className="block">{new Intl.DateTimeFormat("vi-VN", { weekday: "short", timeZone: vietnamTimeZone }).format(date)}</span>
                 <span className="block text-base">{vietnamDateParts(date).day}</span>
               </button>
             );
           })}
         </div>
-        {vehicles.slice(0, 7).map((item) => {
+        <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1 text-xs font-bold">
+          <button className={`h-9 rounded-lg ${scheduleMode === "vehicle" ? "bg-brand text-white" : "text-slate-500"}`} onClick={() => setScheduleMode("vehicle")} type="button">Theo xe</button>
+          <button className={`h-9 rounded-lg ${scheduleMode === "timeline" ? "bg-white text-slate-700 shadow-sm" : "text-slate-500"}`} onClick={() => setScheduleMode("timeline")} type="button">Dòng thời gian</button>
+        </div>
+        {vehicles.map((item) => {
           const vehicleOrders = todayOrders.filter((order) => order.vehicleId === item.id);
+          const firstOrder = vehicleOrders[0];
           return (
             <button
-              className="w-full rounded-lg border border-line bg-white p-3 text-left shadow-sm"
+              className={`w-full rounded-xl border bg-white p-3 text-left shadow-sm ${selectedScheduleVehicleId === item.id ? "border-brand" : "border-line"}`}
               key={item.id}
               onClick={() => {
                 setSelectedScheduleVehicleId(item.id);
-                if (vehicleOrders[0]) setSelectedOrderId(vehicleOrders[0].id);
+                if (firstOrder) setSelectedOrderId(firstOrder.id);
                 setMobileView("vehicleDetail");
               }}
               type="button"
@@ -7828,29 +7860,50 @@ function DispatchPanel({
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="font-bold text-ink">{item.plateNo}</p>
-                  <p className="text-xs text-slate-500">{item.seats} chỗ</p>
+                  <p className="text-xs text-slate-500">{item.type} · {item.seats} chỗ</p>
                 </div>
-                <Badge tone={item.status === "active" ? "good" : "warn"}>{item.status === "active" ? "Sẵn sàng" : item.status}</Badge>
+                <Badge tone={vehicleOrders.length > 0 ? "info" : item.status === "active" ? "good" : "warn"}>{vehicleOrders.length > 0 ? `${vehicleOrders.length} chuyến` : item.status === "active" ? "Trống" : item.status}</Badge>
               </div>
-              <div className="mt-3 grid grid-cols-8 gap-1">
-                {Array.from({ length: 8 }, (_, index) => {
-                  const hour = index * 3;
-                  const busy = vehicleOrders.some((order) => hourOffset(order.startAt) <= hour * 60 && hourOffset(order.endAt) >= hour * 60);
-                  return <span className={`h-4 rounded ${busy ? "bg-teal-300" : "bg-slate-100"}`} key={hour} />;
+              <div className="mt-3 grid grid-cols-6 gap-1">
+                {hours.map((hour) => {
+                  const minute = hour * 60;
+                  const busy = vehicleOrders.some((order) => hourOffset(order.startAt) <= minute && hourOffset(order.endAt) > minute);
+                  return <span className={`h-4 rounded ${busy ? "bg-teal-300" : "bg-slate-100"}`} key={hour} title={`${hour}:00`} />;
                 })}
               </div>
+              {firstOrder && <p className="mt-2 truncate text-xs font-semibold text-slate-600">{timeOnly(firstOrder.startAt)} · {routeSummaryForOrder(firstOrder)}</p>}
             </button>
           );
         })}
-        <button className="h-12 w-full rounded-md bg-brand text-sm font-bold text-white" onClick={() => setMobileView("assign")} type="button">Gán vào lệnh</button>
+        <button
+          className="fixed inset-x-4 bottom-20 z-20 h-12 rounded-xl bg-brand text-sm font-bold text-white shadow-lg shadow-emerald-700/20"
+          onClick={() => { setAssignmentStep(0); setMobileView("assign"); }}
+          type="button"
+        >
+          <Plus className="mr-2 inline" size={18} />Gán vào lệnh mới
+        </button>
       </div>
     );
   }
 
   function renderMobileVehicleDetail() {
+    const timelineOrders = [...selectedScheduleOrders].sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+    const timelineBlocks: Array<{ kind: "gap" | "trip"; start: number; end: number; order?: DispatchOrder }> = [];
+    let cursor = 6 * 60;
+    timelineOrders.forEach((order) => {
+      const start = Math.max(6 * 60, hourOffset(order.startAt));
+      const end = Math.min(24 * 60, hourOffset(order.endAt));
+      if (start > cursor) timelineBlocks.push({ kind: "gap", start: cursor, end: start });
+      timelineBlocks.push({ kind: "trip", start, end, order });
+      cursor = Math.max(cursor, end);
+    });
+    if (cursor < 24 * 60) timelineBlocks.push({ kind: "gap", start: cursor, end: 24 * 60 });
+    if (timelineBlocks.length === 0) timelineBlocks.push({ kind: "gap", start: 6 * 60, end: 24 * 60 });
+    const workedHours = Math.round(timelineOrders.reduce((sum, order) => sum + durationMinutes(order), 0) / 60);
+    const minuteLabel = (value: number) => `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
     return (
-      <section className="space-y-4">
-        <div className="rounded-xl border border-line bg-white p-4 shadow-sm">
+      <section className="space-y-3 pb-24">
+        <div className="rounded-xl border border-line bg-white p-3 shadow-sm">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-sm font-semibold text-slate-500">Xe</p>
@@ -7860,24 +7913,47 @@ function DispatchPanel({
             <Badge tone={selectedScheduleVehicle?.status === "active" ? "good" : "warn"}>{selectedScheduleVehicle?.status === "active" ? "Sẵn sàng" : selectedScheduleVehicle?.status ?? "Cần điều xe"}</Badge>
           </div>
         </div>
-        <div className="rounded-xl border border-line bg-white p-4 shadow-sm">
-          <h3 className="font-bold text-ink">Lịch trong ngày</h3>
-          <div className="mt-4 space-y-3">
-            {selectedScheduleOrders.length === 0 && (
-              <div className="rounded-lg bg-slate-50 p-4 text-sm font-semibold text-slate-500">Trống trong ngày này</div>
-            )}
-            {selectedScheduleOrders.map((order) => (
-              <button className="grid w-full grid-cols-[46px_1fr] gap-3 rounded-lg border border-line bg-panel p-3 text-left" key={order.id} onClick={() => selectOrder(order.id, "detail")} type="button">
-                <span className="font-bold text-brand">{timeOnly(order.startAt)}</span>
-                <span>
-                  <span className="block font-bold text-ink">{routeSummaryForOrder(order)}</span>
-                  <span className="block text-xs text-slate-500">{timeOnly(order.startAt)} - {timeOnly(order.endAt)} · {order.code}</span>
-                </span>
-              </button>
-            ))}
+        <label className="dispatch-date flex items-center justify-between">
+          <span className="flex items-center gap-2 font-semibold text-slate-800"><CalendarClock size={16} className="text-brand" />{dateOnly(calendarDay.toISOString())}</span>
+          <input aria-label="Ngày lịch xe" className="absolute opacity-0" type="date" value={inputDateValue(calendarDay)} onChange={(event) => setCalendarDay(new Date(`${event.target.value}T00:00:00`))} />
+          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">Đã chạy: {workedHours}h / 24h</span>
+        </label>
+        <div className="relative rounded-xl bg-white px-3 py-3 shadow-sm">
+          <div className="absolute left-[61px] top-6 bottom-6 w-px bg-slate-200" />
+          <div className="space-y-4">
+            {timelineBlocks.map((block, index) => {
+              const isTrip = block.kind === "trip" && block.order;
+              const tone = isTrip && block.order?.dispatchStatus === "in_progress" ? "emerald" : isTrip ? "blue" : "slate";
+              return (
+                <article className="relative z-10 grid grid-cols-[42px_12px_1fr] gap-3" key={`${block.kind}-${block.start}-${index}`}>
+                  <div className="pt-1 text-right">
+                    <span className={`text-xs font-bold ${tone === "emerald" ? "text-emerald-700" : tone === "blue" ? "text-blue-700" : "text-slate-500"}`}>{minuteLabel(block.start)}</span>
+                    <span className="block text-[10px] text-slate-400">{minuteLabel(block.end)}</span>
+                  </div>
+                  <div className="pt-2">
+                    <span className={`block size-3 rounded-full border-2 ${isTrip ? tone === "emerald" ? "border-emerald-500 bg-emerald-500 ring-2 ring-emerald-100" : "border-blue-600 bg-blue-600 ring-2 ring-blue-100" : "border-slate-300 bg-white"}`} />
+                  </div>
+                  {isTrip ? (
+                    <button className={`rounded-xl border p-3 text-left shadow-sm ${tone === "emerald" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-blue-200 bg-blue-50 text-blue-900"}`} onClick={() => selectOrder(block.order!.id, "detail")} type="button">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`rounded-md px-2 py-0.5 text-[10.5px] font-bold uppercase text-white ${tone === "emerald" ? "bg-emerald-600" : "bg-blue-600"}`}>{block.order!.dispatchStatus === "in_progress" ? "Đang vận hành" : dispatchLabels[block.order!.dispatchStatus]}</span>
+                        <span className="text-[11px] font-bold">{timeOnly(block.order!.startAt)} - {timeOnly(block.order!.endAt)}</span>
+                      </div>
+                      <p className="mt-2 truncate text-[15px] font-bold">{routeSummaryForOrder(block.order!)}</p>
+                      <p className="mt-1 truncate text-xs font-semibold">#{block.order!.code} · {block.order!.guestCount ?? "-"} khách</p>
+                    </button>
+                  ) : (
+                    <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <div><p className="text-[13px] font-semibold text-slate-700">Trống lịch · {Math.max(0, Math.round((block.end - block.start) / 60))}h</p><p className="text-[11.5px] text-slate-500">Sẵn sàng nhận lệnh</p></div>
+                      <button className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11.5px] font-semibold text-emerald-700" onClick={() => { setAssignmentStep(0); setMobileView("assign"); }} type="button">Gán lệnh</button>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
           </div>
         </div>
-        <button className="h-12 w-full rounded-md bg-brand text-sm font-bold text-white" onClick={() => setMobileView("assign")} type="button">Gán vào lệnh</button>
+        <button className="fixed inset-x-4 bottom-4 z-20 h-12 rounded-xl bg-brand text-sm font-bold text-white shadow-lg shadow-emerald-700/20" onClick={() => { setAssignmentStep(0); setMobileView("assign"); }} type="button"><Plus className="mr-2 inline" size={18} />Gán vào lệnh mới</button>
       </section>
     );
   }
@@ -7969,12 +8045,18 @@ function DispatchPanel({
           />
           <div className="relative">
             <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
-            <input className="h-10 w-72 rounded-xl border border-line bg-slate-50 pl-9 pr-3 text-sm font-medium outline-none focus:border-brand focus:bg-white" placeholder="Tìm mã lệnh, khách hàng, tuyến..." />
+            <input
+              className="h-10 w-72 rounded-xl border border-line bg-slate-50 pl-9 pr-3 text-sm font-medium outline-none focus:border-brand focus:bg-white"
+              onChange={(event) => setDispatchSearch(event.target.value)}
+              placeholder="Tìm mã lệnh, khách hàng, tuyến..."
+              value={dispatchSearch}
+            />
           </div>
-          <button className="relative grid size-10 place-items-center rounded-full border border-line bg-white text-ink" type="button">
+          <button className="relative grid size-10 place-items-center rounded-full border border-line bg-white text-ink" onClick={() => setShowDispatchAlerts(!showDispatchAlerts)} type="button">
             <Bell size={18} />
             {pendingReviewOrders.length > 0 && <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-red-500 px-1 text-[11px] font-bold text-white">{pendingReviewOrders.length}</span>}
           </button>
+          {showDispatchAlerts && <div className="dispatch-alerts right-6 top-14"><strong>Đề xuất chờ duyệt</strong>{pendingReviewOrders.length === 0 ? <p>Không có đề xuất mới.</p> : pendingReviewOrders.map((order) => <button key={order.id} onClick={() => { setSelectedOrderId(order.id); setDesktopView("orders"); setShowDispatchAlerts(false); }} type="button">{order.code}<span className="block text-slate-500">{order.customerName}</span></button>)}</div>}
         </div>
       </header>
     );
@@ -8013,23 +8095,44 @@ function DispatchPanel({
   }
 
   function renderDispatcherOrderCard(order: DispatchOrder) {
+    const needsAssign = order.dispatchStatus === "waiting_assignment" || order.orderStatus === "pending_dispatch_review";
+    const assignedVehicle = vehicles.find((item) => item.id === order.vehicleId);
+    const assignedDriver = drivers.find((item) => item.id === order.driverId);
     return (
       <button
-        className={`w-full rounded-2xl border bg-white p-4 text-left shadow-sm transition hover:border-brand ${selectedOrder.id === order.id ? "border-brand bg-teal-50/70" : "border-line"}`}
+        className={`dispatch-trip-card w-full rounded-2xl border bg-white p-3.5 text-left shadow-sm transition hover:border-brand ${selectedOrder.id === order.id ? "border-brand bg-teal-50/70" : "border-line"}`}
         key={order.id}
         onClick={() => selectOrder(order.id, "detail")}
         type="button"
       >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="truncate text-base font-extrabold text-ink">{order.code}</p>
-            <p className="mt-1 truncate text-sm font-bold text-slate-700">{routeSummaryForOrder(order)}</p>
+        <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <p className="truncate font-mono text-[13.5px] font-bold text-slate-900">{order.code}</p>
+            {order.changedNearStart && <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10.5px] font-semibold text-rose-600">Cần xe &lt; 30p</span>}
           </div>
           <Badge tone={statusTone(order)}>{dispatchLabels[order.dispatchStatus]}</Badge>
         </div>
-        <div className="mt-3 flex items-center justify-between gap-3 text-sm font-semibold text-slate-500">
-          <span>{timeOnly(order.startAt)} · {dateOnly(order.startAt)} · {order.guestCount ?? "-"} khách</span>
-          <ChevronRight size={17} />
+        <div className="py-2.5">
+          <div className="grid grid-cols-[18px_1fr] gap-2.5">
+            <div className="mt-1 flex flex-col items-center">
+              <span className="size-2.5 rounded-full bg-brand" />
+              <span className="my-0.5 h-5 w-px bg-slate-200" />
+              <span className="size-2.5 rounded-full bg-rose-500" />
+            </div>
+            <div className="space-y-2.5 text-[13px] leading-tight">
+              <p className="truncate font-medium text-slate-800">{routeLegsForOrder(order)[0]?.pickup || order.pickup}</p>
+              <p className="truncate font-semibold text-slate-900">{routeLegsForOrder(order).at(-1)?.dropoff || order.dropoff}</p>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-2.5">
+          <div className="flex min-w-0 items-center gap-2 text-[11.5px] text-slate-600">
+            <span className="rounded bg-slate-50 px-2 py-1 font-semibold text-slate-700">{timeOnly(order.startAt)}</span>
+            <span className="truncate rounded bg-slate-50 px-2 py-1 font-medium">{order.guestCount ?? "-"} khách{assignedVehicle ? ` / ${assignedVehicle.seats} chỗ` : ""}</span>
+          </div>
+          <span className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${needsAssign ? "bg-brand text-white" : "bg-slate-100 text-slate-800"}`}>
+            {needsAssign ? "Điều xe" : assignedDriver?.fullName ? "Chi tiết" : "Xem"}
+          </span>
         </div>
       </button>
     );
@@ -8037,43 +8140,49 @@ function DispatchPanel({
 
   function renderCompactOrderDetail(ctaLabel = "Điều xe") {
     return (
-      <section className="rounded-2xl border border-line bg-white p-4 shadow-sm">
+      <section className="dispatch-detail-card rounded-2xl border border-line bg-white p-4 shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-sm font-bold text-slate-500">Chi tiết lệnh</p>
-            <h3 className="mt-1 break-words text-2xl font-extrabold leading-tight text-ink">{selectedOrder.code}</h3>
+            <p className="text-[11px] font-bold text-slate-400">Chi tiết chuyến đi</p>
+            <h3 className="mt-1 break-words text-[18px] font-bold leading-tight text-slate-900">{selectedOrder.code}</h3>
+            <p className="mt-1 text-xs font-medium text-slate-500">{timeOnly(selectedOrder.startAt)} · {dateOnly(selectedOrder.startAt)} · {selectedOrder.guestCount ?? "-"} khách</p>
           </div>
           <Badge tone={statusTone(selectedOrder)}>{dispatchLabels[selectedOrder.dispatchStatus]}</Badge>
         </div>
-        <div className="mt-4 flex gap-2">
+        <div className="mt-4 grid grid-cols-3 rounded-xl bg-slate-100 p-1">
           {[
             ["overview", "Tổng quan"],
             ["route", "Hành trình"],
             ["payment", "Thanh toán"]
           ].map(([key, label]) => (
-            <button className={`h-9 rounded-lg px-4 text-sm font-extrabold ${detailTab === key ? "bg-brand text-white" : "bg-slate-100 text-slate-600"}`} key={key} onClick={() => setDetailTab(key as typeof detailTab)} type="button">{label}</button>
+            <button className={`h-8 rounded-lg px-2 text-xs font-bold ${detailTab === key ? "bg-brand text-white" : "text-slate-500"}`} key={key} onClick={() => setDetailTab(key as typeof detailTab)} type="button">{label}</button>
           ))}
         </div>
         {detailTab === "overview" && (
           <div className="mt-4 space-y-3">
-            <InfoLine label="Tuyến" value={routeSummaryForOrder(selectedOrder)} />
-            <InfoLine label="Ngày đi" value={dateOnly(selectedOrder.startAt)} />
-            <InfoLine label="Giờ khởi hành" value={timeOnly(selectedOrder.startAt)} />
-            <InfoLine label="Số khách" value={`${selectedOrder.guestCount ?? "-"} khách`} />
-            <InfoLine label="Loại yêu cầu" value={selectedOrder.serviceLabel || selectedOrder.contractType || "-"} />
-            <InfoLine label="Khách hàng" value={selectedOrder.customerName} />
-            <InfoLine label="Người liên hệ" value={selectedOrder.contactName || selectedOrder.customerName} />
-            <InfoLine label="SĐT" value={selectedOrder.contactPhone} />
-            <InfoLine label="Ghi chú" value={selectedOrder.salesNote || selectedOrder.customerConfirmationNote || "-"} />
+            <div className="rounded-xl border border-line bg-slate-50 p-3">
+              <p className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-900"><MapPin size={16} className="text-brand" />Hành trình</p>
+              {renderRouteTimeline(selectedOrder, true)}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="rounded-xl border border-line bg-white p-3 text-center"><Car className="mx-auto text-brand" size={18} /><p className="mt-1 truncate text-xs font-bold text-slate-900">{selectedVehicleLabel}</p><p className="text-[10px] text-slate-400">Xe</p></div>
+              <div className="rounded-xl border border-line bg-white p-3 text-center"><UsersRound className="mx-auto text-blue-600" size={18} /><p className="mt-1 truncate text-xs font-bold text-slate-900">{selectedDriverLabel}</p><p className="text-[10px] text-slate-400">Tài xế</p></div>
+              <div className="rounded-xl border border-line bg-white p-3 text-center"><ReceiptText className="mx-auto text-amber-600" size={18} /><p className="mt-1 text-xs font-bold text-slate-900">{money(selectedOrder.amountDue)}</p><p className="text-[10px] text-slate-400">Tổng thu</p></div>
+            </div>
+            <div className="rounded-xl border border-line bg-white p-3">
+              <InfoLine label="Khách hàng" value={selectedOrder.customerName} />
+              <InfoLine label="Liên hệ" value={`${selectedOrder.contactName || selectedOrder.customerName} / ${selectedOrder.contactPhone}`} />
+              <InfoLine label="Xác nhận tài xế" value={driverAckLabel} />
+            </div>
           </div>
         )}
         {detailTab === "route" && (
-          <div className="mt-4 rounded-2xl bg-slate-50 p-4">
+          <div className="mt-4 rounded-2xl border border-line bg-slate-50 p-4">
             {renderRouteTimeline(selectedOrder, true)}
           </div>
         )}
         {detailTab === "payment" && (
-          <div className="mt-4 rounded-2xl bg-slate-50 p-4">
+          <div className="mt-4 rounded-2xl border border-line bg-slate-50 p-4">
             <InfoLine label="Tiền trước thuế" value={money(selectedOrder.subtotalAmount ?? selectedOrder.amountDue - (selectedOrder.vatAmount ?? 0))} />
             <InfoLine label="Thuế suất" value={`${selectedOrder.vatRate ?? 0}%`} />
             <InfoLine label="Tiền thuế" value={money(selectedOrder.vatAmount ?? 0)} />
@@ -8081,10 +8190,16 @@ function DispatchPanel({
             <InfoLine label="Còn phải thu" value={money(Math.max(0, selectedOrder.amountDue - (selectedOrder.driverCollectedAmount ?? 0)))} />
           </div>
         )}
+        {selectedOrder.orderStatus === "pending_dispatch_review" && (
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button className="h-10 rounded-lg bg-brand text-sm font-bold text-white disabled:bg-slate-300" disabled={!canAssignVehicle || isActionPending(`dispatch:review:${selectedOrder.id}:approved`)} onClick={() => reviewDispatchProposal(selectedOrder.id, "approved", "")} type="button">Duyệt</button>
+            <button className="h-10 rounded-lg border border-rose-200 bg-rose-50 text-sm font-bold text-rose-700 disabled:bg-slate-100" disabled={!canAssignVehicle || isActionPending(`dispatch:review:${selectedOrder.id}:rejected`)} onClick={() => reviewDispatchProposal(selectedOrder.id, "rejected", "Điều hành từ chối")} type="button">Từ chối</button>
+          </div>
+        )}
         <button
           className="mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-extrabold text-white hover:bg-teal-800 disabled:bg-slate-300"
           disabled={!canAssignSelectedOrder}
-          onClick={() => { setDesktopView("assign"); setMobileView("assign"); }}
+          onClick={() => { setAssignmentStep(0); setDesktopView("assign"); setMobileView("assign"); }}
           type="button"
         >
           <Car size={18} /> {ctaLabel}
@@ -8167,15 +8282,14 @@ function DispatchPanel({
   function renderDesktopWorkspace() {
     return (
       <>
-        <div className="grid gap-4 xl:grid-cols-4">
+        <div className="dispatch-metrics grid grid-cols-4 gap-3">
           {stats.map(renderDispatchMetric)}
         </div>
-        <div className="grid items-start gap-4 xl:grid-cols-[minmax(560px,1fr)_330px_260px]">
+        <div className="dispatch-workspace">
           <section className="rounded-2xl border border-line bg-white p-4 shadow-sm">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h3 className="font-extrabold text-ink">Danh sách lệnh cần xử lý</h3>
-                <p className="text-sm font-medium text-slate-500">Chọn một lệnh để cập nhật pane chi tiết.</p>
               </div>
               <button className="text-sm font-extrabold text-brand" onClick={() => setDesktopView("orders")} type="button">Xem tất cả</button>
             </div>
@@ -8190,7 +8304,7 @@ function DispatchPanel({
 
   function renderDesktopOrders() {
     return (
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(620px,1fr)_360px]">
+      <div className="dispatch-orders-layout">
         <section className="space-y-4 rounded-2xl border border-line bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -8198,8 +8312,8 @@ function DispatchPanel({
               <p className="text-sm font-medium text-slate-500">Lọc nhanh theo trạng thái vận hành.</p>
             </div>
             <div className="flex gap-2 overflow-x-auto">
-              {["Tất cả", "Chờ điều xe", "Sắp chạy", "Đang chạy"].map((label, index) => (
-                <button className={`h-9 rounded-full px-4 text-sm font-extrabold ${index === 0 ? "bg-brand text-white" : "bg-slate-100 text-slate-600"}`} key={label} type="button">{label}</button>
+              {["Tất cả", "Chờ điều xe", "Sắp chạy", "Đang chạy"].map((label) => (
+                <button className={`h-9 rounded-full px-4 text-sm font-extrabold ${queueFilter === label ? "bg-brand text-white" : "bg-slate-100 text-slate-600"}`} key={label} onClick={() => setQueueFilter(label)} type="button">{label}</button>
               ))}
             </div>
           </div>
@@ -8217,16 +8331,15 @@ function DispatchPanel({
 
   function renderDesktopSchedule() {
     return (
-      <div className="grid min-h-[calc(100vh-112px)] gap-4 xl:grid-cols-[230px_minmax(680px,1fr)_300px]">
-        <section className="rounded-2xl border border-line bg-white p-4 shadow-sm">
+      <div className="dispatch-calendar-layout">
+      <section className="rounded-2xl border border-line bg-white p-4 shadow-sm">
           <h3 className="text-lg font-extrabold text-ink">Bộ lọc</h3>
           <div className="mt-4 space-y-3">
             <Field label="Ngày"><input className={inputClass()} onChange={(event) => setCalendarDay(new Date(`${event.target.value}T00:00:00`))} type="date" value={inputDateValue(calendarDay)} /></Field>
-            <Field label="Khu vực"><select className={inputClass()}><option>Tất cả</option><option>Đà Nẵng</option><option>Hội An</option></select></Field>
-            <Field label="Loại xe"><select className={inputClass()}><option>Tất cả</option><option>7 chỗ</option><option>16 chỗ</option><option>29 chỗ</option><option>45 chỗ</option></select></Field>
-            <Field label="Trạng thái"><select className={inputClass()}><option>Tất cả</option><option>Đang chạy</option><option>Sẵn sàng</option><option>Bảo trì</option></select></Field>
+            <Field label="Loại xe"><select className={inputClass()} value={seatFilter} onChange={(event) => setSeatFilter(event.target.value)}><option value="">Tất cả</option>{Array.from(new Set(vehicles.map((vehicle) => vehicle.seats))).sort((a, b) => a - b).map((seats) => <option key={seats} value={seats}>{seats} chỗ</option>)}</select></Field>
+            <Field label="Trạng thái"><select className={inputClass()} value={vehicleStatusFilter} onChange={(event) => setVehicleStatusFilter(event.target.value)}><option value="">Tất cả</option><option value="busy">Có lịch</option><option value="free">Trống lịch</option><option value="inactive">Ngừng hoạt động</option></select></Field>
           </div>
-          <button className="mt-4 text-sm font-extrabold text-brand" type="button">Xóa bộ lọc</button>
+          <button className="mt-4 text-sm font-extrabold text-brand" onClick={() => { setSeatFilter(""); setVehicleStatusFilter(""); }} type="button">Xóa bộ lọc</button>
           <div className="mt-5 rounded-2xl border border-line bg-slate-50 p-4">
             <p className="text-sm font-bold text-slate-500">Tổng số xe</p>
             <p className="mt-1 text-4xl font-extrabold text-ink">{vehicles.length}</p>
@@ -8258,10 +8371,9 @@ function DispatchPanel({
 
   function renderDesktopAssign() {
     return (
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(620px,1fr)_420px]">
+      <div className="dispatch-orders-layout">
         <div className="space-y-4">
           {renderCompactOrderDetail("Đang điều xe")}
-          {renderScheduleBoard()}
         </div>
         <div className="sticky top-5">{renderAssignmentForm()}</div>
       </div>
@@ -8269,63 +8381,72 @@ function DispatchPanel({
   }
 
   function renderMobileHeader() {
-    const title = mobileView === "detail" ? "Chi tiết lệnh" : mobileView === "schedule" ? "Lịch xe" : mobileView === "vehicleDetail" ? "Chi tiết lịch xe" : mobileView === "assign" ? "Điều xe" : mobileView === "orders" ? "Danh sách lệnh" : "Tổng quan";
+    const title = mobileView === "detail" ? "Chi tiết chuyến đi" : mobileView === "schedule" ? "Lịch xe & Điều phối" : mobileView === "vehicleDetail" ? `Xe ${selectedScheduleVehicle?.plateNo ?? "chưa phân"}` : mobileView === "assign" ? `Điều xe cho lệnh` : mobileView === "orders" ? "Điều lệnh chuyến đi" : "Tổng quan";
+    const subtitle = mobileView === "overview" ? "Điều hành saas" : mobileView === "orders" ? `${dispatchBaseQueue.length} lệnh vận hành hôm nay` : mobileView === "vehicleDetail" ? `${selectedScheduleVehicle?.type ?? "Nguồn lực"} · ${selectedScheduleVehicle?.seats ?? "-"} chỗ` : selectedOrder.code;
     return (
-      <div className="flex items-center justify-between gap-3">
-        <button className="grid size-12 shrink-0 place-items-center rounded-full border-2 border-blue-600 bg-white text-ink shadow-sm" onClick={() => mobileView === "overview" ? history.back() : setMobileView("overview")} type="button">
-          <ChevronLeft size={24} />
-        </button>
-        <div className="grid size-12 shrink-0 place-items-center rounded-full bg-brand text-white shadow-[0_10px_22px_rgba(15,118,110,0.22)]">
-          <Route size={24} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-bold text-slate-500">{vietnamFriendlyDate(new Date())}</p>
-          <h2 className="truncate text-2xl font-extrabold leading-tight text-ink">{title}</h2>
-        </div>
-        <button className="relative grid size-12 shrink-0 place-items-center rounded-full bg-white text-ink shadow-sm" type="button">
-          <Bell size={22} />
-          {pendingReviewOrders.length > 0 && <span className="absolute -right-1 -top-1 grid h-6 min-w-6 place-items-center rounded-full bg-red-500 px-1 text-xs font-extrabold text-white">{pendingReviewOrders.length}</span>}
-        </button>
-      </div>
+      <header className="dispatch-mobile-header">
+        {mobileView === "overview" ? (
+          <div className="flex items-center gap-2.5 text-brand">
+            <span className="grid size-8 place-items-center rounded-xl bg-teal-50"><Route size={20} /></span>
+            <span className="leading-tight"><strong className="block text-[16px] text-slate-900">Angel One Travel</strong><span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{subtitle}</span></span>
+          </div>
+        ) : (
+          <>
+            <button aria-label="Quay lại" onClick={() => { if (mobileView === "assign" && assignmentStep > 0) setAssignmentStep(0); else setMobileView(mobileView === "vehicleDetail" ? "schedule" : mobileView === "assign" ? "detail" : mobileView === "detail" ? "orders" : "overview"); }} type="button"><ChevronLeft size={21} /></button>
+            <span className="min-w-0 text-center leading-tight"><h2 className="truncate">{title}</h2><p className="truncate text-[11px] font-medium text-brand">{subtitle}</p></span>
+          </>
+        )}
+        <button aria-label="Thông báo điều hành" className="relative" onClick={() => setShowDispatchAlerts(!showDispatchAlerts)} type="button"><Bell size={19} />{pendingReviewOrders.length > 0 && <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-red-500 ring-2 ring-white" />}</button>
+        {showDispatchAlerts && <div className="dispatch-alerts"><strong>Đề xuất chờ duyệt</strong>{pendingReviewOrders.length === 0 ? <p>Không có đề xuất mới.</p> : pendingReviewOrders.map((order) => <button key={order.id} onClick={() => { selectOrder(order.id); setShowDispatchAlerts(false); }} type="button">{order.code}<span className="block text-slate-500">{order.customerName}</span></button>)}</div>}
+      </header>
     );
   }
 
   function renderMobileOverview() {
+    const mobileStats = [
+      { label: "Lệnh hôm nay", value: todayOrders.length, detail: `${dispatchBaseQueue.length} lệnh cần theo dõi`, tone: "teal", icon: ClipboardList },
+      { label: "Chờ điều xe", value: waitingOrders.length, detail: `${urgentOrders.length} lệnh cần gấp`, tone: "orange", icon: Clock3 },
+      { label: "Đang chạy", value: runningOrders.length, detail: "Trên hành trình", tone: "green", icon: Navigation },
+      { label: "Hoàn thành", value: completedToday.length, detail: "Đã về bãi", tone: "slate", icon: CheckCircle2 }
+    ];
     return (
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          {stats.map((item) => {
+      <div className="dispatch-overview space-y-4">
+        <label className="dispatch-date flex items-center justify-between">
+          <span className="flex items-center gap-2 font-semibold text-slate-800"><CalendarClock size={16} className="text-slate-500" />{dateOnly(calendarDay.toISOString())}</span>
+          <input aria-label="Ngày điều hành" className="absolute opacity-0" type="date" value={inputDateValue(calendarDay)} onChange={(event) => setCalendarDay(new Date(`${event.target.value}T00:00:00`))} />
+          <span className="rounded-full bg-teal-50 px-2 py-0.5 text-[11px] font-semibold text-brand">Hôm nay</span>
+        </label>
+        <div className="dispatch-metrics grid grid-cols-2 gap-3">
+          {mobileStats.map((item) => {
             const Icon = item.icon;
             const toneClass = item.tone === "orange"
               ? "bg-orange-50 text-orange-700"
-              : item.tone === "blue"
-                ? "bg-blue-50 text-blue-700"
-                : item.tone === "green"
-                  ? "bg-emerald-50 text-emerald-700"
+              : item.tone === "green"
+                ? "bg-emerald-50 text-emerald-700"
+                : item.tone === "teal"
+                  ? "bg-teal-50 text-brand"
                   : "bg-slate-100 text-slate-600";
             return (
               <button
                 className="rounded-2xl border border-line bg-white p-4 text-left shadow-sm"
                 key={item.label}
-                onClick={() => setMobileView(item.label === "Sắp chạy" || item.label === "Đang chạy" ? "schedule" : "orders")}
+                onClick={() => setMobileView(item.label === "Đang chạy" ? "schedule" : "orders")}
                 type="button"
               >
-                <span className={`mb-3 grid size-11 place-items-center rounded-xl ${toneClass}`}>
-                  <Icon size={22} />
-                </span>
-                <p className="text-4xl font-extrabold leading-none text-ink">{item.value}</p>
-                <p className="mt-2 text-base font-extrabold text-slate-600">{item.label}</p>
+                <div className="flex items-center justify-between"><span className="text-[12px] font-medium text-slate-500">{item.label}</span><span className={`grid size-7 place-items-center rounded-lg ${toneClass}`}><Icon size={16} /></span></div>
+                <p className="mt-2 text-2xl font-bold tracking-tight text-slate-900">{item.value}</p>
+                <p className="mt-0.5 text-[11px] font-medium text-slate-400">{item.detail}</p>
               </button>
             );
           })}
         </div>
         <section className="rounded-3xl border border-line bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between">
-            <h3 className="text-xl font-extrabold text-ink">Lệnh khẩn cấp</h3>
+            <div className="flex items-center gap-2"><h3 className="text-xl font-extrabold text-ink">Lệnh cần điều gấp</h3><span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-600">{urgentOrders.length}</span></div>
             <button className="text-sm font-extrabold text-brand" onClick={() => setMobileView("orders")} type="button">Xem tất cả</button>
           </div>
           <div className="mt-3 space-y-3">
-            {(urgentOrders.length ? urgentOrders : dispatchQueue.slice(0, 4)).map(renderDispatcherOrderCard)}
+            {(urgentOrders.length ? urgentOrders : dispatchBaseQueue.slice(0, 4)).map(renderDispatcherOrderCard)}
           </div>
         </section>
       </div>
@@ -8333,14 +8454,20 @@ function DispatchPanel({
   }
 
   function renderMobileOrders() {
+    const filterCounts: Record<string, number> = {
+      "Tất cả": dispatchBaseQueue.length,
+      "Chờ điều xe": dispatchBaseQueue.filter((order) => order.dispatchStatus === "waiting_assignment" || order.orderStatus === "pending_dispatch_review").length,
+      "Sắp chạy": dispatchBaseQueue.filter((order) => order.dispatchStatus === "assigned" || order.dispatchStatus === "driver_accepted").length,
+      "Đang chạy": dispatchBaseQueue.filter((order) => order.dispatchStatus === "in_progress").length
+    };
     return (
       <section className="space-y-3">
         <div className="relative">
           <Search className="absolute left-3 top-3 text-slate-400" size={17} />
-          <input className="h-11 w-full rounded-xl border border-line bg-white pl-9 pr-3 text-sm font-medium outline-none focus:border-brand" placeholder="Tìm mã lệnh, khách hàng..." />
+          <input className="h-10 w-full rounded-full border-0 bg-slate-100 pl-9 pr-3 text-sm font-medium outline-none focus:bg-white focus:ring-2 focus:ring-teal-100" placeholder="Tìm mã lệnh, lộ trình, khách hàng..." value={dispatchSearch} onChange={(event) => setDispatchSearch(event.target.value)} />
         </div>
         <div className="flex gap-2 overflow-x-auto pb-1">
-          {["Tất cả", "Chờ điều xe", "Sắp chạy"].map((label, index) => <button className={`h-9 min-w-max rounded-full px-4 text-sm font-extrabold ${index === 0 ? "bg-brand text-white" : "bg-white text-slate-600 shadow-sm"}`} key={label} type="button">{label}</button>)}
+          {["Tất cả", "Chờ điều xe", "Sắp chạy", "Đang chạy"].map((label) => <button className={`flex h-8 min-w-max items-center gap-1.5 rounded-full px-3.5 text-xs font-semibold ${queueFilter === label ? "bg-brand text-white" : "bg-slate-100 text-slate-600"}`} key={label} onClick={() => setQueueFilter(label)} type="button"><span>{label}</span><span className={`rounded-full px-1.5 text-[10px] ${queueFilter === label ? "bg-white/20" : "bg-white"}`}>{filterCounts[label]}</span></button>)}
         </div>
         {dispatchQueue.map(renderDispatcherOrderCard)}
       </section>
@@ -8348,8 +8475,8 @@ function DispatchPanel({
   }
 
   return (
-    <section className="pb-24 lg:pb-0">
-      <div className="hidden min-h-screen grid-cols-[190px_1fr] bg-[#f5f8fa] lg:grid">
+    <section className="dispatch-ui pb-24 lg:pb-0">
+      <div className="hidden min-h-screen grid-cols-[170px_minmax(0,1fr)] bg-[#f5f8fa] lg:grid">
         {renderDispatchSidebar()}
         <div className="min-w-0">
           {desktopView === "schedule"
@@ -8381,14 +8508,14 @@ function DispatchPanel({
         {mobileView === "schedule" && renderMobileSchedule()}
         {mobileView === "vehicleDetail" && renderMobileVehicleDetail()}
         {mobileView === "assign" && renderAssignmentForm(true)}
-        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white px-4 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)]">
+        {["overview", "orders", "schedule"].includes(mobileView) && <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white px-4 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)]">
           <div className="grid grid-cols-4 gap-2 text-xs font-bold">
             <button className={`rounded-lg py-2 ${mobileView === "overview" ? "bg-teal-50 text-brand" : "text-slate-500"}`} onClick={() => setMobileView("overview")} type="button"><TrendingUp className="mx-auto mb-1" size={18} />Tổng quan</button>
             <button className={`rounded-lg py-2 ${mobileView === "orders" ? "bg-teal-50 text-brand" : "text-slate-500"}`} onClick={() => setMobileView("orders")} type="button"><ClipboardList className="mx-auto mb-1" size={18} />Lệnh</button>
             <button className={`rounded-lg py-2 ${mobileView === "schedule" ? "bg-teal-50 text-brand" : "text-slate-500"}`} onClick={() => setMobileView("schedule")} type="button"><CalendarClock className="mx-auto mb-1" size={18} />Lịch xe</button>
             <button className={`rounded-lg py-2 ${mobileView === "vehicleDetail" || mobileView === "assign" ? "bg-teal-50 text-brand" : "text-slate-500"}`} onClick={() => setMobileView("vehicleDetail")} type="button"><Car className="mx-auto mb-1" size={18} />Nguồn lực</button>
           </div>
-        </div>
+        </div>}
       </div>
     </section>
   );
