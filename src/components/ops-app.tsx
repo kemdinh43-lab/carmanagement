@@ -4295,6 +4295,7 @@ export default function OpsApp() {
             <div className="flex items-center gap-3 lg:grid lg:grid-cols-[auto_1fr_auto_auto]">
               <button
                 className="grid h-12 w-12 shrink-0 place-items-center rounded-full border-2 border-blue-600 bg-white text-ink shadow-sm lg:h-11 lg:w-11"
+                onClick={() => window.dispatchEvent(new Event("sales-mobile-back"))}
                 type="button"
               >
                 <Menu size={24} />
@@ -5736,7 +5737,12 @@ function OrdersPanel({
     customer: "Chưa nhập khách",
     phone: "Chưa nhập SĐT",
     route: "Chưa nhập hành trình",
+    service: "Chưa chọn dịch vụ",
+    unit: "Chuyến",
     time: "Chưa nhập thời gian",
+    subtotal: money(1200000),
+    vatRate: "0%",
+    vatAmount: money(0),
     total: money(1200000),
     prepaid: money(0),
     remaining: money(1200000),
@@ -5778,14 +5784,15 @@ function OrdersPanel({
   const salesOverviewCards = [
     { label: "Lệnh mới", value: String(filteredOrders.length), icon: ClipboardList, filter: "all" as const },
     { label: "Chờ điều hành", value: String(filteredOrders.filter((order) => order.orderStatus === "pending_dispatch_review").length), icon: Clock3, filter: "pending" as const },
-    { label: "Chưa thu", value: String(filteredOrders.filter((order) => order.paymentStatus !== "paid").length), icon: ReceiptText, filter: "all" as const }
+    { label: "Chưa thu", value: String(filteredOrders.filter((order) => order.paymentStatus !== "paid").length), icon: ReceiptText, filter: "unpaid" as const }
   ];
   const salesFilters = [
     { key: "all", label: "Mới nhất" },
     { key: "need_fix", label: "Cần sửa" },
     { key: "pending", label: "Chờ điều hành" },
     { key: "approved", label: "Đã duyệt" },
-    { key: "soon", label: "Sắp chạy" }
+    { key: "soon", label: "Sắp chạy" },
+    { key: "unpaid", label: "Chưa thu" }
   ] as const;
   const salesCreateSteps = [
     { index: 1, label: "Loại khách" },
@@ -5831,6 +5838,23 @@ function OrdersPanel({
     setSalesMobileView("list");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+  useEffect(() => {
+    if (!canCreateOrder) return;
+    const handleSalesMobileBack = () => {
+      if (salesScreen === "overview") return;
+      if (salesScreen === "orders") {
+        setSalesScreen("overview");
+        setSalesMobileView("list");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      setSalesScreen("orders");
+      setSalesMobileView("list");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+    window.addEventListener("sales-mobile-back", handleSalesMobileBack);
+    return () => window.removeEventListener("sales-mobile-back", handleSalesMobileBack);
+  }, [canCreateOrder, salesScreen]);
   const refreshSalesDraftPreview = (formElement: HTMLFormElement) => {
     const form = new FormData(formElement);
     const kind = String(form.get("customerKind") || customerKind);
@@ -5847,13 +5871,23 @@ function OrdersPanel({
     const dropoff = dropoffs[dropoffs.length - 1] || String(form.get("dropoff") || "Chưa nhập điểm đến");
     const startAt = starts[0] || String(form.get("startAt") || "");
     const endAt = ends[ends.length - 1] || String(form.get("endAt") || "");
+    const subtotal = Number(form.get("subtotalAmount") || 0);
+    const vatRate = Number(form.get("vatRate") || 0);
+    const vatAmount = Number(form.get("vatAmount") || 0);
     const total = Number(form.get("amountDue") || 0);
     const prepaid = Number(form.get("prepaymentAmount") || 0);
+    const service = String(form.get("serviceLabel") || form.get("serviceCode") || "Chưa chọn dịch vụ");
+    const unit = String(form.get("unit") || "Chuyến");
     setSalesDraftPreview({
       customer: kind === "company" ? `${customer} / ${contactName}` : customer,
       phone,
       route: `${pickup} -> ${dropoff}`,
+      service,
+      unit,
       time: [startAt, endAt].filter(Boolean).join(" - ") || "Chưa nhập thời gian",
+      subtotal: money(subtotal),
+      vatRate: `${Number.isFinite(vatRate) ? vatRate : 0}%`,
+      vatAmount: money(Number.isFinite(vatAmount) ? vatAmount : Math.max(total - subtotal, 0)),
       total: money(total),
       prepaid: money(prepaid),
       remaining: money(Math.max(total - prepaid, 0)),
@@ -5881,12 +5915,9 @@ function OrdersPanel({
           <div className="grid grid-cols-3 divide-x divide-line px-3 py-4">
             {salesOverviewCards.map((item) => (
               <button
-                className="px-2 text-center"
+                className={`rounded-2xl px-2 py-2 text-center transition ${salesFilter === item.filter ? "bg-teal-50" : "hover:bg-slate-50"}`}
                 key={item.label}
-                onClick={() => {
-                  setSalesFilter(item.filter);
-                  openSalesOrders();
-                }}
+                onClick={() => setSalesFilter(item.filter)}
                 type="button"
               >
                 <span className="mx-auto grid h-9 w-9 place-items-center rounded-full bg-teal-50 text-brand">
@@ -5897,15 +5928,12 @@ function OrdersPanel({
               </button>
             ))}
           </div>
-          <div className="mx-3 mb-3 grid grid-cols-3 overflow-hidden rounded-full border border-line bg-slate-50 p-1 lg:flex lg:w-fit lg:rounded-xl">
+          <div className="mx-3 mb-3 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {salesFilters.map((filter) => (
               <button
-                className={`shrink-0 rounded-full px-3 py-2 text-sm font-bold lg:rounded-lg ${salesFilter === filter.key ? "bg-brand text-white shadow-sm" : "text-slate-600"}`}
+                className={`h-9 shrink-0 rounded-full border px-4 text-xs font-extrabold transition ${salesFilter === filter.key ? "border-brand bg-brand text-white shadow-sm" : "border-line bg-white text-slate-600 hover:border-teal-200 hover:bg-teal-50"}`}
                 key={filter.key}
-                onClick={() => {
-                  setSalesFilter(filter.key);
-                  openSalesOrders();
-                }}
+                onClick={() => setSalesFilter(filter.key)}
                 type="button"
               >
                 {filter.label}
@@ -6255,25 +6283,50 @@ function OrdersPanel({
             <Field label="Ghi chú cho điều hành"><textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="salesNote" placeholder="Yêu cầu loại xe, khách VIP, cần xác nhận sớm..." /></Field>
           </SectionDetails>
 
-          <section className="rounded-[18px] border border-teal-100 bg-teal-50/50 p-4 md:rounded-md">
+          <section className="rounded-[18px] border border-line bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.06)]">
             <div className="flex items-center gap-2">
               <FileText className="text-brand" size={20} />
-              <h4 className="font-semibold text-ink">Preview trước khi gửi</h4>
+              <div>
+                <h4 className="font-extrabold text-ink">Xác nhận thông tin</h4>
+                <p className="text-sm text-slate-500">Kiểm tra nhanh trước khi gửi đề xuất điều hành.</p>
+              </div>
             </div>
-            <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
-              <StatMini label="Loại khách" value={salesDraftPreview.kind} />
-              <StatMini label="Khách / người dùng" value={salesDraftPreview.customer} />
-              <StatMini label="SĐT" value={salesDraftPreview.phone} />
-              <StatMini label="Thời gian" value={salesDraftPreview.time} />
-              <div className="md:col-span-2"><StatMini label="Hành trình" value={salesDraftPreview.route} /></div>
-              <StatMini label="Tổng thanh toán" value={salesDraftPreview.total} />
-              <StatMini label="Đã thu / tạm ứng" value={salesDraftPreview.prepaid} />
-              <StatMini label="Còn phải thu" value={salesDraftPreview.remaining} />
+            <div className="mt-4 grid gap-3">
+              <div className="rounded-2xl border border-line bg-slate-50/60 p-3">
+                <div className="flex items-center gap-2 font-bold text-ink"><UserRound className="text-brand" size={17} /> Khách hàng</div>
+                <div className="mt-2 divide-y divide-slate-200 text-sm">
+                  <InfoLine label="Loại khách" value={salesDraftPreview.kind} />
+                  <InfoLine label="Khách / người dùng" value={salesDraftPreview.customer} />
+                  <InfoLine label="SĐT" value={salesDraftPreview.phone} />
+                </div>
+              </div>
+              <div className="rounded-2xl border border-line bg-slate-50/60 p-3">
+                <div className="flex items-center gap-2 font-bold text-ink"><MapPin className="text-brand" size={17} /> Hành trình</div>
+                <div className="mt-2 divide-y divide-slate-200 text-sm">
+                  <InfoLine label="Tuyến" value={salesDraftPreview.route} />
+                  <InfoLine label="Thời gian" value={salesDraftPreview.time} />
+                  <InfoLine label="Dịch vụ" value={`${salesDraftPreview.service} / ${salesDraftPreview.unit}`} />
+                </div>
+              </div>
+              <div className="rounded-2xl border border-line bg-white p-3 shadow-sm">
+                <div className="flex items-center gap-2 font-bold text-ink"><ReceiptText className="text-brand" size={17} /> Thanh toán</div>
+                <div className="mt-2 space-y-2 text-sm">
+                  <div className="flex justify-between gap-3"><span className="text-slate-500">Tiền trước thuế</span><strong>{salesDraftPreview.subtotal}</strong></div>
+                  <div className="flex justify-between gap-3"><span className="text-slate-500">Thuế suất</span><strong>{salesDraftPreview.vatRate}</strong></div>
+                  <div className="flex justify-between gap-3"><span className="text-slate-500">Tiền thuế</span><strong>{salesDraftPreview.vatAmount}</strong></div>
+                  <div className="flex justify-between gap-3"><span className="text-slate-500">Đã thu / tạm ứng</span><strong>{salesDraftPreview.prepaid}</strong></div>
+                  <div className="flex justify-between gap-3 border-t border-line pt-2"><span className="font-semibold text-ink">Còn phải thu</span><strong className="text-brand">{salesDraftPreview.remaining}</strong></div>
+                  <div className="rounded-2xl bg-teal-50 p-3 text-center">
+                    <p className="text-xs font-bold uppercase text-brand">Tổng cộng</p>
+                    <p className="mt-1 text-2xl font-extrabold text-brand">{salesDraftPreview.total}</p>
+                  </div>
+                </div>
+              </div>
             </div>
           </section>
           </div>
 
-          <div className="sticky bottom-20 z-20 grid gap-2 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-[0_10px_28px_rgba(15,23,42,0.12)] backdrop-blur md:static md:grid-cols-[160px_1fr] md:rounded-none md:border-0 md:bg-transparent md:p-0 md:shadow-none">
+          <div className="grid gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm md:grid-cols-[160px_1fr] md:rounded-none md:border-0 md:bg-transparent md:p-0 md:shadow-none">
             <button
               className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-brand bg-white px-4 text-sm font-bold text-brand md:rounded-md"
               onClick={() => salesCreateStep === 1 ? openSalesOrders() : setSalesCreateStep((step) => Math.max(step - 1, 1))}
@@ -6524,7 +6577,7 @@ function SalesOrderPreview({
 }) {
   const [activeTab, setActiveTab] = useState<"overview" | "trip" | "payment" | "history">("overview");
   const remainingAmount = Math.max(order.amountDue - collectedAmount, 0);
-  const vatAmount = Math.max(order.amountDue - (order.subtotalAmount ?? order.amountDue), 0);
+  const vatAmount = order.vatAmount ?? Math.max(order.amountDue - (order.subtotalAmount ?? order.amountDue), 0);
   const canEdit = Boolean(onEditSection);
   const tabItems = [
     { key: "overview", label: "Tổng quan" },
@@ -6900,7 +6953,7 @@ function SalesSectionEditPanel({
         {hiddenFields.map(([name, value], index) => <input key={`${name}-${index}`} name={name} type="hidden" value={value} />)}
         {section !== "notes" && <input name="editReason" type="hidden" value={`Sales cập nhật ${activeMeta.title}`} />}
 
-        <div className="sticky bottom-20 grid gap-2 rounded-2xl border border-line bg-white/95 p-2 shadow-[0_10px_28px_rgba(15,23,42,0.12)] backdrop-blur md:static md:grid-cols-[160px_1fr] md:border-0 md:bg-transparent md:p-0 md:shadow-none">
+        <div className="grid gap-2 rounded-2xl border border-line bg-white p-2 shadow-sm md:grid-cols-[160px_1fr] md:border-0 md:bg-transparent md:p-0 md:shadow-none">
           <button className="inline-flex h-11 items-center justify-center rounded-xl border border-brand bg-white px-4 text-sm font-bold text-brand" onClick={onBack} type="button">Hủy</button>
           <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-bold text-white" type="submit">
             <Save size={16} /> Lưu thay đổi
