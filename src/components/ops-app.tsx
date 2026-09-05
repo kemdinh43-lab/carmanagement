@@ -8215,33 +8215,33 @@ function DispatchPanel({
     const statusClass = statusPillClass(order);
     return (
       <button
-        className={`dispatch-trip-card w-full space-y-3 rounded-lg border bg-white p-3 text-left shadow-sm transition hover:border-brand ${selectedOrder.id === order.id ? "border-brand bg-teal-50/70" : "border-slate-200"}`}
+        className={`dispatch-trip-card w-full space-y-2.5 rounded-lg border bg-white p-3 text-left shadow-sm transition hover:border-brand ${selectedOrder.id === order.id ? "border-brand bg-teal-50/70" : "border-slate-200"}`}
         key={order.id}
         onClick={() => selectOrder(order.id, "detail")}
         type="button"
       >
-        <div className="flex items-center justify-between gap-2">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
           <div className="flex min-w-0 items-center gap-2">
             <p className="truncate text-sm font-extrabold tracking-tight text-slate-900">{order.code}</p>
             <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-500">{timeOnly(order.startAt)}</span>
           </div>
-          <span className={`inline-flex h-[22px] shrink-0 items-center gap-1 rounded-md border px-2 text-[10.5px] font-bold leading-none whitespace-nowrap ${statusClass}`}>
+          <span className={`inline-flex h-[22px] max-w-[96px] shrink-0 items-center gap-1 rounded-md border px-2 text-[10.5px] font-bold leading-none whitespace-nowrap ${statusClass}`}>
             <span className="size-1.5 rounded-full bg-current" />{dispatchLabels[order.dispatchStatus]}
           </span>
         </div>
         <div className="relative ml-1.5 space-y-2 border-l-2 border-dashed border-slate-200 py-0.5 pl-5">
           <div className="relative flex items-center justify-between gap-3 text-xs">
             <span className="absolute -left-[27px] size-3 rounded-full border-2 border-white bg-emerald-500 shadow-sm" />
-            <span className="truncate font-bold text-slate-900">{firstLeg?.pickup || order.pickup}</span>
+            <span className="min-w-0 truncate font-bold text-slate-900">{firstLeg?.pickup || order.pickup}</span>
             <span className="shrink-0 font-semibold text-slate-400">Điểm đón</span>
           </div>
           <div className="relative flex items-center justify-between gap-3 text-xs">
             <span className="absolute -left-[27px] size-3 rounded-full border-2 border-white bg-rose-500 shadow-sm" />
-            <span className="truncate font-bold text-slate-900">{lastLeg?.dropoff || order.dropoff}</span>
+            <span className="min-w-0 truncate font-bold text-slate-900">{lastLeg?.dropoff || order.dropoff}</span>
             <span className="shrink-0 font-semibold text-slate-400">Điểm trả</span>
           </div>
         </div>
-        <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-2.5">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-t border-slate-100 pt-2.5">
           <div className="flex min-w-0 items-center gap-2 text-[11.5px] text-slate-600">
             <span className="shrink-0 rounded bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">{order.guestCount ?? "-"} khách</span>
             <span className="truncate font-semibold">{assignedVehicle?.plateNo ?? "Cần xe"}{assignedDriver ? ` / ${assignedDriver.fullName}` : ""}</span>
@@ -8256,11 +8256,11 @@ function DispatchPanel({
 
   function renderCompactOrderDetail(ctaLabel = "Điều xe") {
     return (
-      <section className="dispatch-detail-card rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex items-start justify-between gap-3">
+      <section className="dispatch-detail-card rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
           <div className="min-w-0">
             <p className="text-[11px] font-bold text-slate-400">Chi tiết chuyến đi</p>
-            <h3 className="mt-1 break-words text-xl font-extrabold leading-tight text-slate-900">{selectedOrder.code}</h3>
+            <h3 className="mt-1 break-words text-lg font-extrabold leading-tight text-slate-900">{selectedOrder.code}</h3>
             <p className="mt-1 text-xs font-medium text-slate-500">{timeOnly(selectedOrder.startAt)} · {dateOnly(selectedOrder.startAt)} · {selectedOrder.guestCount ?? "-"} khách</p>
           </div>
           <Badge tone={statusTone(selectedOrder)}>{dispatchLabels[selectedOrder.dispatchStatus]}</Badge>
@@ -8276,7 +8276,7 @@ function DispatchPanel({
         </div>
         {detailTab === "overview" && (
           <div className="mt-4 space-y-3">
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
               <p className="mb-3 flex items-center gap-2 text-sm font-extrabold text-slate-900"><MapPin size={16} className="text-brand" />Lộ trình di chuyển</p>
               <div className="relative pl-7">
                 <div className="absolute left-[9px] top-3 bottom-3 border-l-2 border-dashed border-slate-300" />
@@ -8284,15 +8284,15 @@ function DispatchPanel({
                   <div className="relative mb-4 last:mb-0" key={`${leg.pickup}-${leg.dropoff}-${index}`}>
                     <span className={`absolute -left-7 top-0.5 size-5 rounded-full ${index === 0 ? "border-4 border-brand bg-white" : "border-2 border-white bg-rose-500 shadow-sm"}`} />
                     <p className={`text-[11px] font-extrabold uppercase ${index === 0 ? "text-brand" : "text-rose-500"}`}>{index === 0 ? "Điểm đón" : "Điểm trả"}</p>
-                    <p className="mt-0.5 text-sm font-extrabold text-slate-900">{index === 0 ? leg.pickup : leg.dropoff}</p>
+                    <p className="mt-0.5 line-clamp-2 text-sm font-extrabold text-slate-900">{index === 0 ? leg.pickup : leg.dropoff}</p>
                     <p className="text-xs font-semibold text-slate-500">{timeOnly(leg.startAt ?? selectedOrder.startAt)}{leg.endAt ? ` - ${timeOnly(leg.endAt)}` : ""}</p>
                   </div>
                 ))}
               </div>
             </div>
             <div className="grid grid-cols-3 gap-2">
-              <div className="rounded-xl border border-line bg-white p-3 text-center"><Car className="mx-auto text-brand" size={18} /><p className="mt-1 truncate text-xs font-bold text-slate-900">{selectedVehicleLabel}</p><p className="text-[10px] text-slate-400">Xe</p></div>
-              <div className="rounded-xl border border-line bg-white p-3 text-center"><UsersRound className="mx-auto text-blue-600" size={18} /><p className="mt-1 truncate text-xs font-bold text-slate-900">{selectedDriverLabel}</p><p className="text-[10px] text-slate-400">Tài xế</p></div>
+              <div className="rounded-xl border border-line bg-white p-3 text-center"><Car className="mx-auto text-brand" size={18} /><p className="mt-1 truncate text-xs font-bold text-slate-900" title={selectedVehicleLabel}>{selectedVehicleLabel}</p><p className="text-[10px] text-slate-400">Xe</p></div>
+              <div className="rounded-xl border border-line bg-white p-3 text-center"><UsersRound className="mx-auto text-blue-600" size={18} /><p className="mt-1 truncate text-xs font-bold text-slate-900" title={selectedDriverLabel}>{selectedDriverLabel}</p><p className="text-[10px] text-slate-400">Tài xế</p></div>
               <div className="rounded-xl border border-line bg-white p-3 text-center"><ReceiptText className="mx-auto text-amber-600" size={18} /><p className="mt-1 text-xs font-bold text-slate-900">{money(selectedOrder.amountDue)}</p><p className="text-[10px] text-slate-400">Tổng thu</p></div>
             </div>
             <div className="rounded-xl border border-line bg-white p-3">
@@ -8659,10 +8659,10 @@ function DispatchPanel({
         </main>
         {["overview", "orders", "schedule"].includes(mobileView) && <div className="dispatch-mobile-nav">
           <div className="grid grid-cols-4 gap-1 text-[10px] font-bold">
-            <button className={`rounded-xl py-2 ${mobileView === "overview" ? "text-brand" : "text-slate-400"}`} onClick={() => setMobileView("overview")} type="button"><TrendingUp className="mx-auto mb-1" size={19} />Tổng quan</button>
-            <button className={`rounded-xl py-2 ${mobileView === "orders" ? "text-brand" : "text-slate-400"}`} onClick={() => setMobileView("orders")} type="button"><ClipboardList className="mx-auto mb-1" size={19} />Lệnh</button>
-            <button className={`rounded-xl py-2 ${mobileView === "schedule" ? "text-brand" : "text-slate-400"}`} onClick={() => setMobileView("schedule")} type="button"><CalendarClock className="mx-auto mb-1" size={19} />Lịch xe</button>
-            <button className={`rounded-xl py-2 ${mobileView === "vehicleDetail" || mobileView === "assign" || mobileView === "supplier" ? "text-brand" : "text-slate-400"}`} onClick={() => setMobileView("vehicleDetail")} type="button"><Car className="mx-auto mb-1" size={19} />Nguồn lực</button>
+            <button className={`flex h-[54px] flex-col items-center justify-center rounded-lg ${mobileView === "overview" ? "text-brand" : "text-slate-400"}`} onClick={() => setMobileView("overview")} type="button"><TrendingUp className="mb-0.5" size={20} /><span>Tổng quan</span><span className={`mt-0.5 h-[2.5px] w-4 rounded-full ${mobileView === "overview" ? "bg-brand" : "bg-transparent"}`} /></button>
+            <button className={`flex h-[54px] flex-col items-center justify-center rounded-lg ${mobileView === "orders" ? "text-brand" : "text-slate-400"}`} onClick={() => setMobileView("orders")} type="button"><ClipboardList className="mb-0.5" size={20} /><span>Lệnh</span><span className={`mt-0.5 h-[2.5px] w-4 rounded-full ${mobileView === "orders" ? "bg-brand" : "bg-transparent"}`} /></button>
+            <button className={`flex h-[54px] flex-col items-center justify-center rounded-lg ${mobileView === "schedule" ? "text-brand" : "text-slate-400"}`} onClick={() => setMobileView("schedule")} type="button"><CalendarClock className="mb-0.5" size={20} /><span>Lịch xe</span><span className={`mt-0.5 h-[2.5px] w-4 rounded-full ${mobileView === "schedule" ? "bg-brand" : "bg-transparent"}`} /></button>
+            <button className={`flex h-[54px] flex-col items-center justify-center rounded-lg ${mobileView === "vehicleDetail" || mobileView === "assign" || mobileView === "supplier" ? "text-brand" : "text-slate-400"}`} onClick={() => setMobileView("vehicleDetail")} type="button"><Car className="mb-0.5" size={20} /><span>Nguồn lực</span><span className={`mt-0.5 h-[2.5px] w-4 rounded-full ${mobileView === "vehicleDetail" || mobileView === "assign" || mobileView === "supplier" ? "bg-brand" : "bg-transparent"}`} /></button>
           </div>
         </div>}
       </div>
