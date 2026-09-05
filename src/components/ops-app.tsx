@@ -5728,6 +5728,7 @@ function OrdersPanel({
   const canFinance = can(currentRole, "record_payment") || can(currentRole, "update_invoice") || can(currentRole, "close_order");
   const canViewInternalMoney = currentRole === "accountant" || currentRole === "manager" || currentRole === "admin";
   const [salesScreen, setSalesScreen] = useState<"overview" | "orders" | "create" | "detail" | "edit">("overview");
+  const [salesEditSection, setSalesEditSection] = useState<SalesEditSection>("customer");
   const [salesMobileView, setSalesMobileView] = useState<"list" | "create" | "detail">("list");
   const [salesFilter, setSalesFilter] = useState<"all" | "pending" | "need_fix" | "approved" | "soon" | "unpaid">("all");
   const [salesCreateStep, setSalesCreateStep] = useState(1);
@@ -5818,7 +5819,8 @@ function OrdersPanel({
     setSalesMobileView("detail");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
-  const openSalesEdit = () => {
+  const openSalesEdit = (section: SalesEditSection) => {
+    setSalesEditSection(section);
     setSalesScreen("edit");
     setSalesMobileView("detail");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -6414,17 +6416,12 @@ function OrdersPanel({
                 >
                   <ChevronLeft size={16} /> Quay lại preview
                 </button>
-                <OrderDetailPanel
-                  assignments={assignments}
-                  auditEvents={auditEvents}
-                  currentRole={currentRole}
-                  drivers={drivers}
+                <SalesSectionEditPanel
+                  section={salesEditSection}
                   order={selectedOrder}
-                  payments={payments}
-                  cancelOrder={cancelOrder}
+                  onBack={() => openSalesDetail(selectedOrder.id)}
+                  setSection={setSalesEditSection}
                   updateOrder={updateOrder}
-                  updateQuoteStatus={updateQuoteStatus}
-                  vehicles={vehicles}
                 />
               </div>
             ) : (
@@ -6432,8 +6429,7 @@ function OrdersPanel({
                 order={selectedOrder}
                 collectedAmount={selectedOrderCollected}
                 onBack={openSalesOrders}
-                onEditCustomer={openSalesEdit}
-                onEditTrip={openSalesEdit}
+                onEditSection={openSalesEdit}
                 onResend={resendSelectedOrderToDispatch}
               />
             )
@@ -6481,6 +6477,8 @@ function OrdersPanel({
   );
 }
 
+type SalesEditSection = "management" | "customer" | "trip" | "service" | "payment" | "notes";
+
 function SalesOrderCard({ onOpen, order, selected }: { onOpen: () => void; order: DispatchOrder; selected: boolean }) {
   return (
     <button
@@ -6514,20 +6512,26 @@ function SalesOrderCard({ onOpen, order, selected }: { onOpen: () => void; order
 function SalesOrderPreview({
   collectedAmount,
   onBack,
-  onEditCustomer,
-  onEditTrip,
+  onEditSection,
   onResend,
   order
 }: {
   collectedAmount: number;
   onBack?: () => void;
-  onEditCustomer?: () => void;
-  onEditTrip?: () => void;
+  onEditSection?: (section: SalesEditSection) => void;
   onResend?: () => void;
   order: DispatchOrder;
 }) {
+  const [activeTab, setActiveTab] = useState<"overview" | "trip" | "payment" | "history">("overview");
   const remainingAmount = Math.max(order.amountDue - collectedAmount, 0);
   const vatAmount = Math.max(order.amountDue - (order.subtotalAmount ?? order.amountDue), 0);
+  const canEdit = Boolean(onEditSection);
+  const tabItems = [
+    { key: "overview", label: "Tổng quan" },
+    { key: "trip", label: "Hành trình" },
+    { key: "payment", label: "Thanh toán" },
+    { key: "history", label: "Lịch sử" }
+  ] as const;
   return (
     <section className="space-y-3 rounded-[22px] border border-line bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)]">
       <div className="flex items-start justify-between gap-3">
@@ -6549,19 +6553,27 @@ function SalesOrderPreview({
       </div>
 
       <div className="flex gap-5 overflow-x-auto border-b border-line text-sm font-bold text-slate-500">
-        {["Tổng quan", "Hành trình", "Thanh toán", "Lịch sử"].map((item, index) => (
-          <span className={`shrink-0 border-b-2 px-1 pb-2 ${index === 0 ? "border-brand text-brand" : "border-transparent"}`} key={item}>{item}</span>
+        {tabItems.map((item) => (
+          <button
+            className={`shrink-0 border-b-2 px-1 pb-2 ${activeTab === item.key ? "border-brand text-brand" : "border-transparent"}`}
+            key={item.key}
+            onClick={() => setActiveTab(item.key)}
+            type="button"
+          >
+            {item.label}
+          </button>
         ))}
       </div>
 
       <div className="grid gap-3">
-        <details className="rounded-2xl bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.06)] ring-1 ring-slate-100" open>
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+        {(activeTab === "overview" || activeTab === "history") && (
+        <section className="rounded-2xl bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.06)] ring-1 ring-slate-100">
+          <button className="flex w-full items-center justify-between gap-3 text-left" disabled={!canEdit} onClick={() => onEditSection?.("management")} type="button">
             <span className="inline-flex items-center gap-2 font-bold text-ink">
               <ShieldCheck className="text-brand" size={18} /> Thông tin quản lý
             </span>
             <ChevronRight className="text-slate-400" size={18} />
-          </summary>
+          </button>
           <div className="mt-3 grid gap-x-6 divide-y divide-slate-100 text-sm md:grid-cols-2 md:divide-y-0">
             <InfoLine label="Quản lý lệnh" value={order.salesOwner || "-"} />
             <InfoLine label="Ngày" value={dateOnly(order.orderDate || order.startAt)} />
@@ -6570,16 +6582,18 @@ function SalesOrderPreview({
             <InfoLine label="Dòng khách" value={`${guestMarketCode(order.guestMarket)} - ${guestMarketLabel(order.guestMarket)}`} />
             <InfoLine label="Nguồn khách" value={customerSourceFullLabel(order.customerSourceCode)} />
           </div>
-        </details>
+        </section>
+        )}
 
+        {activeTab === "overview" && (
         <section className="rounded-2xl bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.06)] ring-1 ring-slate-100">
-          <div className="flex items-center justify-between gap-3">
+          <button className="flex w-full items-center justify-between gap-3 text-left" disabled={!canEdit} onClick={() => onEditSection?.("customer")} type="button">
             <div className="flex items-center gap-2">
               <UserRound className="text-brand" size={18} />
               <h4 className="font-bold text-ink">Khách hàng & doanh nghiệp</h4>
             </div>
             <ChevronRight className="text-slate-400" size={18} />
-          </div>
+          </button>
           <div className="mt-3 divide-y divide-slate-100 text-sm">
             <InfoLine label="Khách hàng" value={order.customerName || "-"} />
             <InfoLine label="Người sử dụng" value={order.contactName || order.customerName || "-"} />
@@ -6587,12 +6601,17 @@ function SalesOrderPreview({
             <InfoLine label={order.customerKind === "company" ? "Mã số thuế" : "CCCD"} value={order.customerKind === "company" ? order.taxCode || "-" : order.customerCccd || "-"} />
           </div>
         </section>
+        )}
 
+        {(activeTab === "overview" || activeTab === "trip") && (
         <section className="rounded-2xl bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.06)] ring-1 ring-slate-100">
-          <div className="flex items-center gap-2">
-            <MapPin className="text-brand" size={18} />
-            <h4 className="font-bold text-ink">Hành trình</h4>
-          </div>
+          <button className="flex w-full items-center justify-between gap-3 text-left" disabled={!canEdit} onClick={() => onEditSection?.("trip")} type="button">
+            <span className="inline-flex items-center gap-2">
+              <MapPin className="text-brand" size={18} />
+              <h4 className="font-bold text-ink">Hành trình</h4>
+            </span>
+            <ChevronRight className="text-slate-400" size={18} />
+          </button>
           <div className="mt-4 grid gap-4 md:grid-cols-[1fr_auto]">
             <div className="space-y-4 text-sm">
               <div className="flex gap-3">
@@ -6618,12 +6637,17 @@ function SalesOrderPreview({
             </div>
           </div>
         </section>
+        )}
 
+        {activeTab === "overview" && (
         <section className="rounded-2xl bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.06)] ring-1 ring-slate-100">
-          <div className="flex items-center gap-2">
-            <Car className="text-brand" size={18} />
-            <h4 className="font-bold text-ink">Dịch vụ & xe</h4>
-          </div>
+          <button className="flex w-full items-center justify-between gap-3 text-left" disabled={!canEdit} onClick={() => onEditSection?.("service")} type="button">
+            <span className="inline-flex items-center gap-2">
+              <Car className="text-brand" size={18} />
+              <h4 className="font-bold text-ink">Dịch vụ & xe</h4>
+            </span>
+            <ChevronRight className="text-slate-400" size={18} />
+          </button>
           <div className="mt-3 grid gap-x-6 divide-y divide-slate-100 text-sm md:grid-cols-2 md:divide-y-0">
             <InfoLine label="Dịch vụ" value={order.serviceLabel || "-"} />
             <InfoLine label="Đơn vị tính" value={order.unit || "-"} />
@@ -6631,12 +6655,17 @@ function SalesOrderPreview({
             <InfoLine label="Biển số" value={order.vehiclePlateNo || order.externalVehiclePlate || "Chưa có xe"} />
           </div>
         </section>
+        )}
 
+        {(activeTab === "overview" || activeTab === "payment") && (
         <section className="rounded-2xl bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.06)] ring-1 ring-slate-100">
-          <div className="flex items-center gap-2">
-            <ReceiptText className="text-brand" size={18} />
-            <h4 className="font-bold text-ink">Thanh toán</h4>
-          </div>
+          <button className="flex w-full items-center justify-between gap-3 text-left" disabled={!canEdit} onClick={() => onEditSection?.("payment")} type="button">
+            <span className="inline-flex items-center gap-2">
+              <ReceiptText className="text-brand" size={18} />
+              <h4 className="font-bold text-ink">Thanh toán</h4>
+            </span>
+            <ChevronRight className="text-slate-400" size={18} />
+          </button>
           <div className="mt-3 grid gap-3 md:grid-cols-[1fr_180px]">
             <div className="space-y-2 text-sm">
               <div className="flex justify-between gap-3"><span className="text-slate-500">Tiền dịch vụ</span><strong>{money(order.subtotalAmount ?? order.amountDue)}</strong></div>
@@ -6653,22 +6682,25 @@ function SalesOrderPreview({
             </div>
           </div>
         </section>
+        )}
 
+        {(activeTab === "overview" || activeTab === "history") && (
         <section className="rounded-2xl bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.06)] ring-1 ring-slate-100">
-          <div className="flex items-center gap-2">
-            <FileText className="text-brand" size={18} />
-            <h4 className="font-bold text-ink">Ghi chú / lịch sử gửi điều hành</h4>
-          </div>
+          <button className="flex w-full items-center justify-between gap-3 text-left" disabled={!canEdit} onClick={() => onEditSection?.("notes")} type="button">
+            <span className="inline-flex items-center gap-2">
+              <FileText className="text-brand" size={18} />
+              <h4 className="font-bold text-ink">Ghi chú / lịch sử gửi điều hành</h4>
+            </span>
+            <ChevronRight className="text-slate-400" size={18} />
+          </button>
           <p className="mt-3 text-sm text-slate-600">{order.salesNote || order.quoteNote || "-"}</p>
         </section>
+        )}
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-3">
-        <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-line bg-white px-3 text-sm font-bold text-slate-700 disabled:opacity-50" disabled={!onEditCustomer} onClick={onEditCustomer} type="button">
-          <UserRound size={16} /> Sửa khách hàng
-        </button>
-        <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-line bg-white px-3 text-sm font-bold text-slate-700 disabled:opacity-50" disabled={!onEditTrip} onClick={onEditTrip} type="button">
-          <MapPin size={16} /> Sửa hành trình
+      <div className="grid gap-2 sm:grid-cols-2">
+        <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-line bg-white px-3 text-sm font-bold text-slate-700 disabled:opacity-50" disabled={!onEditSection} onClick={() => onEditSection?.("management")} type="button">
+          <FileText size={16} /> Sửa lệnh
         </button>
         <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-brand px-3 text-sm font-bold text-white disabled:bg-slate-300" disabled={!onResend} onClick={onResend} type="button">
           <Navigation size={16} /> Gửi lại điều hành
@@ -6676,6 +6708,279 @@ function SalesOrderPreview({
       </div>
     </section>
   );
+}
+
+function SalesSectionEditPanel({
+  onBack,
+  order,
+  section,
+  setSection,
+  updateOrder
+}: {
+  onBack: () => void;
+  order: DispatchOrder;
+  section: SalesEditSection;
+  setSection: (section: SalesEditSection) => void;
+  updateOrder: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  const sectionMeta: Record<SalesEditSection, { title: string; description: string; icon: typeof UserRound }> = {
+    management: { title: "Thông tin lệnh", description: "Nguồn, sale phụ trách, phân loại khách và hóa đơn.", icon: ShieldCheck },
+    customer: { title: "Khách hàng", description: "Người đi, liên hệ, doanh nghiệp và thông tin xuất hóa đơn.", icon: UserRound },
+    trip: { title: "Hành trình", description: "Chặng đi, giờ đón/trả và mức ưu tiên.", icon: MapPin },
+    service: { title: "Dịch vụ & xe", description: "Mã dịch vụ, dịch vụ, diễn giải và đơn vị tính.", icon: Car },
+    payment: { title: "Thanh toán", description: "Giá trước thuế, VAT, tổng thanh toán và ghi chú báo giá.", icon: ReceiptText },
+    notes: { title: "Ghi chú", description: "Ghi chú cho điều hành và lý do cập nhật.", icon: FileText }
+  };
+  const activeMeta = sectionMeta[section];
+  const ActiveIcon = activeMeta.icon;
+  const hiddenFields = salesEditHiddenFields(order, section);
+
+  return (
+    <form className="overflow-hidden rounded-[22px] border border-line bg-white shadow-[0_10px_28px_rgba(15,23,42,0.08)]" onSubmit={updateOrder}>
+      <div className="flex items-center justify-between border-b border-line px-4 py-4">
+        <button className="grid h-10 w-10 place-items-center rounded-full border border-line bg-white text-ink" onClick={onBack} type="button">
+          <ChevronLeft size={20} />
+        </button>
+        <div className="text-center">
+          <h3 className="text-lg font-extrabold text-ink">Sửa lệnh</h3>
+          <p className="text-xs font-medium text-slate-500">{order.code}</p>
+        </div>
+        <button className="grid h-10 w-10 place-items-center rounded-full border border-line bg-white text-brand" onClick={() => document.execCommand("undo")} type="button">
+          <Undo2 size={18} />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 border-b border-line p-3 md:grid-cols-6">
+        {(Object.keys(sectionMeta) as SalesEditSection[]).map((item) => {
+          const ItemIcon = sectionMeta[item].icon;
+          return (
+            <button
+              className={`min-h-16 rounded-2xl border px-2 py-2 text-xs font-bold ${section === item ? "border-brand bg-teal-50 text-brand" : "border-line bg-white text-slate-600"}`}
+              key={item}
+              onClick={() => setSection(item)}
+              type="button"
+            >
+              <ItemIcon className="mx-auto mb-1" size={18} />
+              {sectionMeta[item].title}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="space-y-4 p-4">
+        <section className="rounded-2xl bg-teal-50/70 p-4">
+          <div className="flex items-center gap-3">
+            <span className="grid h-10 w-10 place-items-center rounded-full bg-white text-brand">
+              <ActiveIcon size={20} />
+            </span>
+            <div>
+              <h4 className="font-extrabold text-ink">{activeMeta.title}</h4>
+              <p className="text-sm text-slate-600">{activeMeta.description}</p>
+            </div>
+          </div>
+        </section>
+
+        {section === "management" && (
+          <section className="grid gap-3 md:grid-cols-2">
+            <Field label="Ngày lệnh"><input className={inputClass()} defaultValue={order.orderDate ?? ""} name="orderDate" placeholder="2026-09-05" /></Field>
+            <Field label="Loại hợp đồng">
+              <select className={inputClass()} defaultValue={order.contractType ?? "simple"} name="contractType">
+                <option value="simple">Hợp đồng giản đơn</option>
+                <option value="template">Hợp đồng mẫu</option>
+                <option value="terms">Hợp đồng điều khoản</option>
+              </select>
+            </Field>
+            <Field label="Sale phụ trách"><input className={inputClass()} defaultValue={order.salesOwner} name="salesOwner" /></Field>
+            <Field label="Người tạo nguồn"><input className={inputClass()} defaultValue={order.sourceOwnerName ?? ""} name="sourceOwnerName" /></Field>
+            <Field label="Nguồn"><input className={inputClass()} defaultValue={order.source} name="source" /></Field>
+            <Field label="Số lượng khách"><input className={inputClass()} defaultValue={order.guestCount ?? 1} min="0" name="guestCount" type="number" /></Field>
+            <Field label="Dòng khách">
+              <select className={inputClass()} defaultValue={order.guestMarket ?? "domestic"} name="guestMarket">
+                {guestMarketOptions.map((item) => <option key={item.value} value={item.value}>{item.code} - {item.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Nhận biết khách">
+              <select className={inputClass()} defaultValue={order.customerRecognitionCode ?? "DL"} name="customerRecognitionCode">
+                {customerRecognitionOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Nguồn khách">
+              <select className={inputClass()} defaultValue={order.customerSourceCode ?? "DDH"} name="customerSourceCode">
+                {customerSourceCodeOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Tình trạng hóa đơn"><select className={inputClass()} defaultValue={order.invoiceRequired ? "yes" : "no"} name="invoiceRequired"><option value="yes">Có</option><option value="no">Không</option></select></Field>
+            <Field label="Mã tỉnh/thành điểm đi">
+              <select className={inputClass()} defaultValue={order.originProvinceCode ?? "DAD"} name="originProvinceCode">
+                {provinceCodeOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Mã tỉnh/thành điểm đến">
+              <select className={inputClass()} defaultValue={order.destinationProvinceCode ?? "QNH"} name="destinationProvinceCode">
+                {provinceCodeOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            </Field>
+          </section>
+        )}
+
+        {section === "customer" && (
+          <section className="grid gap-3 md:grid-cols-2">
+            <Field label="Loại khách">
+              <select className={inputClass()} defaultValue={order.customerKind} name="customerKind">
+                <option value="individual">Cá nhân</option>
+                <option value="company">Doanh nghiệp</option>
+              </select>
+            </Field>
+            {order.customerKind === "company" ? (
+              <>
+                <Field label="Tên công ty"><input className={inputClass()} defaultValue={order.companyName ?? order.customerName} name="companyName" /></Field>
+                <Field label="Người sử dụng dịch vụ"><input className={inputClass()} defaultValue={order.contactName ?? ""} name="contactName" /></Field>
+                <Field label="SĐT người sử dụng"><input className={inputClass()} defaultValue={order.contactPhone} name="contactPhone" /></Field>
+                <Field label="CCCD người sử dụng"><input className={inputClass()} defaultValue={order.customerCccd ?? ""} name="customerCccd" /></Field>
+                <Field label="MST"><input className={inputClass()} defaultValue={order.taxCode ?? ""} name="taxCode" /></Field>
+                <Field label="Email HĐ"><input className={inputClass()} defaultValue={order.billingEmail ?? ""} name="billingEmail" type="email" /></Field>
+                <Field label="Địa chỉ công ty"><input className={inputClass()} defaultValue={order.companyAddress ?? ""} name="companyAddress" /></Field>
+                <Field label="TK ngân hàng CTy"><input className={inputClass()} defaultValue={order.companyBankAccount ?? ""} name="companyBankAccount" /></Field>
+                <Field label="Ngân hàng CTy"><input className={inputClass()} defaultValue={order.companyBankName ?? ""} name="companyBankName" /></Field>
+              </>
+            ) : (
+              <>
+                <Field label="Tên khách / người đi"><input className={inputClass()} defaultValue={order.customerName} name="customerName" /></Field>
+                <Field label="SĐT"><input className={inputClass()} defaultValue={order.contactPhone} name="contactPhone" /></Field>
+                <Field label="CCCD khách"><input className={inputClass()} defaultValue={order.customerCccd ?? ""} name="customerCccd" /></Field>
+                <Field label="Địa chỉ khách"><input className={inputClass()} defaultValue={order.customerAddress ?? ""} name="customerAddress" /></Field>
+                <Field label="TK ngân hàng KH"><input className={inputClass()} defaultValue={order.customerBankAccount ?? ""} name="customerBankAccount" /></Field>
+                <Field label="Ngân hàng KH"><input className={inputClass()} defaultValue={order.customerBankName ?? ""} name="customerBankName" /></Field>
+              </>
+            )}
+          </section>
+        )}
+
+        {section === "trip" && (
+          <section className="grid gap-3 md:grid-cols-2">
+            <RouteLegFields initialLegs={order.routeLegs?.length ? order.routeLegs : [{ pickup: order.pickup, dropoff: order.dropoff, startAt: order.startAt, endAt: order.endAt }]} />
+            <Field label="Ưu tiên"><select className={inputClass()} defaultValue={order.priority ?? "normal"} name="priority"><option value="normal">Thường</option><option value="high">Cao</option><option value="urgent">Gấp</option></select></Field>
+          </section>
+        )}
+
+        {section === "service" && (
+          <section className="grid gap-3 md:grid-cols-2">
+            <ServiceFields initialCode={order.serviceCode} initialLabel={order.serviceLabel} />
+            <Field label="Diễn giải"><input className={inputClass()} defaultValue={order.serviceClarification ?? ""} name="serviceClarification" /></Field>
+            <Field label="Đơn vị tính">
+              <select className={inputClass()} defaultValue={order.unit ?? "Chuyến"} name="unit">
+                <option>Chuyến</option>
+                <option>Ngày</option>
+                <option>Kỳ</option>
+                <option>Tháng</option>
+              </select>
+            </Field>
+          </section>
+        )}
+
+        {section === "payment" && (
+          <section className="grid gap-3 md:grid-cols-2">
+            <VatCalculatorFields initialSubtotal={order.subtotalAmount ?? 0} initialVatRate={order.vatRate ?? 0} initialTotal={order.amountDue} />
+            <div className="md:col-span-2">
+              <Field label="Ghi chú báo giá"><textarea className={`${inputClass()} min-h-20 resize-none py-2`} defaultValue={order.quoteNote ?? ""} name="quoteNote" /></Field>
+            </div>
+            <div className="md:col-span-2">
+              <Field label="Nội dung gửi khách xác nhận"><textarea className={`${inputClass()} min-h-20 resize-none py-2`} defaultValue={order.customerConfirmationNote ?? ""} name="customerConfirmationNote" /></Field>
+            </div>
+          </section>
+        )}
+
+        {section === "notes" && (
+          <section className="grid gap-3">
+            <Field label="Ghi chú cho điều hành"><textarea className={`${textAreaClass()} min-h-24`} defaultValue={order.salesNote ?? ""} name="salesNote" /></Field>
+            <Field label="Lý do sửa"><input className={inputClass()} name="editReason" placeholder="Khách đổi giờ, cập nhật thông tin..." /></Field>
+          </section>
+        )}
+
+        {hiddenFields.map(([name, value], index) => <input key={`${name}-${index}`} name={name} type="hidden" value={value} />)}
+        {section !== "notes" && <input name="editReason" type="hidden" value={`Sales cập nhật ${activeMeta.title}`} />}
+
+        <div className="sticky bottom-20 grid gap-2 rounded-2xl border border-line bg-white/95 p-2 shadow-[0_10px_28px_rgba(15,23,42,0.12)] backdrop-blur md:static md:grid-cols-[160px_1fr] md:border-0 md:bg-transparent md:p-0 md:shadow-none">
+          <button className="inline-flex h-11 items-center justify-center rounded-xl border border-brand bg-white px-4 text-sm font-bold text-brand" onClick={onBack} type="button">Hủy</button>
+          <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-bold text-white" type="submit">
+            <Save size={16} /> Lưu thay đổi
+          </button>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+function salesEditHiddenFields(order: DispatchOrder, section: SalesEditSection): Array<[string, string]> {
+  const hidden: Array<[string, string]> = [];
+  const add = (name: string, value?: string | number | boolean | null) => hidden.push([name, value == null ? "" : String(value)]);
+  const omit = new Set<string>();
+  const omitMany = (names: string[]) => names.forEach((name) => omit.add(name));
+
+  if (section === "management") omitMany(["orderDate", "contractType", "salesOwner", "sourceOwnerName", "source", "guestCount", "guestMarket", "customerRecognitionCode", "customerSourceCode", "originProvinceCode", "destinationProvinceCode", "invoiceRequired"]);
+  if (section === "customer") omitMany(["customerKind", "customerName", "contactName", "contactPhone", "customerCccd", "customerAddress", "customerBankAccount", "customerBankName", "companyName", "taxCode", "billingEmail", "companyAddress", "companyBankAccount", "companyBankName"]);
+  if (section === "trip") omitMany(["startAt", "endAt", "routeLegStartAt", "routeLegEndAt", "routeLegPickup", "routeLegDropoff", "routeLegNote", "priority"]);
+  if (section === "service") omitMany(["serviceCode", "serviceLabel", "serviceClarification", "unit"]);
+  if (section === "payment") omitMany(["subtotalAmount", "vatRate", "vatAmount", "amountDue", "quoteNote", "customerConfirmationNote"]);
+  if (section === "notes") omitMany(["salesNote", "editReason"]);
+
+  const addIfVisibleElseHidden = (name: string, value?: string | number | boolean | null) => {
+    if (!omit.has(name)) add(name, value);
+  };
+
+  addIfVisibleElseHidden("orderDate", order.orderDate ?? "");
+  addIfVisibleElseHidden("contractType", order.contractType ?? "simple");
+  addIfVisibleElseHidden("customerKind", order.customerKind);
+  addIfVisibleElseHidden("customerName", order.customerName);
+  addIfVisibleElseHidden("contactName", order.contactName ?? "");
+  addIfVisibleElseHidden("contactPhone", order.contactPhone);
+  addIfVisibleElseHidden("customerCccd", order.customerCccd ?? "");
+  addIfVisibleElseHidden("customerAddress", order.customerAddress ?? "");
+  addIfVisibleElseHidden("customerBankAccount", order.customerBankAccount ?? "");
+  addIfVisibleElseHidden("customerBankName", order.customerBankName ?? "");
+  addIfVisibleElseHidden("companyName", order.companyName ?? "");
+  addIfVisibleElseHidden("taxCode", order.taxCode ?? "");
+  addIfVisibleElseHidden("billingEmail", order.billingEmail ?? "");
+  addIfVisibleElseHidden("companyAddress", order.companyAddress ?? "");
+  addIfVisibleElseHidden("companyBankAccount", order.companyBankAccount ?? "");
+  addIfVisibleElseHidden("companyBankName", order.companyBankName ?? "");
+  addIfVisibleElseHidden("serviceCode", order.serviceCode ?? "");
+  addIfVisibleElseHidden("serviceLabel", order.serviceLabel);
+  addIfVisibleElseHidden("serviceClarification", order.serviceClarification ?? "");
+  addIfVisibleElseHidden("unit", order.unit ?? "Chuyến");
+  addIfVisibleElseHidden("salesOwner", order.salesOwner);
+  addIfVisibleElseHidden("sourceOwnerName", order.sourceOwnerName ?? "");
+  addIfVisibleElseHidden("source", order.source);
+  addIfVisibleElseHidden("guestCount", order.guestCount ?? 1);
+  addIfVisibleElseHidden("guestMarket", order.guestMarket ?? "domestic");
+  addIfVisibleElseHidden("customerRecognitionCode", order.customerRecognitionCode ?? "DL");
+  addIfVisibleElseHidden("customerSourceCode", order.customerSourceCode ?? "DDH");
+  addIfVisibleElseHidden("originProvinceCode", order.originProvinceCode ?? "DAD");
+  addIfVisibleElseHidden("destinationProvinceCode", order.destinationProvinceCode ?? "QNH");
+  addIfVisibleElseHidden("invoiceRequired", order.invoiceRequired ? "yes" : "no");
+  addIfVisibleElseHidden("startAt", toDateTimeInput(order.startAt));
+  addIfVisibleElseHidden("endAt", toDateTimeInput(order.endAt));
+  addIfVisibleElseHidden("priority", order.priority ?? "normal");
+  addIfVisibleElseHidden("subtotalAmount", order.subtotalAmount ?? order.amountDue);
+  addIfVisibleElseHidden("vatRate", order.vatRate ?? 0);
+  addIfVisibleElseHidden("vatAmount", order.vatAmount ?? 0);
+  addIfVisibleElseHidden("amountDue", order.amountDue);
+  addIfVisibleElseHidden("quoteNote", order.quoteNote ?? "");
+  addIfVisibleElseHidden("customerConfirmationNote", order.customerConfirmationNote ?? "");
+  addIfVisibleElseHidden("salesNote", order.salesNote ?? "");
+
+  if (!omit.has("routeLegStartAt")) {
+    const legs = order.routeLegs?.length ? order.routeLegs : [{ pickup: order.pickup, dropoff: order.dropoff, startAt: order.startAt, endAt: order.endAt }];
+    legs.forEach((leg) => {
+      add("routeLegStartAt", toDateTimeInput(leg.startAt ?? order.startAt));
+      add("routeLegEndAt", toDateTimeInput(leg.endAt ?? order.endAt));
+      add("routeLegPickup", leg.pickup);
+      add("routeLegDropoff", leg.dropoff);
+      add("routeLegNote", leg.note ?? "");
+    });
+  }
+
+  return hidden;
 }
 
 function InfoLine({ label, value }: { label: string; value: string }) {
