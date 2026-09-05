@@ -5681,6 +5681,7 @@ function OrdersPanel({
   const canOperate = can(currentRole, "assign_vehicle");
   const canFinance = can(currentRole, "record_payment") || can(currentRole, "update_invoice") || can(currentRole, "close_order");
   const canViewInternalMoney = currentRole === "accountant" || currentRole === "manager" || currentRole === "admin";
+  const [salesScreen, setSalesScreen] = useState<"overview" | "orders" | "create" | "detail">("overview");
   const [salesMobileView, setSalesMobileView] = useState<"list" | "create" | "detail">("list");
   const [salesFilter, setSalesFilter] = useState<"all" | "pending" | "need_fix" | "approved" | "soon">("all");
   const [salesCreateStep, setSalesCreateStep] = useState(1);
@@ -5710,6 +5711,7 @@ function OrdersPanel({
       return true;
     })
     .sort((a, b) => new Date(b.startAt).getTime() - new Date(a.startAt).getTime() || b.code.localeCompare(a.code));
+  const recentSalesOrders = visibleOrders.slice(0, 5);
   const validPaymentsForOrders = payments.filter((payment) => payment.status === "valid" && filteredOrders.some((order) => order.id === payment.orderId));
   const collectedForSales = validPaymentsForOrders.reduce((sum, payment) => sum + payment.amount, 0);
   const revenueForSales = filteredOrders.reduce((sum, order) => sum + order.amountDue, 0);
@@ -5747,6 +5749,28 @@ function OrdersPanel({
   ];
   const stepClass = (step: number) => salesCreateStep === step ? "block" : "hidden";
   const selectedOrderCollected = selectedOrder ? payments.filter((payment) => payment.orderId === selectedOrder.id && payment.status === "valid").reduce((sum, payment) => sum + payment.amount, 0) : 0;
+  const openSalesOverview = () => {
+    setSalesScreen("overview");
+    setSalesMobileView("list");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  const openSalesOrders = () => {
+    setSalesScreen("orders");
+    setSalesMobileView("list");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  const openSalesCreate = () => {
+    setSalesScreen("create");
+    setSalesMobileView("create");
+    setSalesCreateStep(1);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  const openSalesDetail = (orderId: string) => {
+    setSelectedOrderId(orderId);
+    setSalesScreen("detail");
+    setSalesMobileView("detail");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
   const refreshSalesDraftPreview = (formElement: HTMLFormElement) => {
     const form = new FormData(formElement);
     const kind = String(form.get("customerKind") || customerKind);
@@ -5779,8 +5803,8 @@ function OrdersPanel({
 
   return (
     <section className={`space-y-4 ${canCreateOrder ? "pb-24 md:pb-0" : ""}`}>
-      {canCreateOrder && (
-        <section className={`${salesMobileView === "create" ? "hidden lg:block" : "block"} overflow-hidden rounded-[22px] border border-teal-100 bg-white shadow-[0_10px_28px_rgba(15,23,42,0.08)] lg:rounded-2xl`}>
+      {canCreateOrder && salesScreen === "overview" && (
+        <section className="overflow-hidden rounded-[22px] border border-teal-100 bg-white shadow-[0_10px_28px_rgba(15,23,42,0.08)] lg:rounded-2xl">
           <div className="flex items-center justify-between bg-gradient-to-r from-brand to-teal-600 px-4 py-4 text-white">
             <div>
               <h3 className="text-lg font-extrabold">Tổng quan hôm nay</h3>
@@ -5788,10 +5812,7 @@ function OrdersPanel({
             </div>
             <button
               className="hidden h-11 items-center gap-2 rounded-xl bg-white/15 px-4 text-sm font-bold text-white ring-1 ring-white/25 hover:bg-white/20 lg:inline-flex"
-              onClick={() => {
-                setSalesMobileView("create");
-                setSalesCreateStep(1);
-              }}
+              onClick={openSalesCreate}
               type="button"
             >
               <Plus size={18} /> Tạo lệnh
@@ -5802,7 +5823,10 @@ function OrdersPanel({
               <button
                 className="px-2 text-center"
                 key={item.label}
-                onClick={() => setSalesFilter(item.filter)}
+                onClick={() => {
+                  setSalesFilter(item.filter);
+                  openSalesOrders();
+                }}
                 type="button"
               >
                 <span className="mx-auto grid h-9 w-9 place-items-center rounded-full bg-teal-50 text-brand">
@@ -5818,7 +5842,10 @@ function OrdersPanel({
               <button
                 className={`shrink-0 rounded-full px-3 py-2 text-sm font-bold lg:rounded-lg ${salesFilter === filter.key ? "bg-brand text-white shadow-sm" : "text-slate-600"}`}
                 key={filter.key}
-                onClick={() => setSalesFilter(filter.key)}
+                onClick={() => {
+                  setSalesFilter(filter.key);
+                  openSalesOrders();
+                }}
                 type="button"
               >
                 {filter.label}
@@ -5828,9 +5855,59 @@ function OrdersPanel({
         </section>
       )}
 
+      {canCreateOrder && salesScreen === "overview" && (
+        <section className="overflow-hidden rounded-[22px] border border-line bg-white shadow-[0_10px_28px_rgba(15,23,42,0.08)]">
+          <div className="flex items-center justify-between border-b border-line px-4 py-4">
+            <div>
+              <h3 className="text-lg font-extrabold text-ink">Lệnh gần đây</h3>
+              <p className="text-sm text-slate-500">Chạm vào lệnh để mở preview.</p>
+            </div>
+            <button className="inline-flex items-center gap-1 text-sm font-bold text-brand" onClick={openSalesOrders} type="button">
+              Xem tất cả <ChevronRight size={16} />
+            </button>
+          </div>
+          <div className="space-y-3 p-3 lg:overflow-x-auto lg:p-4">
+            <div className="hidden overflow-hidden rounded-2xl border border-line lg:block">
+              <table className="w-full min-w-[780px] border-collapse text-sm">
+                <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3 font-semibold">Mã lệnh</th>
+                    <th className="px-4 py-3 font-semibold">Khách hàng</th>
+                    <th className="px-4 py-3 font-semibold">Tuyến</th>
+                    <th className="px-4 py-3 font-semibold">Thời gian</th>
+                    <th className="px-4 py-3 font-semibold">Số chỗ</th>
+                    <th className="px-4 py-3 font-semibold">Tổng tiền</th>
+                    <th className="px-4 py-3 font-semibold">Trạng thái</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {recentSalesOrders.map((order) => (
+                    <tr className="cursor-pointer hover:bg-teal-50/60" key={order.id} onClick={() => openSalesDetail(order.id)}>
+                      <td className="px-4 py-3 font-bold text-ink">{order.code}</td>
+                      <td className="px-4 py-3">{order.customerName}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-700">{routeSummaryForOrder(order)}</td>
+                      <td className="px-4 py-3 text-slate-600">{timeOnly(order.startAt)} · {dateOnly(order.startAt)}</td>
+                      <td className="px-4 py-3">{order.guestCount ?? "-"} chỗ</td>
+                      <td className="px-4 py-3 font-bold">{money(order.amountDue)}</td>
+                      <td className="px-4 py-3"><Badge tone={orderStatusTone(order.orderStatus)}>{orderStatusLabels[order.orderStatus]}</Badge></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="space-y-3 lg:hidden">
+              {recentSalesOrders.map((order) => (
+                <SalesOrderCard key={order.id} order={order} selected={selectedOrderId === order.id} onOpen={() => openSalesDetail(order.id)} />
+              ))}
+            </div>
+            {recentSalesOrders.length === 0 && <p className="px-1 py-3 text-sm text-slate-500">Chưa có lệnh phù hợp.</p>}
+          </div>
+        </section>
+      )}
+
       {canCreateOrder && (
       <form
-        className={`${salesMobileView === "create" ? "block" : "hidden"} overflow-hidden rounded-[22px] border border-line bg-white shadow-[0_10px_28px_rgba(15,23,42,0.08)]`}
+        className={`${salesScreen === "create" ? "block" : "hidden"} overflow-hidden rounded-[22px] border border-line bg-white shadow-[0_10px_28px_rgba(15,23,42,0.08)]`}
         onChange={(event) => refreshSalesDraftPreview(event.currentTarget)}
         onInput={(event) => refreshSalesDraftPreview(event.currentTarget)}
         onSubmit={createOrder}
@@ -5838,7 +5915,7 @@ function OrdersPanel({
         <div className="flex items-center justify-between border-b border-line px-4 py-4">
           <button
             className="grid h-10 w-10 place-items-center rounded-full bg-white text-ink hover:bg-slate-50"
-            onClick={() => setSalesMobileView("list")}
+            onClick={openSalesOrders}
             type="button"
           >
             <ChevronLeft size={22} />
@@ -5877,7 +5954,7 @@ function OrdersPanel({
           <SectionDetails
             badge={customerKind === "company" ? "Doanh nghiệp" : "Cá nhân"}
             description="Chọn đúng loại khách trước, các trường khách hàng vẫn giữ đầy đủ để lên PDF final."
-            title="1. Loại khách & khách hàng"
+            title={salesCreateStep === 1 ? "1. Chọn loại khách hàng" : "2. Thông tin khách hàng"}
           >
             <div className="mb-4 grid grid-cols-2 gap-2">
               <button
@@ -5901,7 +5978,12 @@ function OrdersPanel({
                 Doanh nghiệp
               </button>
             </div>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+            {salesCreateStep === 1 && (
+              <div className="rounded-2xl bg-teal-50/70 p-4 text-sm font-medium text-teal-900">
+                Chọn loại khách rồi bấm Tiếp tục. Các thông tin chi tiết sẽ nhập ở bước sau để màn hình gọn và dễ kiểm tra.
+              </div>
+            )}
+            <div className={`${salesCreateStep === 2 ? "grid" : "hidden"} gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2`}>
               <Field label="Ngày lệnh"><input className={inputClass()} name="orderDate" placeholder="2026-08-25" /></Field>
               <Field label="Loại hợp đồng">
                 <select className={inputClass()} name="contractType">
@@ -6134,7 +6216,7 @@ function OrdersPanel({
           <div className="sticky bottom-20 z-20 grid gap-2 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-[0_10px_28px_rgba(15,23,42,0.12)] backdrop-blur md:static md:grid-cols-[160px_1fr] md:rounded-none md:border-0 md:bg-transparent md:p-0 md:shadow-none">
             <button
               className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-brand bg-white px-4 text-sm font-bold text-brand md:rounded-md"
-              onClick={() => salesCreateStep === 1 ? setSalesMobileView("list") : setSalesCreateStep((step) => Math.max(step - 1, 1))}
+              onClick={() => salesCreateStep === 1 ? openSalesOrders() : setSalesCreateStep((step) => Math.max(step - 1, 1))}
               type="button"
             >
               {salesCreateStep === 1 ? "Danh sách" : "Quay lại"}
@@ -6153,7 +6235,7 @@ function OrdersPanel({
       </form>
       )}
 
-      {canCreateOrder && driverDraftProposals.length > 0 && (
+      {canCreateOrder && salesScreen === "overview" && driverDraftProposals.length > 0 && (
         <section className="border border-amber-200 bg-amber-50 shadow-sm">
           <div className="flex flex-col gap-2 border-b border-amber-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
             <div>
@@ -6190,16 +6272,16 @@ function OrdersPanel({
         </section>
       )}
 
-      <div className={`${canCreateOrder ? "hidden md:grid" : "grid"} gap-3 md:grid-cols-4`}>
+      <div className={`${canCreateOrder ? "hidden" : "grid"} gap-3 md:grid-cols-4`}>
         <StatMini label="Báo giá nháp" value={String(quoteStats.draft)} />
         <StatMini label="Đã gửi khách" value={String(quoteStats.sent)} />
         <StatMini label="Khách duyệt" value={String(quoteStats.approved)} />
         {canViewInternalMoney && <StatMini label="Biên thấp < 15%" value={String(lowMarginCount)} />}
       </div>
 
-      <div className={`${salesMobileView === "create" ? "hidden" : "block"} md:block`}>
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(420px,1.05fr)]">
-        <div className="overflow-hidden rounded-[22px] border border-line bg-white shadow-[0_10px_28px_rgba(15,23,42,0.08)]">
+      <div className={canCreateOrder ? (salesScreen === "orders" || salesScreen === "detail" ? "block" : "hidden") : "block"}>
+        <div className={canCreateOrder && salesScreen === "detail" ? "mx-auto max-w-5xl" : canCreateOrder ? "block" : "grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.85fr)]"}>
+        <div className={`${canCreateOrder && salesScreen === "detail" ? "hidden" : "overflow-hidden rounded-[22px] border border-line bg-white shadow-[0_10px_28px_rgba(15,23,42,0.08)]"}`}>
         <div className="flex flex-col gap-3 border-b border-line px-4 py-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h3 className="text-lg font-extrabold text-ink">Lệnh của tôi</h3>
@@ -6214,7 +6296,7 @@ function OrdersPanel({
           <div className="space-y-3 p-3 md:hidden">
             <button
               className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-white px-3 text-sm font-bold text-slate-700"
-              onClick={() => setSalesMobileView("list")}
+              onClick={openSalesOrders}
               type="button"
             >
               <ChevronLeft size={16} /> Danh sách lệnh
@@ -6222,89 +6304,40 @@ function OrdersPanel({
             <SalesOrderPreview order={selectedOrder} collectedAmount={selectedOrderCollected} />
           </div>
         )}
-        <div className={`${salesMobileView === "detail" ? "hidden" : "space-y-3 p-3"} md:block`}>
+        <div className={`${salesMobileView === "detail" ? "hidden" : "space-y-3 p-3"} md:hidden`}>
           {visibleOrders.map((order) => (
-            <div key={order.id}>
-            <button
-              className={`w-full rounded-2xl border px-4 py-4 text-left shadow-sm ${selectedOrderId === order.id ? "border-teal-600 bg-teal-50/70" : "border-line bg-white"}`}
-              onClick={() => {
-                setSelectedOrderId(order.id);
-                setSalesMobileView("detail");
-              }}
-              type="button"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="font-semibold text-ink">{order.code}</p>
-                  <p className="mt-1 text-sm text-slate-600">{order.customerName}</p>
-                </div>
-                <Badge tone={orderStatusTone(order.orderStatus)}>{orderStatusLabels[order.orderStatus]}</Badge>
-              </div>
-              <div className="mt-3 space-y-2 text-sm">
-                <p className="font-semibold text-slate-800">{routeSummaryForOrder(order)}</p>
-                <div className="grid grid-cols-2 gap-2 text-xs font-medium text-slate-600">
-                  <span className="inline-flex items-center gap-1"><CalendarClock size={14} /> {timeOnly(order.startAt)} - {dateOnly(order.startAt)}</span>
-                  <span className="inline-flex items-center gap-1"><UsersRound size={14} /> {order.guestCount ?? "-"} chỗ</span>
-                </div>
-              </div>
-              <div className="mt-3 flex items-center justify-between gap-2 text-sm">
-                <span className="font-extrabold text-ink">{money(order.amountDue)}</span>
-                <Badge tone={order.paymentStatus === "paid" ? "good" : order.paymentStatus === "partial" ? "warn" : "danger"}>{paymentLabels[order.paymentStatus]}</Badge>
-                <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500">Xem preview <ChevronRight size={15} /></span>
-                {canViewInternalMoney && <span className={`font-semibold ${orderProfit(order) >= 0 ? "text-emerald-700" : "text-red-700"}`}>{money(orderProfit(order))}</span>}
-              </div>
-            </button>
-            </div>
+            <SalesOrderCard key={order.id} order={order} selected={selectedOrderId === order.id} onOpen={() => openSalesDetail(order.id)} />
           ))}
           {visibleOrders.length === 0 && <p className="px-1 py-3 text-sm text-slate-500">Không có lệnh phù hợp bộ lọc.</p>}
         </div>
-        <div className="hidden overflow-x-auto">
-          <table className="w-full min-w-[1160px] border-collapse text-sm">
+        <div className="hidden overflow-x-auto md:block">
+          <table className="w-full min-w-[780px] border-collapse text-sm">
             <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
               <tr>
-                <th className="px-4 py-3 font-semibold">Lệnh</th>
-                <th className="px-4 py-3 font-semibold">Loại khách</th>
-                <th className="px-4 py-3 font-semibold">Khách / liên hệ</th>
-                <th className="px-4 py-3 font-semibold">Hành trình</th>
+                <th className="px-4 py-3 font-semibold">Mã lệnh</th>
+                <th className="px-4 py-3 font-semibold">Khách hàng</th>
+                <th className="px-4 py-3 font-semibold">Tuyến</th>
                 <th className="px-4 py-3 font-semibold">Thời gian</th>
-                <th className="px-4 py-3 font-semibold">Duyệt</th>
-                <th className="px-4 py-3 font-semibold">Báo giá</th>
-                <th className="px-4 py-3 font-semibold">Điều hành</th>
-                <th className="px-4 py-3 font-semibold">Thanh toán</th>
-                <th className="px-4 py-3 font-semibold">Hóa đơn</th>
-                <th className="px-4 py-3 font-semibold">Giá trị</th>
-                {canViewInternalMoney && <th className="px-4 py-3 font-semibold">Lãi dự kiến</th>}
-                {canViewInternalMoney && <th className="px-4 py-3 font-semibold">Biên</th>}
+                <th className="px-4 py-3 font-semibold">Số chỗ</th>
+                <th className="px-4 py-3 font-semibold">Tổng tiền</th>
+                <th className="px-4 py-3 font-semibold">Trạng thái</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
               {visibleOrders.map((order) => (
-                <tr key={order.id} className={`cursor-pointer align-top hover:bg-slate-50 ${selectedOrderId === order.id ? "bg-teal-50/60" : ""}`} onClick={() => setSelectedOrderId(order.id)}>
+                <tr key={order.id} className={`cursor-pointer align-middle hover:bg-teal-50/60 ${selectedOrderId === order.id ? "bg-teal-50/70" : ""}`} onClick={() => openSalesDetail(order.id)}>
+                  <td className="px-4 py-4 font-bold text-ink">{order.code}</td>
+                  <td className="px-4 py-4">{order.customerName}</td>
+                  <td className="px-4 py-4 font-semibold text-slate-700">{routeSummaryForOrder(order)}</td>
+                  <td className="px-4 py-4 text-slate-600">{timeOnly(order.startAt)} · {dateOnly(order.startAt)}</td>
+                  <td className="px-4 py-4">{order.guestCount ?? "-"} chỗ</td>
+                  <td className="px-4 py-4 font-bold">{money(order.amountDue)}</td>
                   <td className="px-4 py-4">
-                    <p className="font-semibold text-ink">{order.code}</p>
-                    <p className="text-xs text-slate-500">{order.salesOwner} / {order.source}</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge tone={orderStatusTone(order.orderStatus)}>{orderStatusLabels[order.orderStatus]}</Badge>
+                      <Badge tone={order.paymentStatus === "paid" ? "good" : order.paymentStatus === "partial" ? "warn" : "danger"}>{paymentLabels[order.paymentStatus]}</Badge>
+                    </div>
                   </td>
-                  <td className="px-4 py-4"><Badge tone={order.customerKind === "company" ? "info" : "neutral"}>{order.customerKind === "company" ? "Doanh nghiệp" : "Cá nhân"}</Badge></td>
-                  <td className="px-4 py-4"><CustomerCell order={order} /></td>
-                  <td className="px-4 py-4">
-                    <p className="flex items-center gap-1"><MapPin size={14} /> {order.pickup}</p>
-                    <p className="mt-1 text-slate-500">{order.dropoff}</p>
-                  </td>
-                  <td className="px-4 py-4 text-slate-600">{formatDateTime(order.startAt)} - {formatDateTime(order.endAt)}</td>
-                  <td className="px-4 py-4"><Badge tone={orderStatusTone(order.orderStatus)}>{orderStatusLabels[order.orderStatus]}</Badge></td>
-                  <td className="px-4 py-4"><Badge tone={quoteTone(order.quoteStatus)}>{quoteLabels[order.quoteStatus ?? "draft"]}</Badge></td>
-                  <td className="px-4 py-4"><Badge tone={statusTone(order)}>{dispatchLabels[order.dispatchStatus]}</Badge></td>
-                  <td className="px-4 py-4"><Badge tone={order.paymentStatus === "paid" ? "good" : order.paymentStatus === "partial" ? "warn" : "danger"}>{paymentLabels[order.paymentStatus]}</Badge></td>
-                  <td className="px-4 py-4"><Badge tone={order.invoiceStatus === "issued" || order.invoiceStatus === "not_required" ? "good" : "warn"}>{invoiceLabels[order.invoiceStatus]}</Badge></td>
-                  <td className="px-4 py-4 font-semibold">{money(order.amountDue)}</td>
-                  {canViewInternalMoney && <td className={`px-4 py-4 font-semibold ${orderProfit(order) >= 0 ? "text-emerald-700" : "text-red-700"}`}>{money(orderProfit(order))}</td>}
-                  {canViewInternalMoney && (
-                    <td className="px-4 py-4">
-                      <Badge tone={orderMargin(order) >= 0.25 ? "good" : orderMargin(order) >= 0.15 ? "warn" : "danger"}>
-                        {Math.round(orderMargin(order) * 100)}%
-                      </Badge>
-                    </td>
-                  )}
                 </tr>
               ))}
             </tbody>
@@ -6312,9 +6345,9 @@ function OrdersPanel({
         </div>
         </div>
         {selectedOrder && (
-          <div className={`${canCreateOrder ? "hidden md:block" : ""} xl:sticky xl:top-4 xl:self-start`}>
+          <div className={`${canCreateOrder && salesScreen !== "detail" ? "hidden" : ""} xl:sticky xl:top-4 xl:self-start`}>
           {canCreateOrder ? (
-            <SalesOrderPreview order={selectedOrder} collectedAmount={selectedOrderCollected} />
+            <SalesOrderPreview order={selectedOrder} collectedAmount={selectedOrderCollected} onBack={openSalesOrders} />
           ) : (
             <OrderDetailPanel
               assignments={assignments}
@@ -6334,28 +6367,76 @@ function OrdersPanel({
         </div>
       </div>
       {canCreateOrder && salesMobileView !== "create" && (
-        <button
-          className="fixed bottom-20 left-1/2 z-40 inline-flex h-14 -translate-x-1/2 items-center gap-2 rounded-full bg-gradient-to-r from-brand to-teal-600 px-6 text-base font-bold text-white shadow-[0_12px_30px_rgba(15,118,110,0.30)] md:hidden"
-          onClick={() => {
-            setSalesMobileView("create");
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          }}
-          type="button"
-        >
-          <Plus size={20} /> Tạo lệnh
-        </button>
+        <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-white/95 px-5 pb-4 pt-2 shadow-[0_-10px_28px_rgba(15,23,42,0.08)] backdrop-blur md:hidden">
+          <div className="mx-auto grid max-w-md grid-cols-5 items-end gap-1 text-[11px] font-bold text-slate-500">
+            <button className={`grid justify-items-center gap-1 ${salesScreen === "overview" ? "text-brand" : ""}`} onClick={openSalesOverview} type="button">
+              <TrendingUp size={22} /> Tổng quan
+            </button>
+            <button className={`grid justify-items-center gap-1 ${salesScreen === "orders" || salesScreen === "detail" ? "text-brand" : ""}`} onClick={openSalesOrders} type="button">
+              <ClipboardList size={22} /> Lệnh
+            </button>
+            <button className="-mt-7 grid justify-items-center gap-1 text-brand" onClick={openSalesCreate} type="button">
+              <span className="grid h-16 w-16 place-items-center rounded-full bg-gradient-to-r from-brand to-teal-600 text-white shadow-[0_12px_30px_rgba(15,118,110,0.32)] ring-4 ring-white"><Plus size={28} /></span>
+              Tạo lệnh
+            </button>
+            <button className="grid justify-items-center gap-1" type="button">
+              <UsersRound size={22} /> Khách hàng
+            </button>
+            <button className="grid justify-items-center gap-1" type="button">
+              <ReceiptText size={22} /> Công nợ
+            </button>
+          </div>
+        </nav>
       )}
     </section>
   );
 }
 
-function SalesOrderPreview({ collectedAmount, order }: { collectedAmount: number; order: DispatchOrder }) {
+function SalesOrderCard({ onOpen, order, selected }: { onOpen: () => void; order: DispatchOrder; selected: boolean }) {
+  return (
+    <button
+      className={`w-full rounded-2xl border px-4 py-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${selected ? "border-teal-500 bg-teal-50/70" : "border-line bg-white"}`}
+      onClick={onOpen}
+      type="button"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-base font-extrabold text-ink">{order.code}</p>
+          <p className="mt-1 truncate text-sm font-semibold text-slate-600">{order.customerName}</p>
+        </div>
+        <p className="shrink-0 text-sm font-extrabold text-ink">{money(order.amountDue)}</p>
+      </div>
+      <p className="mt-2 truncate text-sm font-semibold text-slate-700">{routeSummaryForOrder(order)}</p>
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-medium text-slate-600">
+        <span className="inline-flex items-center gap-1"><CalendarClock size={14} /> {timeOnly(order.startAt)} · {dateOnly(order.startAt)}</span>
+        <span className="inline-flex items-center gap-1"><UsersRound size={14} /> {order.guestCount ?? "-"} chỗ</span>
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Badge tone={orderStatusTone(order.orderStatus)}>{orderStatusLabels[order.orderStatus]}</Badge>
+          <Badge tone={order.paymentStatus === "paid" ? "good" : order.paymentStatus === "partial" ? "warn" : "danger"}>{paymentLabels[order.paymentStatus]}</Badge>
+        </div>
+        <ChevronRight className="text-slate-400" size={18} />
+      </div>
+    </button>
+  );
+}
+
+function SalesOrderPreview({ collectedAmount, onBack, order }: { collectedAmount: number; onBack?: () => void; order: DispatchOrder }) {
   const remainingAmount = Math.max(order.amountDue - collectedAmount, 0);
+  const vatAmount = Math.max(order.amountDue - (order.subtotalAmount ?? order.amountDue), 0);
   return (
     <section className="space-y-3 rounded-[22px] border border-line bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)]">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-slate-500">Preview lệnh</p>
+          <div className="flex items-center gap-2">
+            {onBack && (
+              <button className="grid h-9 w-9 place-items-center rounded-full border border-line bg-white text-ink md:hidden" onClick={onBack} type="button">
+                <ChevronLeft size={18} />
+              </button>
+            )}
+            <p className="text-sm font-semibold text-slate-500">Preview lệnh</p>
+          </div>
           <h3 className="mt-1 text-2xl font-extrabold text-ink">{order.code}</h3>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
@@ -6364,7 +6445,30 @@ function SalesOrderPreview({ collectedAmount, order }: { collectedAmount: number
         </div>
       </div>
 
+      <div className="flex gap-5 overflow-x-auto border-b border-line text-sm font-bold text-slate-500">
+        {["Tổng quan", "Hành trình", "Thanh toán", "Lịch sử"].map((item, index) => (
+          <span className={`shrink-0 border-b-2 px-1 pb-2 ${index === 0 ? "border-brand text-brand" : "border-transparent"}`} key={item}>{item}</span>
+        ))}
+      </div>
+
       <div className="grid gap-3">
+        <details className="rounded-2xl bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.06)] ring-1 ring-slate-100" open>
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+            <span className="inline-flex items-center gap-2 font-bold text-ink">
+              <ShieldCheck className="text-brand" size={18} /> Thông tin quản lý
+            </span>
+            <ChevronRight className="text-slate-400" size={18} />
+          </summary>
+          <div className="mt-3 grid gap-x-6 divide-y divide-slate-100 text-sm md:grid-cols-2 md:divide-y-0">
+            <InfoLine label="Quản lý lệnh" value={order.salesOwner || "-"} />
+            <InfoLine label="Ngày" value={dateOnly(order.orderDate || order.startAt)} />
+            <InfoLine label="Nguồn" value={order.source || "-"} />
+            <InfoLine label="Có xuất hóa đơn" value={order.invoiceRequired ? "Có" : "Không"} />
+            <InfoLine label="Dòng khách" value={`${guestMarketCode(order.guestMarket)} - ${guestMarketLabel(order.guestMarket)}`} />
+            <InfoLine label="Nguồn khách" value={customerSourceFullLabel(order.customerSourceCode)} />
+          </div>
+        </details>
+
         <section className="rounded-2xl bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.06)] ring-1 ring-slate-100">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
@@ -6414,6 +6518,19 @@ function SalesOrderPreview({ collectedAmount, order }: { collectedAmount: number
 
         <section className="rounded-2xl bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.06)] ring-1 ring-slate-100">
           <div className="flex items-center gap-2">
+            <Car className="text-brand" size={18} />
+            <h4 className="font-bold text-ink">Dịch vụ & xe</h4>
+          </div>
+          <div className="mt-3 grid gap-x-6 divide-y divide-slate-100 text-sm md:grid-cols-2 md:divide-y-0">
+            <InfoLine label="Dịch vụ" value={order.serviceLabel || "-"} />
+            <InfoLine label="Đơn vị tính" value={order.unit || "-"} />
+            <InfoLine label="Loại xe" value={order.externalVehicleType || order.serviceLabel || "-"} />
+            <InfoLine label="Biển số" value={order.vehiclePlateNo || order.externalVehiclePlate || "Chưa có xe"} />
+          </div>
+        </section>
+
+        <section className="rounded-2xl bg-white p-4 shadow-[0_8px_22px_rgba(15,23,42,0.06)] ring-1 ring-slate-100">
+          <div className="flex items-center gap-2">
             <ReceiptText className="text-brand" size={18} />
             <h4 className="font-bold text-ink">Thanh toán</h4>
           </div>
@@ -6421,6 +6538,7 @@ function SalesOrderPreview({ collectedAmount, order }: { collectedAmount: number
             <div className="space-y-2 text-sm">
               <div className="flex justify-between gap-3"><span className="text-slate-500">Tiền dịch vụ</span><strong>{money(order.subtotalAmount ?? order.amountDue)}</strong></div>
               <div className="flex justify-between gap-3"><span className="text-slate-500">Thuế suất</span><strong>{order.vatRate ?? 0}%</strong></div>
+              <div className="flex justify-between gap-3"><span className="text-slate-500">Tiền thuế</span><strong>{money(vatAmount)}</strong></div>
               <div className="flex justify-between gap-3"><span className="text-slate-500">Đã thu / tạm ứng</span><strong>{money(collectedAmount)}</strong></div>
               <div className="flex justify-between gap-3 border-t border-line pt-2"><span className="font-semibold text-ink">Còn phải thu</span><strong className="text-brand">{money(remainingAmount)}</strong></div>
             </div>
