@@ -22,6 +22,7 @@ import {
   Route,
   Save,
   Search,
+  Settings2,
   ShieldCheck,
   Smartphone,
   TrendingUp,
@@ -7194,6 +7195,7 @@ function DispatchPanel({
   setCalendarMonth,
   setSelectedOrderId,
   updateDispatchStatus,
+  updateOrder,
   vehicles
 }: {
   assignments: Assignment[];
@@ -7217,8 +7219,8 @@ function DispatchPanel({
   compact: boolean;
   vehicles: Vehicle[];
 }) {
-  const [mobileView, setMobileView] = useState<"overview" | "orders" | "detail" | "schedule" | "vehicleDetail" | "assign">("overview");
-  const [desktopView, setDesktopView] = useState<"desk" | "orders" | "detail" | "schedule" | "assign">("desk");
+  const [mobileView, setMobileView] = useState<"overview" | "orders" | "detail" | "schedule" | "vehicleDetail" | "assign" | "supplier">("overview");
+  const [desktopView, setDesktopView] = useState<"desk" | "orders" | "detail" | "schedule" | "assign" | "supplier">("desk");
   const [detailTab, setDetailTab] = useState<"overview" | "route" | "payment">("overview");
   const [scheduleMode, setScheduleMode] = useState<"vehicle" | "timeline">("vehicle");
   const [dispatchSearch, setDispatchSearch] = useState("");
@@ -7329,7 +7331,7 @@ function DispatchPanel({
     setSelectedOrderId(orderId);
     setMobileView(nextView);
     if (desktopView === "schedule") return;
-    setDesktopView(nextView === "assign" ? "assign" : "detail");
+    setDesktopView(nextView === "assign" ? "assign" : nextView === "supplier" ? "supplier" : "detail");
   }
 
   function renderStatCard(item: (typeof stats)[number]) {
@@ -7742,6 +7744,81 @@ function DispatchPanel({
     );
   }
 
+  function statusPillClass(order: DispatchOrder) {
+    if (order.dispatchStatus === "waiting_assignment") return "border-amber-200 bg-amber-50 text-amber-700";
+    if (order.dispatchStatus === "in_progress") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    if (order.dispatchStatus === "completed") return "border-slate-200 bg-slate-100 text-slate-600";
+    if (order.dispatchStatus === "cancelled") return "border-rose-200 bg-rose-50 text-rose-700";
+    return "border-blue-200 bg-blue-50 text-blue-700";
+  }
+
+  function renderSupplierEditForm(compactForm = false) {
+    const transport = {
+      driverName: selectedOrder.externalDriverName || selectedOrder.driverFullName || driver?.fullName || "",
+      driverPhone: selectedOrder.externalDriverPhone || selectedOrder.driverPhone || driver?.phone || "",
+      ownerCccd: vehicle?.ownerCccd || "",
+      ownerName: vehicle?.ownerName || "",
+      supplierAddress: vehicle?.supplierAddress || "",
+      supplierBankAccount: vehicle?.supplierBankAccount || "",
+      supplierBankName: vehicle?.supplierBankName || "",
+      supplierCompanyName: vehicle?.supplierCompanyName || "",
+      supplierInvoiceRequired: vehicle?.supplierInvoiceRequired,
+      supplierPhone: vehicle?.supplierPhone || "",
+      supplierTaxCode: vehicle?.supplierTaxCode || "",
+      vehicleOwnership: vehicle?.ownershipType,
+      vehiclePlate: selectedOrder.externalVehiclePlate || selectedOrder.vehiclePlateNo || vehicle?.plateNo || ""
+    };
+    const editVehicleOwnership = selectedOrder.vehicleOwnership ?? (transport.vehicleOwnership === "partner" || transport.vehicleOwnership === "rented" ? "rented" : "company");
+    const editSupplierInvoiceRequired = selectedOrder.supplierInvoiceRequired ?? transport.supplierInvoiceRequired ?? true;
+    return (
+      <form className={`dispatch-supplier-form rounded-lg border border-line bg-white shadow-sm ${compactForm ? "pb-24" : ""}`} onSubmit={updateOrder}>
+        <div className="border-b border-line px-4 py-3">
+          <p className="text-[11px] font-extrabold uppercase tracking-wide text-brand">Sửa lệnh điều hành</p>
+          <h3 className="mt-1 truncate text-lg font-extrabold text-ink">{selectedOrder.code}</h3>
+          <p className="mt-1 text-xs font-semibold text-slate-500">Bổ sung xe thuê ngoài và hồ sơ NCC, dữ liệu lưu qua Supabase hiện tại.</p>
+        </div>
+        <div className="grid gap-3 p-4 sm:grid-cols-2">
+          <Field label="Hình thức xe">
+            <select className={inputClass()} defaultValue={editVehicleOwnership} name="vehicleOwnership">
+              <option value="company">Công ty</option>
+              <option value="rented">Thuê ngoài/Hợp tác</option>
+            </select>
+          </Field>
+          <Field label="Biển số xe đang chạy"><input className={inputClass()} defaultValue={transport.vehiclePlate === "-" ? "" : transport.vehiclePlate} name="vehiclePlateNo" /></Field>
+          <Field label="Họ tên tài xế"><input className={inputClass()} defaultValue={transport.driverName === "-" ? "" : transport.driverName} name="driverFullName" /></Field>
+          <Field label="SĐT tài xế"><input className={inputClass()} defaultValue={transport.driverPhone === "-" ? "" : transport.driverPhone} name="driverPhone" /></Field>
+          <Field label="Chủ sở hữu xe cá nhân"><input className={inputClass()} defaultValue={selectedOrder.supplierOwnerName ?? transport.ownerName ?? ""} name="supplierOwnerName" /></Field>
+          <Field label="CCCD chủ sở hữu"><input className={inputClass()} defaultValue={selectedOrder.supplierCccd ?? transport.ownerCccd ?? ""} name="supplierCccd" /></Field>
+          <Field label="Xuất HĐ đầu vào">
+            <select className={inputClass()} defaultValue={editSupplierInvoiceRequired ? "yes" : "no"} name="supplierInvoiceRequired">
+              <option value="yes">Có</option>
+              <option value="no">Không</option>
+            </select>
+          </Field>
+          <Field label="Tổng tiền mua gồm VAT"><input className={inputClass()} defaultValue={selectedOrder.supplierTotalWithVat ?? selectedOrder.vehicleCost ?? 0} min="0" name="supplierTotalWithVat" type="number" /></Field>
+          <Field label="Đơn vị sở hữu/NCC"><input className={inputClass()} defaultValue={selectedOrder.supplierCompanyName ?? transport.supplierCompanyName ?? ""} name="supplierCompanyName" /></Field>
+          <Field label="MST NCC"><input className={inputClass()} defaultValue={selectedOrder.supplierTaxCode ?? transport.supplierTaxCode ?? ""} name="supplierTaxCode" /></Field>
+          <Field label="SĐT NCC"><input className={inputClass()} defaultValue={selectedOrder.supplierPhone ?? transport.supplierPhone ?? ""} name="supplierPhone" /></Field>
+          <Field label="TK NCC"><input className={inputClass()} defaultValue={selectedOrder.supplierBankAccount ?? transport.supplierBankAccount ?? ""} name="supplierBankAccount" /></Field>
+          <Field label="Ngân hàng NCC"><input className={inputClass()} defaultValue={selectedOrder.supplierBankName ?? transport.supplierBankName ?? ""} name="supplierBankName" /></Field>
+          <div className="sm:col-span-2">
+            <Field label="Địa chỉ NCC"><input className={inputClass()} defaultValue={selectedOrder.supplierAddress ?? transport.supplierAddress ?? ""} name="supplierAddress" /></Field>
+          </div>
+          <div className="sm:col-span-2">
+            <Field label="Ghi chú điều hành"><textarea className={`${inputClass()} min-h-20 resize-none py-2`} defaultValue={selectedOrder.salesNote ?? ""} name="salesNote" placeholder="Ví dụ: bổ sung hồ sơ NCC sau khi xe thuê ngoài đã chạy..." /></Field>
+          </div>
+          <input name="editReason" type="hidden" value="Dispatcher updated supplier profile" />
+        </div>
+        <div className="sticky bottom-0 grid grid-cols-[0.8fr_1.2fr] gap-2 border-t border-line bg-white/95 p-3 backdrop-blur">
+          <button className="h-11 rounded-lg border border-line bg-white text-sm font-extrabold text-ink" onClick={() => { setMobileView("detail"); setDesktopView("detail"); }} type="button">Quay lại</button>
+          <button className="h-11 rounded-lg bg-brand text-sm font-extrabold text-white disabled:bg-slate-300" disabled={isActionPending("order.update_details")} type="submit">
+            <Save className="mr-2 inline" size={17} />Lưu NCC
+          </button>
+        </div>
+      </form>
+    );
+  }
+
   function renderScheduleBoard() {
     const visibleHours = [6, 8, 10, 12, 14, 16, 18, 20];
     const dayKeyForSchedule = dateKey(calendarDay);
@@ -7897,11 +7974,14 @@ function DispatchPanel({
         ) : (
           <section className="space-y-2">
             {timelineOrders.map((order) => (
-              <button className="grid w-full grid-cols-[54px_1fr] gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-sm" key={order.id} onClick={() => selectOrder(order.id, "detail")} type="button">
+              <button className="grid w-full grid-cols-[54px_minmax(0,1fr)] gap-3 rounded-lg border border-slate-200 bg-white p-3 text-left shadow-sm" key={order.id} onClick={() => selectOrder(order.id, "detail")} type="button">
                 <span className="text-right text-xs font-extrabold text-brand">{timeOnly(order.startAt)}<span className="block text-[10px] text-slate-400">{timeOnly(order.endAt)}</span></span>
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-extrabold text-slate-900">{routeSummaryForOrder(order)}</span>
-                  <span className="mt-1 flex items-center justify-between gap-2 text-[11px] font-semibold text-slate-500"><span className="truncate">{order.code}</span><Badge tone={statusTone(order)}>{dispatchLabels[order.dispatchStatus]}</Badge></span>
+                <span className="min-w-0 overflow-hidden">
+                  <span className="block max-w-full truncate text-[13px] font-extrabold leading-5 text-slate-900">{routeSummaryForOrder(order)}</span>
+                  <span className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-[11px] font-semibold text-slate-500">
+                    <span className="min-w-0 truncate">{order.code}</span>
+                    <span className={`inline-flex h-[22px] shrink-0 items-center rounded-md border px-2 text-[10px] font-extrabold leading-none whitespace-nowrap ${statusPillClass(order)}`}>{dispatchLabels[order.dispatchStatus]}</span>
+                  </span>
                 </span>
               </button>
             ))}
@@ -8132,14 +8212,10 @@ function DispatchPanel({
     const assignedDriver = drivers.find((item) => item.id === order.driverId);
     const firstLeg = routeLegsForOrder(order)[0];
     const lastLeg = routeLegsForOrder(order).at(-1);
-    const statusClass = order.dispatchStatus === "waiting_assignment"
-      ? "bg-amber-100 text-amber-700"
-      : order.dispatchStatus === "in_progress"
-        ? "bg-emerald-100 text-emerald-700"
-        : "bg-blue-100 text-blue-700";
+    const statusClass = statusPillClass(order);
     return (
       <button
-        className={`dispatch-trip-card w-full space-y-3 rounded-2xl border bg-white p-4 text-left shadow-sm transition hover:border-brand ${selectedOrder.id === order.id ? "border-brand bg-teal-50/70" : "border-slate-200"}`}
+        className={`dispatch-trip-card w-full space-y-3 rounded-lg border bg-white p-3 text-left shadow-sm transition hover:border-brand ${selectedOrder.id === order.id ? "border-brand bg-teal-50/70" : "border-slate-200"}`}
         key={order.id}
         onClick={() => selectOrder(order.id, "detail")}
         type="button"
@@ -8149,7 +8225,7 @@ function DispatchPanel({
             <p className="truncate text-sm font-extrabold tracking-tight text-slate-900">{order.code}</p>
             <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-500">{timeOnly(order.startAt)}</span>
           </div>
-          <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${statusClass}`}>
+          <span className={`inline-flex h-[22px] shrink-0 items-center gap-1 rounded-md border px-2 text-[10.5px] font-bold leading-none whitespace-nowrap ${statusClass}`}>
             <span className="size-1.5 rounded-full bg-current" />{dispatchLabels[order.dispatchStatus]}
           </span>
         </div>
@@ -8167,7 +8243,7 @@ function DispatchPanel({
         </div>
         <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-2.5">
           <div className="flex min-w-0 items-center gap-2 text-[11.5px] text-slate-600">
-            <span className="truncate rounded bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">{order.guestCount ?? "-"} khách</span>
+            <span className="shrink-0 rounded bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">{order.guestCount ?? "-"} khách</span>
             <span className="truncate font-semibold">{assignedVehicle?.plateNo ?? "Cần xe"}{assignedDriver ? ` / ${assignedDriver.fullName}` : ""}</span>
           </div>
           <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold ${needsAssign ? "bg-brand text-white" : "bg-slate-100 text-slate-800"}`}>
@@ -8246,6 +8322,13 @@ function DispatchPanel({
             <button className="h-10 rounded-lg border border-rose-200 bg-rose-50 text-sm font-bold text-rose-700 disabled:bg-slate-100" disabled={!canAssignVehicle || isActionPending(`dispatch:review:${selectedOrder.id}:rejected`)} onClick={() => reviewDispatchProposal(selectedOrder.id, "rejected", "Điều hành từ chối")} type="button">Từ chối</button>
           </div>
         )}
+        <button
+          className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-4 text-sm font-extrabold text-brand hover:bg-teal-100"
+          onClick={() => { setDesktopView("supplier"); setMobileView("supplier"); }}
+          type="button"
+        >
+          <Settings2 size={17} /> Sửa xe thuê ngoài / NCC
+        </button>
         <button
           className="mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-extrabold text-white hover:bg-teal-800 disabled:bg-slate-300"
           disabled={!canAssignSelectedOrder}
@@ -8431,7 +8514,7 @@ function DispatchPanel({
   }
 
   function renderMobileHeader() {
-    const title = mobileView === "detail" ? "Chi tiết chuyến đi" : mobileView === "schedule" ? "Lịch xe & Điều phối" : mobileView === "vehicleDetail" ? `Xe ${selectedScheduleVehicle?.plateNo ?? "chưa phân"}` : mobileView === "assign" ? `Điều xe cho lệnh` : mobileView === "orders" ? "Điều lệnh chuyến đi" : "Angel One Travel";
+    const title = mobileView === "detail" ? "Chi tiết chuyến đi" : mobileView === "schedule" ? "Lịch xe & Điều phối" : mobileView === "vehicleDetail" ? `Xe ${selectedScheduleVehicle?.plateNo ?? "chưa phân"}` : mobileView === "supplier" ? "Sửa NCC" : mobileView === "assign" ? `Điều xe cho lệnh` : mobileView === "orders" ? "Điều lệnh chuyến đi" : "Angel One Travel";
     const subtitle = mobileView === "overview" ? "Điều hành SaaS" : mobileView === "orders" ? `${dispatchBaseQueue.length} lệnh vận hành hôm nay` : mobileView === "schedule" ? `Hôm nay · ${dateOnly(calendarDay.toISOString())}` : mobileView === "vehicleDetail" ? `${selectedScheduleVehicle?.type ?? "Nguồn lực"} · ${selectedScheduleVehicle?.seats ?? "-"} chỗ` : selectedOrder.code;
     return (
       <header className="dispatch-mobile-header bg-white">
@@ -8445,7 +8528,7 @@ function DispatchPanel({
           </div>
         ) : (
           <>
-            <button className="dispatch-icon-button" aria-label="Quay lại" onClick={() => { if (mobileView === "assign" && assignmentStep > 0) setAssignmentStep(0); else setMobileView(mobileView === "vehicleDetail" ? "schedule" : mobileView === "assign" ? "detail" : mobileView === "detail" ? "orders" : "overview"); }} type="button"><ChevronLeft size={22} /></button>
+            <button className="dispatch-icon-button" aria-label="Quay lại" onClick={() => { if (mobileView === "assign" && assignmentStep > 0) setAssignmentStep(0); else setMobileView(mobileView === "vehicleDetail" ? "schedule" : mobileView === "assign" || mobileView === "supplier" ? "detail" : mobileView === "detail" ? "orders" : "overview"); }} type="button"><ChevronLeft size={22} /></button>
             <span className="min-w-0 flex-1 text-center leading-tight"><h2 className="truncate text-[16px] font-extrabold text-slate-900">{title}</h2><p className="truncate text-[11px] font-semibold text-slate-400">{subtitle}</p></span>
           </>
         )}
@@ -8537,6 +8620,8 @@ function DispatchPanel({
             ? renderDispatchHeader("Lịch xe", "Theo dõi lịch hoạt động của xe theo thời gian thực")
             : desktopView === "orders"
               ? renderDispatchHeader("Danh sách lệnh", "Lọc, chọn và duyệt các lệnh cần xử lý")
+              : desktopView === "supplier"
+                ? renderDispatchHeader("Sửa NCC", "Bổ sung hồ sơ xe thuê ngoài và nhà cung cấp")
               : desktopView === "assign"
                 ? renderDispatchHeader("Điều xe", "Chọn xe, tài xế và xác nhận phân công")
                 : renderDispatchHeader("Điều xe", "Theo dõi lệnh, điều phối phương tiện và xử lý nhanh các yêu cầu")}
@@ -8545,6 +8630,13 @@ function DispatchPanel({
               ? renderDesktopSchedule()
               : desktopView === "orders"
                 ? renderDesktopOrders()
+                : desktopView === "supplier"
+                  ? (
+                    <div className="dispatch-orders-layout">
+                      <div>{renderCompactOrderDetail("Đang điều xe")}</div>
+                      <div className="sticky top-5">{renderSupplierEditForm()}</div>
+                    </div>
+                  )
                 : desktopView === "assign"
                   ? renderDesktopAssign()
                   : desktopView === "detail"
@@ -8563,13 +8655,14 @@ function DispatchPanel({
           {mobileView === "schedule" && renderMobileSchedule()}
           {mobileView === "vehicleDetail" && renderMobileVehicleDetail()}
           {mobileView === "assign" && renderAssignmentForm(true)}
+          {mobileView === "supplier" && renderSupplierEditForm(true)}
         </main>
         {["overview", "orders", "schedule"].includes(mobileView) && <div className="dispatch-mobile-nav">
           <div className="grid grid-cols-4 gap-1 text-[10px] font-bold">
             <button className={`rounded-xl py-2 ${mobileView === "overview" ? "text-brand" : "text-slate-400"}`} onClick={() => setMobileView("overview")} type="button"><TrendingUp className="mx-auto mb-1" size={19} />Tổng quan</button>
             <button className={`rounded-xl py-2 ${mobileView === "orders" ? "text-brand" : "text-slate-400"}`} onClick={() => setMobileView("orders")} type="button"><ClipboardList className="mx-auto mb-1" size={19} />Lệnh</button>
             <button className={`rounded-xl py-2 ${mobileView === "schedule" ? "text-brand" : "text-slate-400"}`} onClick={() => setMobileView("schedule")} type="button"><CalendarClock className="mx-auto mb-1" size={19} />Lịch xe</button>
-            <button className={`rounded-xl py-2 ${mobileView === "vehicleDetail" || mobileView === "assign" ? "text-brand" : "text-slate-400"}`} onClick={() => setMobileView("vehicleDetail")} type="button"><Car className="mx-auto mb-1" size={19} />Nguồn lực</button>
+            <button className={`rounded-xl py-2 ${mobileView === "vehicleDetail" || mobileView === "assign" || mobileView === "supplier" ? "text-brand" : "text-slate-400"}`} onClick={() => setMobileView("vehicleDetail")} type="button"><Car className="mx-auto mb-1" size={19} />Nguồn lực</button>
           </div>
         </div>}
       </div>
