@@ -32,7 +32,7 @@ import {
   UsersRound
 } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   assignments as seedAssignments,
   auditEvents as seedAuditEvents,
@@ -461,7 +461,7 @@ function SectionDetails({
   return (
     <details className="rounded-lg border border-line bg-white p-3 shadow-sm" open={defaultOpen}>
       <summary className="flex cursor-pointer list-none items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="font-semibold text-ink">{title}</p>
           {description && <p className="mt-1 text-xs text-slate-500">{description}</p>}
         </div>
@@ -631,74 +631,68 @@ function VatCalculatorFields({ initialSubtotal = 0, initialVatRate = 0, initialT
   );
 }
 
-function SalesPrepaymentFields({ initialTotal = 0 }: { initialTotal?: number }) {
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const [total, setTotal] = useState(initialTotal);
+function SalesCreatePaymentFields({ initialSubtotal = 0, initialVatRate = 0 }: { initialSubtotal?: number; initialVatRate?: number }) {
+  const [subtotal, setSubtotal] = useState(initialSubtotal);
+  const [vatRate, setVatRate] = useState(initialVatRate);
   const [prepaid, setPrepaid] = useState(0);
+  const vatAmount = Math.round(subtotal * (vatRate / 100));
+  const total = Math.max(0, subtotal + vatAmount);
   const remaining = Math.max(total - prepaid, 0);
 
-  const syncFromForm = useCallback((form: HTMLFormElement | null) => {
-    const amountInput = form?.elements.namedItem("amountDue") as HTMLInputElement | null;
-    const prepaymentInput = form?.elements.namedItem("prepaymentAmount") as HTMLInputElement | null;
-    const nextTotal = Number(amountInput?.value || initialTotal || 0);
-    const nextPrepaid = Number(prepaymentInput?.value || 0);
-    setTotal(Number.isFinite(nextTotal) ? nextTotal : 0);
-    setPrepaid(Number.isFinite(nextPrepaid) ? nextPrepaid : 0);
-  }, [initialTotal]);
-
-  useEffect(() => {
-    const form = wrapperRef.current?.closest("form") ?? null;
-    if (!form) return;
-    const sync = () => syncFromForm(form);
-    sync();
-    form.addEventListener("input", sync);
-    form.addEventListener("change", sync);
-    return () => {
-      form.removeEventListener("input", sync);
-      form.removeEventListener("change", sync);
-    };
-  }, [syncFromForm]);
-
-  function readTotalFromForm(target: HTMLInputElement) {
-    syncFromForm(target.form);
-  }
-
   return (
-    <div className="grid gap-3 rounded-md border border-teal-100 bg-teal-50/50 p-3 md:col-span-2" ref={wrapperRef}>
-      <div className="grid gap-3 md:grid-cols-2">
-        <Field label="Đã thu / Tạm ứng trước chuyến">
-          <input
-            className={inputClass()}
-            min="0"
-            name="prepaymentAmount"
-            onChange={(event) => {
-              readTotalFromForm(event.currentTarget);
-              const nextValue = Number(event.currentTarget.value || 0);
-              setPrepaid(Number.isFinite(nextValue) ? nextValue : 0);
-            }}
-            onFocus={(event) => readTotalFromForm(event.currentTarget)}
-            placeholder="0"
-            type="number"
-          />
-        </Field>
-        <Field label="Hình thức tạm ứng">
-          <select className={inputClass()} defaultValue="bank_transfer" name="prepaymentMethod">
-            <option value="bank_transfer">Chuyển khoản</option>
-            <option value="cash">Tiền mặt</option>
-            <option value="card">Thẻ</option>
-            <option value="other">Khác</option>
-          </select>
-        </Field>
-      </div>
-      <div className="grid gap-2 text-sm sm:grid-cols-3">
-        <StatMini label="Tổng phải thanh toán" value={money(total)} />
-        <StatMini label="Đã thu / Tạm ứng" value={money(prepaid)} />
-        <StatMini label="Còn phải thu" value={money(remaining)} />
-      </div>
-      <Field label="Ghi chú thu hộ cho tài xế / kế toán">
-        <input className={inputClass()} name="prepaymentNote" placeholder="Ví dụ: khách cọc trước, phần còn lại tài xế thu..." />
+    <>
+      <Field label="Tiền trước thuế">
+        <input
+          className={inputClass()}
+          min="0"
+          name="subtotalAmount"
+          onChange={(event) => setSubtotal(Math.max(0, Number(event.target.value || 0)))}
+          type="number"
+          value={subtotal}
+        />
       </Field>
-    </div>
+      <Field label="VAT">
+        <select className={inputClass()} name="vatRate" onChange={(event) => setVatRate(Number(event.target.value))} value={vatRate}>
+          <option value={0}>0% / Không VAT</option>
+          <option value={5}>5%</option>
+          <option value={8}>8%</option>
+          <option value={10}>10%</option>
+        </select>
+      </Field>
+      <Field label="Tiền thuế"><input className={inputClass()} min="0" name="vatAmount" readOnly type="number" value={vatAmount} /></Field>
+      <Field label="Tổng thanh toán"><input className={inputClass()} min="0" name="amountDue" readOnly required type="number" value={total} /></Field>
+      <div className="grid gap-3 rounded-md border border-teal-100 bg-teal-50/50 p-3 md:col-span-2">
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="Đã thu / Tạm ứng trước chuyến">
+            <input
+              className={inputClass()}
+              min="0"
+              name="prepaymentAmount"
+              onChange={(event) => setPrepaid(Math.max(0, Number(event.currentTarget.value || 0)))}
+              placeholder="0"
+              type="number"
+              value={prepaid || ""}
+            />
+          </Field>
+          <Field label="Hình thức tạm ứng">
+            <select className={inputClass()} defaultValue="bank_transfer" name="prepaymentMethod">
+              <option value="bank_transfer">Chuyển khoản</option>
+              <option value="cash">Tiền mặt</option>
+              <option value="card">Thẻ</option>
+              <option value="other">Khác</option>
+            </select>
+          </Field>
+        </div>
+        <div className="grid gap-2 text-sm sm:grid-cols-3">
+          <StatMini label="Tổng phải thanh toán" value={money(total)} />
+          <StatMini label="Đã thu / Tạm ứng" value={money(prepaid)} />
+          <StatMini label="Còn phải thu" value={money(remaining)} />
+        </div>
+        <Field label="Ghi chú thu hộ cho tài xế / kế toán">
+          <input className={inputClass()} name="prepaymentNote" placeholder="Ví dụ: khách cọc trước, phần còn lại tài xế thu..." />
+        </Field>
+      </div>
+    </>
   );
 }
 
@@ -1423,8 +1417,8 @@ function primaryLegValues(routeLegs: DispatchRouteLeg[], fallbackStartAt: string
   const first = routeLegs[0];
   const last = routeLegs[routeLegs.length - 1] ?? first;
   return {
-    startAt: first?.startAt ?? toIsoFromInput(fallbackStartAt),
-    endAt: last?.endAt ?? toIsoFromInput(fallbackEndAt),
+    startAt: first?.startAt ?? (fallbackStartAt ? toIsoFromInput(fallbackStartAt) : ""),
+    endAt: last?.endAt ?? (fallbackEndAt ? toIsoFromInput(fallbackEndAt) : ""),
     pickup: first?.pickup ?? "",
     dropoff: last?.dropoff ?? ""
   };
@@ -2789,7 +2783,7 @@ export default function OpsApp() {
     const selectedCompanyProfile = state.companies.find((company) => company.id === companyId);
     const selectedContactProfile = state.companyContacts.find((contact) => contact.id === contactId);
 
-    if (!startAt || !endAt || new Date(endAt) <= new Date(startAt)) {
+    if (!primaryRoute.startAt || !primaryRoute.endAt || new Date(primaryRoute.endAt) <= new Date(primaryRoute.startAt)) {
       setMessage("Giờ kết thúc phải sau giờ bắt đầu.");
       return;
     }
@@ -2829,10 +2823,11 @@ export default function OpsApp() {
       return;
     }
 
+    const effectiveOrderDate = orderDate || primaryRoute.startAt.slice(0, 10);
     const actionKey = "order:create";
     if (!beginAction(actionKey, "Tạo lệnh")) return;
     try {
-    const orderCode = await reserveDispatchOrderCode(orderDate || startAt.slice(0, 10), {
+    const orderCode = await reserveDispatchOrderCode(effectiveOrderDate, {
       guestMarket,
       customerRecognitionCode,
       customerSourceCode,
@@ -2844,7 +2839,7 @@ export default function OpsApp() {
     const order: DispatchOrder = {
       id: makeId("order"),
       code: orderCode,
-      orderDate: orderDate || undefined,
+      orderDate: effectiveOrderDate,
       contractType,
       customerKind: kind,
       customerName: kind === "company" ? selectedCompanyProfile?.legalName ?? companyName : selectedCustomerProfile?.fullName ?? String(form.get("customerName") || "").trim(),
@@ -6135,7 +6130,7 @@ function OrdersPanel({
                 Chọn loại khách rồi bấm Tiếp tục. Các thông tin chi tiết sẽ nhập ở bước sau để màn hình gọn và dễ kiểm tra.
               </div>
             )}
-            <div className={`${salesCreateStep === 2 ? "grid" : "hidden"} gap-3 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2`}>
+            <div className={`${salesCreateStep === 2 ? "grid" : "hidden"} gap-3 md:grid-cols-2`}>
               <Field label="Ngày lệnh"><input className={inputClass()} name="orderDate" placeholder="2026-08-25" /></Field>
               <Field label="Loại hợp đồng">
                 <select className={inputClass()} name="contractType">
@@ -6269,8 +6264,7 @@ function OrdersPanel({
             title="5. Thanh toán"
           >
             <div className="grid gap-3 md:grid-cols-2">
-              <VatCalculatorFields initialTotal={1200000} />
-              <SalesPrepaymentFields initialTotal={1200000} />
+              <SalesCreatePaymentFields initialSubtotal={1200000} />
               <div className="md:col-span-2">
                 <Field label="Ghi chú báo giá"><textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="quoteNote" placeholder="Bao gồm/chưa gồm phí cầu đường, giờ chờ, VAT..." /></Field>
               </div>
@@ -6695,7 +6689,7 @@ function SalesOrderPreview({
   return (
     <section className="space-y-3 rounded-[22px] border border-line bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)]">
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
             {onBack && (
               <button className="grid h-9 w-9 place-items-center rounded-full border border-line bg-white text-ink md:hidden" onClick={onBack} type="button">
@@ -6704,7 +6698,7 @@ function SalesOrderPreview({
             )}
             <p className="text-sm font-semibold text-slate-500">Preview lệnh</p>
           </div>
-          <h3 className="mt-1 text-2xl font-extrabold text-ink">{order.code}</h3>
+          <h3 className="mt-1 break-all text-2xl font-extrabold text-ink">{order.code}</h3>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
           <Badge tone={orderStatusTone(order.orderStatus)}>{orderStatusLabels[order.orderStatus]}</Badge>
