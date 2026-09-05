@@ -7404,10 +7404,10 @@ function DispatchPanel({
     );
   }
 
-  function renderDetailSummary(mode: "desktop" | "mobile" = "desktop") {
-    const showOverview = mode === "desktop" || detailTab === "overview";
-    const showRoute = mode === "desktop" || detailTab === "route";
-    const showPayment = mode === "desktop" || detailTab === "payment";
+  function renderDetailSummary(mode: "desktop" | "mobile" = "desktop", actions: "assign" | "status" = "assign") {
+    const showOverview = detailTab === "overview";
+    const showRoute = detailTab === "route";
+    const showPayment = detailTab === "payment";
     return (
       <section className="rounded-xl border border-line bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -7430,7 +7430,7 @@ function DispatchPanel({
           ))}
         </div>
         {showOverview && (
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <div className="mt-4 grid gap-3">
             <div className="rounded-lg border border-line bg-panel p-3">
               <p className="flex items-center gap-2 font-bold text-ink"><ShieldCheck size={18} className="text-brand" /> Thông tin quản lý</p>
               <InfoRow label="Quản lý lệnh" value={defaultOrderManagerName} />
@@ -7449,7 +7449,7 @@ function DispatchPanel({
           </div>
         )}
         {showRoute && (
-          <div className="mt-4 grid gap-3 md:grid-cols-[1fr_220px]">
+          <div className="mt-4 grid gap-3">
             <div className="rounded-lg border border-line bg-panel p-3">
               <p className="mb-3 flex items-center gap-2 font-bold text-ink"><MapPin size={18} className="text-brand" /> Hành trình</p>
               {renderRouteTimeline(selectedOrder, true)}
@@ -7477,8 +7477,12 @@ function DispatchPanel({
           </div>
         )}
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          <button className="h-11 rounded-md border border-line bg-white px-4 text-sm font-bold text-ink hover:bg-slate-50" onClick={() => setMobileView("assign")} type="button">Điều xe</button>
-          <button className="h-11 rounded-md bg-brand px-4 text-sm font-bold text-white hover:bg-teal-800 disabled:bg-slate-300" disabled={!canMarkInProgress || isActionPending(`dispatch:status:${selectedOrder.id}:in_progress`)} onClick={() => updateDispatchStatus("in_progress", "Trip started by dispatcher")} type="button">Bắt đầu chạy</button>
+          <button className="h-11 rounded-md border border-line bg-white px-4 text-sm font-bold text-ink hover:bg-slate-50" onClick={() => { setDesktopView("assign"); setMobileView("assign"); }} type="button">Điều xe</button>
+          {actions === "status" ? (
+            <button className="h-11 rounded-md bg-brand px-4 text-sm font-bold text-white hover:bg-teal-800 disabled:bg-slate-300" disabled={!canMarkInProgress || isActionPending(`dispatch:status:${selectedOrder.id}:in_progress`)} onClick={() => updateDispatchStatus("in_progress", "Trip started by dispatcher")} type="button">Bắt đầu chạy</button>
+          ) : (
+            <button className="h-11 rounded-md bg-brand px-4 text-sm font-bold text-white hover:bg-teal-800" onClick={() => { setDesktopView("assign"); setMobileView("assign"); }} type="button">Gán vào lệnh</button>
+          )}
         </div>
       </section>
     );
@@ -7583,6 +7587,27 @@ function DispatchPanel({
   }
 
   function renderScheduleBoard() {
+    const visibleHours = [6, 8, 10, 12, 14, 16, 18, 20];
+    const dayKeyForSchedule = dateKey(calendarDay);
+    const scheduleOrders = orders.filter((order) => orderDateKey(order) === dayKeyForSchedule);
+    const rows = [
+      ...vehicles.map((item) => ({
+        id: item.id,
+        label: item.plateNo,
+        detail: `${item.seats} chỗ`,
+        orders: scheduleOrders.filter((order) => order.vehicleId === item.id)
+      })),
+      {
+        id: "unassigned",
+        label: "Trống",
+        detail: "Chưa phân xe",
+        orders: scheduleOrders.filter((order) => !order.vehicleId)
+      }
+    ];
+    const windowStart = 6 * 60;
+    const windowEnd = 21 * 60;
+    const windowSize = windowEnd - windowStart;
+
     return (
       <section className="rounded-xl border border-line bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 border-b border-line pb-4 md:flex-row md:items-center md:justify-between">
@@ -7596,12 +7621,55 @@ function DispatchPanel({
             <button className={`h-10 rounded-md px-4 text-sm font-bold ${scheduleMode === "timeline" ? "bg-brand text-white" : "bg-slate-100 text-slate-600"}`} onClick={() => setScheduleMode("timeline")} type="button">Dòng thời gian</button>
           </div>
         </div>
-        <div className="mt-4">
-          {scheduleMode === "vehicle" ? (
-            <VehicleResourceTimeline day={calendarDay} drivers={drivers} orders={orders} selectedOrderId={selectedOrder.id} setDay={setCalendarDay} setSelectedOrderId={setSelectedOrderId} vehicles={vehicles} />
-          ) : (
-            <DayTimeline day={calendarDay} drivers={drivers} orders={orders} selectedOrderId={selectedOrder.id} setDay={setCalendarDay} setSelectedOrderId={setSelectedOrderId} vehicles={vehicles} />
-          )}
+        <div className="mt-4 overflow-x-auto">
+          <div className="min-w-[760px] overflow-hidden rounded-lg border border-line">
+            <div className="grid grid-cols-[120px_1fr] bg-slate-50 text-xs font-bold text-slate-500">
+              <div className="border-r border-line px-3 py-2">Xe</div>
+              <div className="grid" style={{ gridTemplateColumns: `repeat(${visibleHours.length}, minmax(0, 1fr))` }}>
+                {visibleHours.map((hour) => <span className="border-r border-line px-2 py-2 last:border-r-0" key={hour}>{String(hour).padStart(2, "0")}:00</span>)}
+              </div>
+            </div>
+            {rows.slice(0, 7).map((row) => (
+              <div className="grid grid-cols-[120px_1fr] border-t border-line" key={row.id}>
+                <div className="border-r border-line px-3 py-3">
+                  <p className="text-sm font-bold text-ink">{row.label}</p>
+                  <p className="text-xs text-slate-500">{row.detail}</p>
+                </div>
+                <div className="relative h-16 bg-white">
+                  {visibleHours.map((hour, index) => (
+                    <span className="absolute inset-y-0 border-l border-line/70" key={hour} style={{ left: `${(index / visibleHours.length) * 100}%` }} />
+                  ))}
+                  {row.orders.length === 0 && (
+                    <span className="absolute left-3 top-3 rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-500">Trống</span>
+                  )}
+                  {row.orders.map((order, index) => {
+                    const start = Math.max(windowStart, hourOffset(order.startAt));
+                    const end = Math.min(windowEnd, hourOffset(order.endAt));
+                    const left = `${Math.max(0, ((start - windowStart) / windowSize) * 100)}%`;
+                    const width = `${Math.max(12, ((Math.max(end, start + 60) - start) / windowSize) * 100)}%`;
+                    const color = order.dispatchStatus === "waiting_assignment"
+                      ? "bg-orange-100 text-orange-800"
+                      : order.dispatchStatus === "in_progress"
+                        ? "bg-emerald-100 text-emerald-800"
+                        : order.id === selectedOrder.id
+                          ? "bg-blue-600 text-white"
+                          : "bg-blue-100 text-blue-800";
+                    return (
+                      <button
+                        className={`absolute top-3 h-10 truncate rounded-lg px-3 text-left text-xs font-bold shadow-sm ${color} ${order.id === selectedOrder.id ? "ring-2 ring-slate-900" : ""}`}
+                        key={order.id}
+                        onClick={() => selectOrder(order.id, "detail")}
+                        style={{ left, width, top: row.orders.length > 1 ? 8 + (index % 2) * 24 : 12 }}
+                        type="button"
+                      >
+                        {timeOnly(order.startAt)} {routeSummaryForOrder(order)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
     );
@@ -7734,6 +7802,29 @@ function DispatchPanel({
                   </div>
                   <button className="mt-5 h-11 w-full rounded-lg border border-line bg-white text-sm font-bold text-ink hover:bg-slate-50" onClick={() => setDesktopView("detail")} type="button">Xem chi tiết lệnh</button>
                 </section>
+              </div>
+            ) : desktopView === "orders" ? (
+              <div className="grid gap-4 xl:grid-cols-[1fr_330px]">
+                <section className="rounded-xl border border-line bg-white p-4 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-xl font-bold text-ink">Danh sách lệnh</h3>
+                      <p className="text-sm text-slate-500">Chọn một lệnh để xem chi tiết hoặc điều xe.</p>
+                    </div>
+                    <div className="flex gap-2">
+                      {["Tất cả", "Chờ điều xe", "Sắp chạy"].map((label, index) => (
+                        <button className={`h-9 rounded-full px-4 text-sm font-bold ${index === 0 ? "bg-brand text-white" : "bg-slate-100 text-slate-600"}`} key={label} type="button">{label}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-3">
+                    {dispatchQueue.map((order) => renderOrderCard(order))}
+                  </div>
+                </section>
+                <div className="space-y-4">
+                  {renderDetailSummary("desktop")}
+                  <button className="h-12 w-full rounded-lg bg-brand text-sm font-bold text-white" onClick={() => setDesktopView("assign")} type="button">Điều xe</button>
+                </div>
               </div>
             ) : desktopView === "assign" ? (
               <div className="grid gap-4 xl:grid-cols-[1fr_430px]">
