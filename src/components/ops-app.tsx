@@ -7702,110 +7702,103 @@ function CustomersPanel({
   );
 }
 
-function DriverTripBrief({ driver, order, payments, vehicle }: { driver?: Driver; order: DispatchOrder; payments: Payment[]; vehicle?: Vehicle }) {
-  const collectedAmount = order.driverCollectedAmount ?? 0;
+function driverPaymentSnapshot(order: DispatchOrder, payments: Payment[]) {
   const prepaidAmount = payments
     .filter((payment) => payment.orderId === order.id && payment.status === "valid")
     .reduce((sum, payment) => sum + payment.amount, 0);
   const remainingAmount = Math.max(order.amountDue - prepaidAmount, 0);
-  const driverCollectionAmount = remainingAmount;
+  return { prepaidAmount, remainingAmount, driverCollectionAmount: remainingAmount };
+}
+
+function DriverMetricCard({ detail, icon: Icon, label, value }: { detail?: string; icon: typeof CalendarClock; label: string; value: string }) {
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.06)]">
+      <div className="flex items-center gap-3">
+        <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-teal-50 text-brand">
+          <Icon size={22} />
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-slate-500">{label}</p>
+          <p className="mt-1 text-2xl font-extrabold text-ink">{value}</p>
+          {detail && <p className="mt-1 truncate text-xs font-medium text-slate-500">{detail}</p>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function DriverRouteLine({ order }: { order: DispatchOrder }) {
+  const legs = routeLegsForOrder(order);
+  const first = legs[0];
+  const last = legs[legs.length - 1] ?? first;
+  return (
+    <div className="grid grid-cols-[18px_1fr] gap-x-3 gap-y-1">
+      <span className="mt-1 size-4 rounded-full border-4 border-blue-100 bg-blue-600" />
+      <div>
+        <p className="font-extrabold text-ink">{timeOnly(first?.startAt ?? order.startAt)} <span className="font-bold">Đón khách</span></p>
+        <p className="text-sm font-semibold text-slate-700">{first?.pickup || order.pickup}</p>
+        {first?.note && <p className="text-xs text-slate-500">{first.note}</p>}
+      </div>
+      <span className="ml-[7px] min-h-7 border-l-2 border-blue-100" />
+      <div />
+      <span className="mt-1 size-4 rounded-full bg-blue-600" />
+      <div>
+        <p className="font-extrabold text-ink">{timeOnly(last?.endAt ?? order.endAt)} <span className="font-bold">Trả khách</span></p>
+        <p className="text-sm font-semibold text-slate-700">{last?.dropoff || order.dropoff}</p>
+        {last?.note && <p className="text-xs text-slate-500">{last.note}</p>}
+      </div>
+    </div>
+  );
+}
+
+function DriverTripBrief({ order, payments, vehicle }: { driver?: Driver; order: DispatchOrder; payments: Payment[]; vehicle?: Vehicle }) {
+  const { driverCollectionAmount } = driverPaymentSnapshot(order, payments);
   const paymentNote = order.collectionAccountOwner || order.collectionBankAccount || order.collectionBankName
     ? [order.collectionAccountOwner, order.collectionBankAccount, order.collectionBankName].filter(Boolean).join(" / ")
     : order.customerConfirmationNote || "-";
-  const paymentRows = [
-    ["Tiền dịch vụ trước thuế", money(order.subtotalAmount ?? order.amountDue)],
-    ["Thuế suất", `${order.vatRate ?? 0}%`],
-    ["Tiền thuế", money(order.vatAmount ?? 0)],
-    ["Tổng phải thanh toán", money(order.amountDue)],
-    ["Đã thu / Tạm ứng", money(prepaidAmount)],
-    ["Còn phải thu", money(remainingAmount)],
-    ["Ủy quyền cho tài xế thu", money(driverCollectionAmount)]
-  ];
-  const isCompanyCustomer = order.customerKind === "company";
-  const serviceUserName = isCompanyCustomer ? order.contactName || order.customerName : order.customerName;
-  const serviceUserAddress = isCompanyCustomer ? order.companyAddress || "-" : order.customerAddress || "-";
-  const customerRows = isCompanyCustomer
-    ? [
-        ["Người sử dụng", serviceUserName],
-        ["CCCD người sử dụng", order.customerCccd || "Không cung cấp"],
-        ["SĐT người sử dụng", order.contactPhone],
-        ["Tên đơn vị", order.companyName || order.customerName],
-        ["MST", order.taxCode || "-"],
-        ["Địa chỉ doanh nghiệp", serviceUserAddress]
-      ]
-    : [
-        ["Khách cá nhân", serviceUserName],
-        ["CCCD", order.customerCccd || "Không cung cấp"],
-        ["SĐT", order.contactPhone],
-        ["Địa chỉ", serviceUserAddress]
-      ];
 
   return (
-    <section className="overflow-hidden rounded-[18px] border border-slate-200 bg-white text-sm shadow-[0_12px_32px_rgba(15,23,42,0.10)]">
-      <div className="bg-gradient-to-r from-brand to-teal-600 px-4 py-3 text-white">
-        <div className="flex items-center justify-between gap-3">
-          <p className="flex items-center gap-2 text-base font-semibold"><Car size={18} /> Chuyến tiếp theo</p>
-          <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-semibold">{timeOnly(order.startAt)} đón khách</span>
+    <section className="overflow-hidden rounded-[22px] border border-teal-100 bg-white shadow-[0_14px_34px_rgba(15,23,42,0.10)]">
+      <div className="bg-gradient-to-r from-brand to-teal-600 p-4 text-white">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-bold opacity-90">Chuyến tiếp theo</p>
+            <p className="mt-1 text-xs opacity-80">{order.code}</p>
+          </div>
+          <Badge tone={order.dispatchStatus === "in_progress" ? "info" : "good"}>{dispatchLabels[order.dispatchStatus]}</Badge>
+        </div>
+        <div className="mt-4 grid grid-cols-[1fr_auto_1fr] items-end gap-2 rounded-2xl bg-white p-3 text-ink">
+          <div>
+            <p className="text-3xl font-extrabold">{timeOnly(order.startAt)}</p>
+            <p className="mt-1 text-sm font-bold text-slate-600">{order.pickup}</p>
+          </div>
+          <Route className="mb-3 text-brand" size={26} />
+          <div className="text-right">
+            <p className="text-3xl font-extrabold">{timeOnly(order.endAt)}</p>
+            <p className="mt-1 text-sm font-bold text-slate-600">{order.dropoff}</p>
+          </div>
         </div>
       </div>
-      <div className="p-4">
-        <div className="grid gap-4 sm:grid-cols-[1fr_150px]">
-          <div className="space-y-3">
-            <div className="grid grid-cols-[18px_1fr] gap-3">
-              <span className="mt-1 size-4 rounded-full border-4 border-teal-100 bg-brand" />
-              <div>
-                <p className="text-lg font-semibold text-ink">{timeOnly(order.startAt)} Đón khách</p>
-                <p className="text-slate-600">{order.pickup}</p>
-              </div>
-              <span className="ml-[7px] min-h-7 border-l border-dashed border-brand/60" />
-              <div />
-              <span className="mt-1 size-4 rounded-full bg-rose-500" />
-              <div>
-                <p className="text-lg font-semibold text-ink">{timeOnly(order.endAt)} Trả khách</p>
-                <p className="text-slate-600">{order.dropoff}</p>
-              </div>
-            </div>
+      <div className="grid gap-3 p-4">
+        <div className="grid gap-2 rounded-2xl bg-slate-50 p-3 text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <span className="inline-flex items-center gap-2 text-slate-600"><Car size={16} /> Biển số xe</span>
+            <span className="font-extrabold text-ink">{order.externalVehiclePlate || order.vehiclePlateNo || vehicle?.plateNo || "Chưa có xe"}</span>
           </div>
-          <div className="self-start rounded-xl border border-slate-200 bg-white p-3 text-center shadow-sm">
-            <p className="text-xl font-bold text-ink">{order.externalVehiclePlate || order.vehiclePlateNo || vehicle?.plateNo || "-"}</p>
-            <p className="mt-1 text-xs text-slate-500">{vehicle ? `${vehicle.type} - ${vehicle.seats} chỗ` : order.externalVehicleType || "Chưa rõ xe"}</p>
+          <div className="flex items-center justify-between gap-3">
+            <span className="inline-flex items-center gap-2 text-slate-600"><UserRound size={16} /> Khách hàng</span>
+            <span className="text-right font-extrabold text-ink">{order.contactName || order.customerName}</span>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="inline-flex items-center gap-2 text-slate-600"><Banknote size={16} /> Thanh toán</span>
+            <span className="text-right font-extrabold text-ink">{money(driverCollectionAmount)}</span>
           </div>
         </div>
-
-        <div className="mt-4 grid gap-3 border-t border-line pt-4 sm:grid-cols-[1fr_190px]">
-          <div className="space-y-1 text-slate-700">
-            {customerRows.map(([label, value]) => (
-              <p key={label}><span className="font-semibold text-ink">{label}:</span> {value}</p>
-            ))}
-            <p><span className="font-semibold text-ink">Hành trình:</span> {routeSummaryForOrder(order)}</p>
-          </div>
-          <div className="rounded-xl bg-teal-50 p-3 text-center">
-            <p className="text-xs font-bold uppercase text-brand">Cần thu</p>
-            <p className="mt-1 text-2xl font-bold text-brand">{money(driverCollectionAmount)}</p>
-          </div>
+        <div className="rounded-2xl border border-dashed border-line bg-white px-3 py-2 text-xs text-slate-600">
+          <p className="font-semibold text-ink">Ghi chú thu hộ</p>
+          <p className="mt-1">{paymentNote}</p>
         </div>
-
-        <div className="mt-4 overflow-hidden rounded-md border border-line">
-          <table className="w-full text-sm">
-            <tbody className="divide-y divide-line">
-              {paymentRows.map(([label, value], index) => (
-                <tr className={index === paymentRows.length - 1 ? "bg-teal-50" : "bg-white"} key={label}>
-                  <td className="px-3 py-2 text-slate-700">{label}</td>
-                  <td className="px-3 py-2 text-right font-semibold text-ink">{value}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="border-t border-line bg-panel px-3 py-2 text-xs text-slate-600">
-            <p>Hình thức thanh toán: <span className="font-semibold text-ink">{order.paymentMethod || "-"}</span></p>
-            <p className="mt-1">Ghi chú thu hộ: {paymentNote}</p>
-          </div>
-          {collectedAmount > 0 && (
-            <p className="border-t border-line px-3 py-2 text-xs text-slate-500">Tài xế đã báo thu hộ: <span className="font-semibold text-ink">{money(collectedAmount)}</span></p>
-          )}
-        </div>
-
-        <div className="mt-4 rounded-md border border-dashed border-line bg-panel px-3 py-2 text-xs text-slate-600">
+        <div className="rounded-2xl border border-dashed border-line bg-white px-3 py-2 text-xs text-slate-600">
           {order.salesNote || order.customerConfirmationNote || "Xe sạch, có mặt trước giờ đón 15 phút. Tài xế chủ động gọi khách trước khi đến."}
         </div>
       </div>
@@ -7874,14 +7867,14 @@ function SwipeAction({
 
 function DriverSuccessCard({ success, onClose }: { success: DriverSuccessState; onClose: () => void }) {
   return (
-    <section className="rounded-[22px] border border-emerald-200 bg-white p-6 text-center shadow-[0_14px_36px_rgba(15,23,42,0.12)]">
-      <span className="mx-auto grid size-16 place-items-center rounded-full bg-emerald-50 text-emerald-600">
-        <CheckCircle2 size={34} />
+    <section className="rounded-[26px] border border-emerald-200 bg-white p-7 text-center shadow-[0_18px_44px_rgba(15,23,42,0.14)]">
+      <span className="mx-auto grid size-20 place-items-center rounded-full bg-gradient-to-br from-brand to-teal-600 text-white shadow-[0_14px_28px_rgba(15,118,110,0.25)]">
+        <CheckCircle2 size={42} />
       </span>
-      <h3 className="mt-4 text-xl font-bold text-ink">{success.title}</h3>
+      <h3 className="mt-5 text-2xl font-extrabold text-ink">{success.title}</h3>
       <p className="mt-2 text-sm text-slate-600">{success.detail}</p>
-      {success.orderCode && <p className="mt-3 text-sm font-semibold text-brand">{success.orderCode}</p>}
-      <button className="mt-5 h-12 w-full rounded-xl bg-brand px-4 text-base font-bold text-white" onClick={onClose} type="button">
+      {success.orderCode && <p className="mt-4 text-lg font-extrabold text-ink">{success.orderCode}</p>}
+      <button className="mt-6 h-12 w-full rounded-xl bg-brand px-4 text-base font-bold text-white" onClick={onClose} type="button">
         Quay lại hôm nay
       </button>
     </section>
@@ -7968,13 +7961,108 @@ function DriverMobilePanel({
   const nextDriverStatus = selectedTrip ? driverNextDispatchStatus(selectedTrip) : null;
   const nextTrip = activeOrder ?? upcomingTrips[0] ?? driverOrders[0];
   const nextTripVehicle = nextTrip ? vehicles.find((item) => item.id === nextTrip.vehicleId) : undefined;
+  const selectedTripVehicle = selectedTrip ? vehicles.find((item) => item.id === selectedTrip.vehicleId) : undefined;
+  const todayCollectionAmount = todayDriverOrders.reduce((sum, order) => sum + driverPaymentSnapshot(order, payments).driverCollectionAmount, 0);
+  const tripCountToday = todayDriverOrders.length;
+  const completedCountToday = completedTripsToday.length;
+  const pendingCollectionCount = todayDriverOrders.filter((order) => driverPaymentSnapshot(order, payments).driverCollectionAmount > 0).length;
   const canUpdate = can(currentRole, "update_dispatch_status");
+  const actionButton = selectedTrip && nextDriverStatus ? (
+    <button
+      className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand to-teal-600 px-4 text-base font-extrabold text-white shadow-[0_12px_26px_rgba(15,118,110,0.24)] disabled:cursor-not-allowed disabled:opacity-60"
+      disabled={!canUpdate || isActionPending(`dispatch:status:${selectedTrip.id}:${nextDriverStatus}`)}
+      onClick={() => {
+        void Promise.resolve(updateOrderDispatchStatus(selectedTrip.id, nextDriverStatus, driverActionLabel(selectedTrip), "Driver")).then(() => {
+          setDriverSuccess({
+            title: nextDriverStatus === "completed" ? "Hoàn thành chuyến đi!" : `Đã ${driverActionLabel(selectedTrip).toLowerCase()}`,
+            detail: nextDriverStatus === "completed" ? "Chuyến đã được ghi nhận, bạn có thể nhập thu hộ để kế toán đối soát." : driverActionDetail({ ...selectedTrip, dispatchStatus: nextDriverStatus }),
+            orderCode: selectedTrip.code
+          });
+        });
+      }}
+      type="button"
+    >
+      <Navigation size={18} /> {isActionPending(`dispatch:status:${selectedTrip.id}:${nextDriverStatus}`) ? "Đang cập nhật..." : driverActionLabel(selectedTrip)}
+    </button>
+  ) : null;
+  const collectionForm = reportTrip ? (
+    <form
+      className="grid gap-3"
+      onSubmit={(event) => {
+        const reportForm = new FormData(event.currentTarget);
+        const collectedValue = Number(reportForm.get("driverCollectedAmount") || 0);
+        const extraChargeValue = Number(reportForm.get("driverExtraChargeAmount") || 0);
+        void submitDriverTripReport(event).then((ok) => {
+          if (ok) {
+            setDriverSuccess({
+              title: "Đã xác nhận thu",
+              detail: `Thu hộ ${money(collectedValue)}, phụ phí phát sinh ${money(extraChargeValue)}.`,
+              orderCode: reportTrip.code
+            });
+          }
+        });
+      }}
+    >
+      <input name="orderId" type="hidden" value={reportTrip.id} />
+      <Field label="Số tiền đã thu">
+        <input className={inputClass()} defaultValue={reportTripCollectedAmount} min="0" name="driverCollectedAmount" type="number" />
+      </Field>
+      <Field label="Hình thức thanh toán">
+        <select className={inputClass()} defaultValue="cash" name="collectionMethod">
+          <option value="cash">Tiền mặt</option>
+          <option value="bank_transfer">Chuyển khoản</option>
+          <option value="card">Thẻ</option>
+        </select>
+      </Field>
+      <Field label="Ghi chú">
+        <textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="collectionNote" placeholder="Nhập ghi chú..." defaultValue={reportTripNoteParts.collectionNote} />
+      </Field>
+      <Field label="Phụ phí phát sinh">
+        <input className={inputClass()} defaultValue={reportTripExtraChargeAmount} min="0" name="driverExtraChargeAmount" type="number" />
+      </Field>
+      <Field label="Lý do phụ phí">
+        <textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="driverExtraChargeReason" placeholder="Khách đổi điểm đến, đi thêm chặng..." defaultValue={reportTripNoteParts.extraChargeReason} />
+      </Field>
+      <button className="h-12 rounded-xl bg-brand px-4 text-base font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-60" disabled={!can(currentRole, "submit_driver_report") || isActionPending(`driver:report:${reportTrip.id}`)} type="submit">
+        {isActionPending(`driver:report:${reportTrip.id}`) ? "Đang xác nhận..." : "Xác nhận đã thu"}
+      </button>
+    </form>
+  ) : null;
 
   return (
-    <section className="mx-auto max-w-[520px] space-y-4 px-4 pb-24 pt-6">
-      <div className="flex items-center justify-between gap-4">
-        <button className="grid size-11 place-items-center rounded-full text-ink" type="button">
-          <Menu size={26} />
+    <section className="mx-auto w-full max-w-[1480px] pb-24 lg:grid lg:grid-cols-[220px_1fr] lg:gap-5 lg:pb-6">
+      <aside className="hidden rounded-3xl border border-slate-200 bg-white p-4 shadow-[0_14px_36px_rgba(15,23,42,0.06)] lg:block">
+        <div className="flex items-center gap-3">
+          <span className="grid size-11 place-items-center rounded-xl bg-brand text-white"><Route size={24} /></span>
+          <div>
+            <p className="text-sm font-extrabold uppercase tracking-wide text-brand">Angel One Travel</p>
+            <p className="font-bold text-ink">Tài xế</p>
+          </div>
+        </div>
+        <nav className="mt-8 grid gap-2 text-sm font-bold text-slate-600">
+          {[
+            ["Tổng quan", Smartphone],
+            ["Lịch chạy", CalendarClock],
+            ["Thu tiền", Banknote],
+            ["Lịch sử chuyến", ClipboardList],
+            ["Tài khoản", UserRound]
+          ].map(([label, Icon]) => (
+            <button className={`flex h-11 items-center gap-3 rounded-xl px-3 text-left ${label === "Tổng quan" ? "bg-teal-50 text-brand" : "hover:bg-slate-50"}`} key={String(label)} type="button">
+              <Icon size={18} /> {String(label)}
+            </button>
+          ))}
+        </nav>
+        <div className="mt-36 rounded-2xl bg-teal-50 p-4 text-sm text-slate-600">
+          <Car className="text-brand" size={28} />
+          <p className="mt-3 font-extrabold text-ink">An toàn</p>
+          <p className="mt-1">Mỗi hành trình là một niềm tin.</p>
+        </div>
+      </aside>
+
+      <div className="space-y-4 px-4 pt-5 lg:px-0 lg:pt-0">
+      <div className="flex items-center justify-between gap-4 lg:hidden">
+        <button className="grid size-11 place-items-center rounded-full border border-blue-600 bg-white text-ink" onClick={() => history.back()} type="button">
+          <ChevronLeft size={24} />
         </button>
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <span className="grid size-12 shrink-0 place-items-center rounded-full bg-gradient-to-br from-brand to-teal-600 text-white shadow-md">
@@ -7989,6 +8077,26 @@ function DriverMobilePanel({
           <Bell size={24} />
           {driverNotifications.length > 0 && <span className="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-red-500 text-[11px] font-bold text-white">{Math.min(driverNotifications.length, 9)}</span>}
         </button>
+      </div>
+
+      <div className="hidden items-center justify-between gap-4 lg:flex">
+        <div>
+          <h2 className="text-2xl font-extrabold text-ink">Chào {selectedDriver?.fullName ?? "tài xế"}</h2>
+          <p className="mt-1 text-sm font-medium text-slate-500">{vietnamFriendlyDate(now)}</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button className="relative grid size-11 place-items-center rounded-full border border-line bg-white text-ink" onClick={() => setDriverNotificationsOpen((open) => !open)} type="button">
+            <Bell size={22} />
+            {driverNotifications.length > 0 && <span className="absolute -right-1 -top-1 grid size-5 place-items-center rounded-full bg-red-500 text-[11px] font-bold text-white">{Math.min(driverNotifications.length, 9)}</span>}
+          </button>
+          <div className="flex items-center gap-2 rounded-2xl border border-line bg-white px-3 py-2">
+            <UserRound className="text-brand" size={18} />
+            <div>
+              <p className="text-sm font-bold text-ink">{selectedDriver?.fullName ?? "Tài xế"}</p>
+              <p className="text-xs text-slate-500">Tài xế</p>
+            </div>
+          </div>
+        </div>
       </div>
 
       {driverNotificationsOpen && (
@@ -8043,10 +8151,71 @@ function DriverMobilePanel({
         </div>
       )}
 
+      {driverSuccess ? (
+        <DriverSuccessCard success={driverSuccess} onClose={() => setDriverSuccess(null)} />
+      ) : (
+        <>
+        <div className="hidden grid-cols-3 gap-4 lg:grid">
+          <DriverMetricCard detail={`${tripCountToday} chuyến trong lịch`} icon={CalendarClock} label="Chuyến hôm nay" value={String(tripCountToday)} />
+          <DriverMetricCard detail={`${pendingCollectionCount} chuyến cần thu`} icon={Banknote} label="Cần thu" value={money(todayCollectionAmount)} />
+          <DriverMetricCard detail="Hoàn thành trong ngày" icon={CheckCircle2} label="Hoàn thành" value={String(completedCountToday)} />
+        </div>
+
+        <div className="hidden grid-cols-[1fr_420px] gap-4 lg:grid">
+          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_14px_36px_rgba(15,23,42,0.06)]">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-xl font-extrabold text-ink">Lịch chạy hôm nay ({tripCountToday})</h3>
+              <button className="text-sm font-bold text-brand" type="button">Xem tất cả</button>
+            </div>
+            <div className="mt-4 grid gap-3">
+              {todayDriverOrders.map((order) => {
+                const isSelected = order.id === selectedTrip?.id;
+                return (
+                  <button className={`grid grid-cols-[78px_1fr_auto] items-center gap-3 rounded-2xl border p-4 text-left ${isSelected ? "border-teal-200 bg-teal-50" : "border-slate-200 bg-white"}`} key={order.id} onClick={() => setSelectedOrderId(order.id)} type="button">
+                    <p className="text-2xl font-extrabold text-ink">{timeOnly(order.startAt)}</p>
+                    <div className="min-w-0">
+                      <p className="truncate font-extrabold text-ink">{routeSummaryForOrder(order)}</p>
+                      <p className="mt-1 text-sm text-slate-500">{order.guestCount ?? "-"} khách · {order.code}</p>
+                    </div>
+                    <Badge tone={order.dispatchStatus === "in_progress" ? "info" : order.dispatchStatus === "completed" ? "good" : "warn"}>{dispatchLabels[order.dispatchStatus]}</Badge>
+                  </button>
+                );
+              })}
+              {todayDriverOrders.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">Hôm nay chưa có chuyến được phân.</p>}
+            </div>
+          </section>
+
+          <section className="space-y-3 rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_14px_36px_rgba(15,23,42,0.06)]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold text-slate-500">Chi tiết chuyến</p>
+                <h3 className="mt-1 text-xl font-extrabold text-ink">{selectedTrip?.code ?? "Chưa chọn chuyến"}</h3>
+              </div>
+              {selectedTrip && <Badge tone="info">{dispatchLabels[selectedTrip.dispatchStatus]}</Badge>}
+            </div>
+            {selectedTrip ? (
+              <>
+                <DriverRouteLine order={selectedTrip} />
+                <div className="grid gap-2 rounded-2xl bg-slate-50 p-3 text-sm">
+                  <InfoLine label="Biển số xe" value={selectedTrip.externalVehiclePlate || selectedTrip.vehiclePlateNo || selectedTripVehicle?.plateNo || "Chưa có xe"} />
+                  <InfoLine label="Khách hàng" value={selectedTrip.contactName || selectedTrip.customerName} />
+                  <InfoLine label="Thanh toán" value={money(driverPaymentSnapshot(selectedTrip, payments).driverCollectionAmount)} />
+                  <InfoLine label="Ghi chú" value={selectedTrip.salesNote || selectedTrip.customerConfirmationNote || "-"} />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <a className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-line bg-white text-sm font-bold text-brand" href={`tel:${selectedTrip.contactPhone}`}><PhoneCall size={16} /> Gọi khách</a>
+                  <a className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-line bg-white text-sm font-bold text-brand" href={mapsRouteUrlForOrder(selectedTrip)} rel="noreferrer" target="_blank"><Navigation size={16} /> Chỉ đường</a>
+                </div>
+                {actionButton}
+              </>
+            ) : (
+              <p className="text-sm text-slate-500">Chọn một chuyến để xem chi tiết.</p>
+            )}
+          </section>
+        </div>
+
+      <div className="lg:hidden">
       {driverView === "today" && (
-        driverSuccess ? (
-          <DriverSuccessCard success={driverSuccess} onClose={() => setDriverSuccess(null)} />
-        ) : (
         <>
       {nextTrip && (
         <section className="space-y-3">
@@ -8064,22 +8233,7 @@ function DriverMobilePanel({
               <Navigation size={16} /> Chỉ đường
             </a>
           </div>
-          {selectedTrip === nextTrip && nextDriverStatus && (
-            <SwipeAction
-              disabled={!canUpdate}
-              label={driverActionLabel(selectedTrip)}
-              loading={isActionPending(`dispatch:status:${selectedTrip.id}:${nextDriverStatus}`)}
-              onComplete={() => {
-                void Promise.resolve(updateOrderDispatchStatus(selectedTrip.id, nextDriverStatus, driverActionLabel(selectedTrip), "Driver")).then(() => {
-                  setDriverSuccess({
-                    title: nextDriverStatus === "completed" ? "Đã hoàn thành cuốc" : `Đã ${driverActionLabel(selectedTrip).toLowerCase()}`,
-                    detail: nextDriverStatus === "completed" ? "Bạn có thể gửi báo cáo sau chuyến để kế toán đối soát." : driverActionDetail({ ...selectedTrip, dispatchStatus: nextDriverStatus }),
-                    orderCode: selectedTrip.code
-                  });
-                });
-              }}
-            />
-          )}
+          {selectedTrip === nextTrip && nextDriverStatus && actionButton}
         </section>
       )}
 
@@ -8153,47 +8307,7 @@ function DriverMobilePanel({
             <Badge tone={reportTrip.driverReportStatus === "reported" ? "good" : "warn"}>{reportTrip.driverReportStatus === "reported" ? "Đã báo" : "Cần báo"}</Badge>
           </div>
           <p className="mt-2 text-sm text-slate-600">Tài xế chỉ nhập tiền thu hộ và ghi chú cần đối soát.</p>
-          <form
-            className="mt-4 grid gap-3"
-            onSubmit={(event) => {
-              const reportForm = new FormData(event.currentTarget);
-              const collectedValue = Number(reportForm.get("driverCollectedAmount") || 0);
-              const extraChargeValue = Number(reportForm.get("driverExtraChargeAmount") || 0);
-              void submitDriverTripReport(event).then((ok) => {
-                if (ok) {
-                  setDriverSuccess({
-                    title: "Đã gửi báo cáo chuyến",
-                    detail: `Thu hộ ${money(collectedValue)}, phụ phí phát sinh ${money(extraChargeValue)}.`,
-                    orderCode: reportTrip.code
-                  });
-                }
-              });
-            }}
-          >
-            <input name="orderId" type="hidden" value={reportTrip.id} />
-            <div className="grid gap-3 md:grid-cols-2">
-              <Field label="Tiền thu hộ">
-                <input className={inputClass()} defaultValue={reportTripCollectedAmount} min="0" name="driverCollectedAmount" type="number" />
-              </Field>
-              <Field label="Ghi chú thu hộ">
-                <textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="collectionNote" placeholder="Ví dụ: khách trả tiền mặt, khách chuyển khoản, chưa thu..." defaultValue={reportTripNoteParts.collectionNote} />
-              </Field>
-              <Field label="Phụ phí phát sinh">
-                <input className={inputClass()} defaultValue={reportTripExtraChargeAmount} min="0" name="driverExtraChargeAmount" type="number" />
-              </Field>
-              <Field label="Lý do phụ phí phát sinh">
-                <textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="driverExtraChargeReason" placeholder="Ví dụ: khách đổi điểm đến, đi thêm chặng, chờ thêm..." defaultValue={reportTripNoteParts.extraChargeReason} />
-              </Field>
-            </div>
-            <div className="grid gap-2 rounded-xl border border-dashed border-teal-200 bg-teal-50 px-3 py-2 text-sm text-slate-600 sm:grid-cols-3">
-              <p>Thu hộ: <span className="font-semibold text-ink">{money(reportTripCollectedAmount)}</span></p>
-              <p>Phụ phí phát sinh: <span className="font-semibold text-ink">{money(reportTripExtraChargeAmount)}</span></p>
-              <p>Cần nộp/đối soát: <span className="font-semibold text-ink">{money(reportTripCollectedAmount)}</span></p>
-            </div>
-            <button className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand to-teal-600 px-4 text-base font-bold text-white shadow-[0_10px_24px_rgba(15,118,110,0.22)] hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!can(currentRole, "submit_driver_report") || isActionPending(`driver:report:${reportTrip.id}`)} type="submit">
-              <Save size={16} /> {isActionPending(`driver:report:${reportTrip.id}`) ? "Đang gửi..." : "Gửi báo cáo"}
-            </button>
-          </form>
+          <div className="mt-4">{collectionForm}</div>
         </section>
       ) : (
         <section className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)]">
@@ -8203,11 +8317,11 @@ function DriverMobilePanel({
       )}
 
         </>
-        )
       )}
+      </div>
 
       {driverView === "proposal" && (
-      <section className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)]">
+      <section className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)] lg:hidden">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-sm text-slate-500">Đề xuất từ tài xế</p>
@@ -8259,6 +8373,8 @@ function DriverMobilePanel({
         </form>
       </section>
       )}
+      </>
+      )}
 
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-6 py-3 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur lg:hidden">
         <div className="mx-auto grid max-w-[520px] grid-cols-2 gap-3">
@@ -8278,6 +8394,7 @@ function DriverMobilePanel({
           </button>
         </div>
       </nav>
+      </div>
     </section>
   );
 }
