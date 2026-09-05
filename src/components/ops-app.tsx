@@ -32,7 +32,7 @@ import {
   UsersRound
 } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   assignments as seedAssignments,
   auditEvents as seedAuditEvents,
@@ -571,19 +571,27 @@ function ServiceFields({ initialCode, initialLabel }: { initialCode?: string; in
 }
 
 function VatCalculatorFields({ initialSubtotal = 0, initialVatRate = 0, initialTotal = 0 }: { initialSubtotal?: number; initialVatRate?: number; initialTotal?: number }) {
-  const startingTotal = initialTotal || (initialSubtotal ? Math.round(initialSubtotal * (1 + initialVatRate / 100)) : 0);
-  const startingSubtotal = initialSubtotal || (startingTotal ? Math.round(startingTotal / (1 + initialVatRate / 100)) : 0);
+  const startingSubtotal = initialSubtotal || initialTotal || 0;
+  const startingTotal = initialTotal && initialSubtotal ? initialTotal : Math.round(startingSubtotal * (1 + initialVatRate / 100));
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [subtotal, setSubtotal] = useState(startingSubtotal);
   const [vatRate, setVatRate] = useState(initialVatRate);
   const [total, setTotal] = useState(startingTotal);
-  const [basis, setBasis] = useState<"subtotal" | "total">("total");
+  const [basis, setBasis] = useState<"subtotal" | "total">("subtotal");
   const vatAmount = Math.max(0, total - subtotal);
+
+  function notifyFormChanged() {
+    window.requestAnimationFrame(() => {
+      wrapperRef.current?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
 
   function changeSubtotal(value: number) {
     const nextSubtotal = Number.isFinite(value) ? value : 0;
     setBasis("subtotal");
     setSubtotal(nextSubtotal);
     setTotal(Math.round(nextSubtotal * (1 + vatRate / 100)));
+    notifyFormChanged();
   }
 
   function changeVatRate(value: number) {
@@ -591,9 +599,11 @@ function VatCalculatorFields({ initialSubtotal = 0, initialVatRate = 0, initialT
     setVatRate(nextRate);
     if (basis === "subtotal") {
       setTotal(Math.round(subtotal * (1 + nextRate / 100)));
+      notifyFormChanged();
       return;
     }
     setSubtotal(Math.round(total / (1 + nextRate / 100)));
+    notifyFormChanged();
   }
 
   function changeTotal(value: number) {
@@ -601,10 +611,11 @@ function VatCalculatorFields({ initialSubtotal = 0, initialVatRate = 0, initialT
     setBasis("total");
     setTotal(nextTotal);
     setSubtotal(Math.round(nextTotal / (1 + vatRate / 100)));
+    notifyFormChanged();
   }
 
   return (
-    <>
+    <div className="contents" ref={wrapperRef}>
       <Field label="Tiền trước thuế"><input className={inputClass()} min="0" name="subtotalAmount" onChange={(event) => changeSubtotal(Number(event.target.value))} type="number" value={subtotal} /></Field>
       <Field label="VAT">
         <select className={inputClass()} name="vatRate" onChange={(event) => changeVatRate(Number(event.target.value))} value={vatRate}>
@@ -616,23 +627,44 @@ function VatCalculatorFields({ initialSubtotal = 0, initialVatRate = 0, initialT
       </Field>
       <Field label="Tiền thuế"><input className={inputClass()} min="0" name="vatAmount" readOnly type="number" value={vatAmount} /></Field>
       <Field label="Tổng thanh toán"><input className={inputClass()} min="0" name="amountDue" onChange={(event) => changeTotal(Number(event.target.value))} required type="number" value={total} /></Field>
-    </>
+    </div>
   );
 }
 
 function SalesPrepaymentFields({ initialTotal = 0 }: { initialTotal?: number }) {
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [total, setTotal] = useState(initialTotal);
   const [prepaid, setPrepaid] = useState(0);
   const remaining = Math.max(total - prepaid, 0);
 
-  function readTotalFromForm(target: HTMLInputElement) {
-    const amountInput = target.form?.elements.namedItem("amountDue") as HTMLInputElement | null;
+  const syncFromForm = useCallback((form: HTMLFormElement | null) => {
+    const amountInput = form?.elements.namedItem("amountDue") as HTMLInputElement | null;
+    const prepaymentInput = form?.elements.namedItem("prepaymentAmount") as HTMLInputElement | null;
     const nextTotal = Number(amountInput?.value || initialTotal || 0);
+    const nextPrepaid = Number(prepaymentInput?.value || 0);
     setTotal(Number.isFinite(nextTotal) ? nextTotal : 0);
+    setPrepaid(Number.isFinite(nextPrepaid) ? nextPrepaid : 0);
+  }, [initialTotal]);
+
+  useEffect(() => {
+    const form = wrapperRef.current?.closest("form") ?? null;
+    if (!form) return;
+    const sync = () => syncFromForm(form);
+    sync();
+    form.addEventListener("input", sync);
+    form.addEventListener("change", sync);
+    return () => {
+      form.removeEventListener("input", sync);
+      form.removeEventListener("change", sync);
+    };
+  }, [syncFromForm]);
+
+  function readTotalFromForm(target: HTMLInputElement) {
+    syncFromForm(target.form);
   }
 
   return (
-    <div className="grid gap-3 rounded-md border border-teal-100 bg-teal-50/50 p-3 md:col-span-2">
+    <div className="grid gap-3 rounded-md border border-teal-100 bg-teal-50/50 p-3 md:col-span-2" ref={wrapperRef}>
       <div className="grid gap-3 md:grid-cols-2">
         <Field label="Đã thu / Tạm ứng trước chuyến">
           <input
@@ -1973,7 +2005,6 @@ export default function OpsApp() {
   const [message, setMessage] = useState(supabaseConfigured ? "Đang kết nối Supabase..." : "Dữ liệu pilot lưu trên trình duyệt máy này.");
   const [now, setNow] = useState(() => new Date());
   const [isMobileViewport, setIsMobileViewport] = useState(() => (typeof window !== "undefined" ? window.matchMedia("(max-width: 1023px)").matches : false));
-  const [salesMobileCanBack, setSalesMobileCanBack] = useState(false);
   const pendingActionsRef = useRef(new Set<string>());
   const [pendingActions, setPendingActions] = useState<Set<string>>(() => new Set());
   const notificationsRef = useRef<HTMLDivElement | null>(null);
@@ -1987,15 +2018,6 @@ export default function OpsApp() {
     updateViewport();
     media.addEventListener("change", updateViewport);
     return () => media.removeEventListener("change", updateViewport);
-  }, []);
-
-  useEffect(() => {
-    const handleSalesScreen = (event: Event) => {
-      const screen = (event as CustomEvent<{ screen?: string }>).detail?.screen;
-      setSalesMobileCanBack(Boolean(screen && screen !== "overview"));
-    };
-    window.addEventListener("sales-mobile-screen", handleSalesScreen);
-    return () => window.removeEventListener("sales-mobile-screen", handleSalesScreen);
   }, []);
 
   const currentRole = roleState ?? "manager";
@@ -2942,6 +2964,15 @@ export default function OpsApp() {
     }
     setSelectedOrderId(order.id);
     setTab("Lệnh điều xe");
+    notify({
+      audience: "sale",
+      eventType: "dispatch_proposal_submitted",
+      title: "Đã tạo lệnh điều xe",
+      body: `${order.code} / ${order.customerName}`,
+      entityId: order.id,
+      targetUserId: authUserId ?? undefined,
+      payload: buildDispatchProposalIntegrationPayload(order, "sale")
+    });
     (["dispatcher", "manager", "admin"] as AppNotification["audience"][]).forEach((audience) => {
       notify({
         audience,
@@ -4225,7 +4256,6 @@ export default function OpsApp() {
 
   const driverMobileShell = currentRole === "driver" && isMobileViewport;
   const salesShell = currentRole === "sale";
-  const showSalesBackButton = salesShell && activeTab === "Lệnh điều xe" && salesMobileCanBack;
 
   return (
     <main className={`min-h-screen ${driverMobileShell || salesShell ? "bg-[#f6f9fb]" : ""}`}>
@@ -4318,7 +4348,7 @@ export default function OpsApp() {
                 onClick={() => window.dispatchEvent(new Event("sales-mobile-back"))}
                 type="button"
               >
-                {showSalesBackButton ? <ChevronLeft size={26} /> : <Menu size={24} />}
+                <ChevronLeft size={26} />
               </button>
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-gradient-to-br from-brand to-teal-600 text-white shadow-[0_10px_24px_rgba(15,118,110,0.25)] lg:h-11 lg:w-11">
@@ -5860,10 +5890,6 @@ function OrdersPanel({
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent("sales-mobile-screen", { detail: { screen: salesScreen } }));
-  }, [salesScreen]);
-
-  useEffect(() => {
     const handleSalesCreated = (event: Event) => {
       const detail = (event as CustomEvent<typeof salesSuccess>).detail;
       if (!detail?.orderCode) return;
@@ -6407,7 +6433,7 @@ function OrdersPanel({
           <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-brand to-teal-500 text-white shadow-[0_12px_28px_rgba(15,118,110,0.28)]">
             <CheckCircle2 size={42} />
           </div>
-          <h3 className="mt-5 text-xl font-extrabold text-ink">Đã gửi đề xuất thành công</h3>
+          <h3 className="mt-5 text-xl font-extrabold text-ink">Đã tạo lệnh điều xe thành công</h3>
           <p className="mt-2 text-2xl font-extrabold text-brand">{salesSuccess.orderCode}</p>
           <div className="mt-5 divide-y divide-line rounded-2xl border border-line bg-slate-50/70 px-4 text-left text-sm">
             <InfoLine label="Hành trình" value={salesSuccess.route || "-"} />
