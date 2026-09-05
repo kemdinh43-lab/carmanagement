@@ -32,7 +32,7 @@ import {
   UsersRound
 } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   assignments as seedAssignments,
   auditEvents as seedAuditEvents,
@@ -7881,6 +7881,187 @@ function DriverSuccessCard({ success, onClose }: { success: DriverSuccessState; 
   );
 }
 
+type DriverView = "today" | "schedule" | "detail" | "checklist" | "collect" | "proposal";
+
+function DriverMobileTitle({ onBack, right, subtitle, title }: { onBack?: () => void; right?: ReactNode; subtitle?: string; title: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <button className="grid size-10 place-items-center rounded-full text-ink" onClick={onBack ?? (() => history.back())} type="button">
+        <ChevronLeft size={23} />
+      </button>
+      <div className="min-w-0 flex-1 text-center">
+        <h3 className="truncate text-xl font-extrabold text-ink">{title}</h3>
+        {subtitle && <p className="truncate text-xs font-semibold text-slate-500">{subtitle}</p>}
+      </div>
+      <div className="grid size-10 place-items-center">{right}</div>
+    </div>
+  );
+}
+
+function DriverScheduleMobile({ orders, onOpen, selectedOrderId, vehicles }: { orders: DispatchOrder[]; onOpen: (orderId: string) => void; selectedOrderId?: string; vehicles: Vehicle[] }) {
+  const soonOrders = orders.filter((order) => order.dispatchStatus !== "completed");
+  const runningOrders = orders.filter((order) => order.dispatchStatus === "in_progress" || order.dispatchStatus === "driver_accepted");
+  const doneOrders = orders.filter((order) => order.dispatchStatus === "completed");
+  return (
+    <section className="space-y-4">
+      <div className="flex gap-2 overflow-x-auto">
+        <Badge tone="good">Sắp chạy ({soonOrders.length})</Badge>
+        <Badge tone="info">Đang chạy ({runningOrders.length})</Badge>
+        <Badge tone="neutral">Hoàn thành ({doneOrders.length})</Badge>
+      </div>
+      <div className="grid gap-3">
+        {orders.map((order) => {
+          const vehicle = vehicles.find((item) => item.id === order.vehicleId);
+          const isSelected = order.id === selectedOrderId;
+          return (
+            <button className={`grid grid-cols-[48px_1fr_auto] items-center gap-3 rounded-2xl border bg-white p-4 text-left shadow-[0_8px_22px_rgba(15,23,42,0.06)] ${isSelected ? "border-teal-200" : "border-slate-200"}`} key={order.id} onClick={() => onOpen(order.id)} type="button">
+              <span className="grid size-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><Clock3 size={20} /></span>
+              <div className="min-w-0">
+                <p className="text-xl font-extrabold text-ink">{timeOnly(order.startAt)}</p>
+                <p className="truncate text-sm font-bold text-slate-700">{routeSummaryForOrder(order)}</p>
+                <p className="mt-1 truncate text-xs text-slate-500">{order.guestCount ?? "-"} khách · {vehicle?.plateNo ?? order.code}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge tone={order.dispatchStatus === "completed" ? "good" : order.dispatchStatus === "in_progress" ? "info" : "warn"}>{dispatchLabels[order.dispatchStatus]}</Badge>
+                <ChevronRight className="text-slate-400" size={18} />
+              </div>
+            </button>
+          );
+        })}
+        {orders.length === 0 && <p className="rounded-2xl bg-white p-4 text-sm text-slate-500">Chưa có chuyến trong lịch hôm nay.</p>}
+      </div>
+    </section>
+  );
+}
+
+function DriverDetailMobile({
+  action,
+  onBack,
+  onChecklist,
+  onCollect,
+  order,
+  payments,
+  vehicle
+}: {
+  action: ReactNode;
+  onBack: () => void;
+  onChecklist: () => void;
+  onCollect: () => void;
+  order?: DispatchOrder;
+  payments: Payment[];
+  vehicle?: Vehicle;
+}) {
+  const [tab, setTab] = useState<"overview" | "trip" | "payment">("overview");
+  if (!order) return <p className="rounded-2xl bg-white p-4 text-sm text-slate-500">Chưa chọn chuyến.</p>;
+  const snapshot = driverPaymentSnapshot(order, payments);
+  return (
+    <section className="space-y-4">
+      <DriverMobileTitle onBack={onBack} right={<Badge tone="good">{dispatchLabels[order.dispatchStatus]}</Badge>} subtitle={vietnamFriendlyDate(new Date(order.startAt))} title={order.code} />
+      <div className="flex gap-2 rounded-2xl bg-white p-1 text-sm font-bold shadow-sm">
+        {[
+          ["overview", "Tổng quan"],
+          ["trip", "Hành trình"],
+          ["payment", "Thanh toán"]
+        ].map(([key, label]) => (
+          <button className={`h-10 flex-1 rounded-xl ${tab === key ? "bg-brand text-white" : "text-slate-500"}`} key={key} onClick={() => setTab(key as typeof tab)} type="button">{label}</button>
+        ))}
+      </div>
+      {tab === "overview" && (
+        <div className="grid gap-3">
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><DriverRouteLine order={order} /></section>
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <h4 className="flex items-center gap-2 font-extrabold text-ink"><UserRound className="text-brand" size={18} /> Khách hàng</h4>
+            <InfoLine label="Tên khách" value={order.contactName || order.customerName} />
+            <InfoLine label="SĐT" value={order.contactPhone || "-"} />
+            <InfoLine label="Số khách" value={`${order.guestCount ?? "-"} khách`} />
+          </section>
+        </div>
+      )}
+      {tab === "trip" && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <DriverRouteLine order={order} />
+          <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-center">
+            <p className="text-2xl font-extrabold text-ink">{order.externalVehiclePlate || order.vehiclePlateNo || vehicle?.plateNo || "Chưa có xe"}</p>
+            <p className="mt-1 text-sm font-semibold text-slate-500">{vehicle ? `${vehicle.type} · ${vehicle.seats} chỗ` : order.serviceLabel}</p>
+          </div>
+        </section>
+      )}
+      {tab === "payment" && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <h4 className="flex items-center gap-2 font-extrabold text-ink"><Banknote className="text-brand" size={18} /> Thanh toán</h4>
+          <InfoLine label="Tổng tiền" value={money(order.amountDue)} />
+          <InfoLine label="Đã thu / tạm ứng" value={money(snapshot.prepaidAmount)} />
+          <InfoLine label="Còn phải thu" value={money(snapshot.remainingAmount)} />
+          <div className="mt-3 rounded-2xl bg-teal-50 p-4 text-center">
+            <p className="text-xs font-extrabold uppercase text-brand">Số tiền cần thu</p>
+            <p className="mt-1 text-2xl font-extrabold text-brand">{money(snapshot.driverCollectionAmount)}</p>
+          </div>
+        </section>
+      )}
+      <div className="grid grid-cols-[88px_1fr] gap-2">
+        <a className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-line bg-white text-sm font-bold text-brand" href={`tel:${order.contactPhone}`}><PhoneCall size={17} /> Gọi</a>
+        {action}
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <button className="h-12 rounded-xl border border-line bg-white text-sm font-extrabold text-brand" onClick={onChecklist} type="button">Checklist</button>
+        <button className="h-12 rounded-xl border border-line bg-white text-sm font-extrabold text-brand" onClick={onCollect} type="button">Thu tiền</button>
+      </div>
+    </section>
+  );
+}
+
+function DriverChecklistMobile({ action, checked, onBack, onToggle }: { action: ReactNode; checked: Record<string, boolean>; onBack: () => void; onToggle: (key: string) => void }) {
+  const items = [
+    ["papers", "Kiểm tra giấy tờ xe", "Đăng kiểm, bảo hiểm, phù hiệu"],
+    ["clean", "Vệ sinh xe", "Đảm bảo sạch sẽ, thoải mái"],
+    ["contact", "Liên hệ khách xác nhận điểm đón", "Gọi điện hoặc nhắn tin"]
+  ];
+  const done = items.filter(([key]) => checked[key]).length;
+  return (
+    <section className="space-y-5">
+      <DriverMobileTitle onBack={onBack} title="Checklist trước chuyến" />
+      <div className="rounded-[26px] border border-slate-200 bg-white p-5 text-center shadow-sm">
+        <div className="mx-auto grid size-28 place-items-center rounded-full border-[10px] border-brand text-2xl font-extrabold text-ink">{done}/3</div>
+        <p className="mt-2 text-sm font-bold text-slate-500">Hoàn thành</p>
+      </div>
+      <div className="grid gap-3">
+        {items.map(([key, title, detail]) => (
+          <button className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm" key={key} onClick={() => onToggle(key)} type="button">
+            <span className={`grid size-9 shrink-0 place-items-center rounded-full ${checked[key] ? "bg-brand text-white" : "bg-slate-100 text-slate-400"}`}><CheckCircle2 size={20} /></span>
+            <span>
+              <span className="block font-extrabold text-ink">{title}</span>
+              <span className="mt-1 block text-sm text-slate-500">{detail}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+      {action}
+    </section>
+  );
+}
+
+function DriverCollectMobile({ form, onBack, order, payments }: { form?: ReactNode; onBack: () => void; order?: DispatchOrder; payments: Payment[] }) {
+  if (!order) return <p className="rounded-2xl bg-white p-4 text-sm text-slate-500">Chưa có chuyến để thu tiền.</p>;
+  const snapshot = driverPaymentSnapshot(order, payments);
+  return (
+    <section className="space-y-4">
+      <DriverMobileTitle onBack={onBack} right={<ReceiptText className="text-brand" size={20} />} title="Thu tiền" />
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h3 className="text-xl font-extrabold text-ink">{order.code}</h3>
+        <p className="mt-2 text-sm font-bold text-slate-600">{routeSummaryForOrder(order)}</p>
+        <p className="mt-1 text-xs text-slate-500">{timeOnly(order.startAt)} - {timeOnly(order.endAt)} · {order.guestCount ?? "-"} khách</p>
+        <div className="mt-4 rounded-2xl bg-teal-50 p-4">
+          <p className="text-sm font-bold text-slate-500">Tổng tiền phải thu</p>
+          <p className="mt-1 text-3xl font-extrabold text-brand">{money(snapshot.driverCollectionAmount)}</p>
+        </div>
+      </section>
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        {form ?? <p className="text-sm font-semibold text-slate-500">Chuyến cần hoàn thành trước khi tài xế xác nhận số tiền đã thu.</p>}
+      </section>
+    </section>
+  );
+}
+
 function DriverMobilePanel({
   authDriverId,
   currentRole,
@@ -7917,7 +8098,8 @@ function DriverMobilePanel({
   vehicles: Vehicle[];
 }) {
   const [urgent, setUrgent] = useState(false);
-  const [driverView, setDriverView] = useState<"today" | "proposal">("today");
+  const [driverView, setDriverView] = useState<DriverView>("today");
+  const [driverChecklist, setDriverChecklist] = useState<Record<string, boolean>>({ papers: true, clean: true, contact: true });
   const [driverNotificationsOpen, setDriverNotificationsOpen] = useState(false);
   const [driverSuccess, setDriverSuccess] = useState<DriverSuccessState | null>(null);
   const lockedDriverId = currentRole === "driver" ? authDriverId : undefined;
@@ -7955,9 +8137,10 @@ function DriverMobilePanel({
   const completedTripsToday = todayDriverOrders.filter((order) => order.dispatchStatus === "completed");
   const completedTrips = driverOrders.filter((order) => order.dispatchStatus === "completed");
   const reportTrip = selectedTrip?.dispatchStatus === "completed" ? selectedTrip : completedTripsToday[completedTripsToday.length - 1] ?? completedTrips[completedTrips.length - 1];
-  const reportTripCollectedAmount = reportTrip?.driverCollectedAmount ?? 0;
-  const reportTripExtraChargeAmount = reportTrip?.driverExpenseOther ?? 0;
-  const reportTripNoteParts = driverReportNoteParts(reportTrip?.driverExpenseNote);
+  const collectionTrip = selectedTrip?.dispatchStatus === "completed" ? selectedTrip : reportTrip;
+  const reportTripCollectedAmount = collectionTrip?.driverCollectedAmount ?? 0;
+  const reportTripExtraChargeAmount = collectionTrip?.driverExpenseOther ?? 0;
+  const reportTripNoteParts = driverReportNoteParts(collectionTrip?.driverExpenseNote);
   const nextDriverStatus = selectedTrip ? driverNextDispatchStatus(selectedTrip) : null;
   const nextTrip = activeOrder ?? upcomingTrips[0] ?? driverOrders[0];
   const nextTripVehicle = nextTrip ? vehicles.find((item) => item.id === nextTrip.vehicleId) : undefined;
@@ -7985,7 +8168,7 @@ function DriverMobilePanel({
       <Navigation size={18} /> {isActionPending(`dispatch:status:${selectedTrip.id}:${nextDriverStatus}`) ? "Đang cập nhật..." : driverActionLabel(selectedTrip)}
     </button>
   ) : null;
-  const collectionForm = reportTrip ? (
+  const collectionForm = collectionTrip ? (
     <form
       className="grid gap-3"
       onSubmit={(event) => {
@@ -7997,13 +8180,13 @@ function DriverMobilePanel({
             setDriverSuccess({
               title: "Đã xác nhận thu",
               detail: `Thu hộ ${money(collectedValue)}, phụ phí phát sinh ${money(extraChargeValue)}.`,
-              orderCode: reportTrip.code
+              orderCode: collectionTrip.code
             });
           }
         });
       }}
     >
-      <input name="orderId" type="hidden" value={reportTrip.id} />
+      <input name="orderId" type="hidden" value={collectionTrip.id} />
       <Field label="Số tiền đã thu">
         <input className={inputClass()} defaultValue={reportTripCollectedAmount} min="0" name="driverCollectedAmount" type="number" />
       </Field>
@@ -8023,8 +8206,8 @@ function DriverMobilePanel({
       <Field label="Lý do phụ phí">
         <textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="driverExtraChargeReason" placeholder="Khách đổi điểm đến, đi thêm chặng..." defaultValue={reportTripNoteParts.extraChargeReason} />
       </Field>
-      <button className="h-12 rounded-xl bg-brand px-4 text-base font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-60" disabled={!can(currentRole, "submit_driver_report") || isActionPending(`driver:report:${reportTrip.id}`)} type="submit">
-        {isActionPending(`driver:report:${reportTrip.id}`) ? "Đang xác nhận..." : "Xác nhận đã thu"}
+      <button className="h-12 rounded-xl bg-brand px-4 text-base font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-60" disabled={!can(currentRole, "submit_driver_report") || isActionPending(`driver:report:${collectionTrip.id}`)} type="submit">
+        {isActionPending(`driver:report:${collectionTrip.id}`) ? "Đang xác nhận..." : "Xác nhận đã thu"}
       </button>
     </form>
   ) : null;
@@ -8214,110 +8397,80 @@ function DriverMobilePanel({
           </section>
         </div>
 
-      <div className="lg:hidden">
-      {driverView === "today" && (
-        <>
-      {nextTrip && (
-        <section className="space-y-3">
-          <DriverTripBrief driver={selectedDriver} order={nextTrip} payments={payments} vehicle={nextTripVehicle} />
-          <div className="grid grid-cols-2 gap-3">
-            <a className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-brand shadow-sm hover:bg-slate-50" href={`tel:${nextTrip.contactPhone}`}>
-              <PhoneCall size={16} /> Gọi khách
-            </a>
-            <a
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-brand shadow-sm hover:bg-slate-50"
-              href={mapsRouteUrlForOrder(nextTrip)}
-              rel="noreferrer"
-              target="_blank"
-            >
-              <Navigation size={16} /> Chỉ đường
-            </a>
-          </div>
-          {selectedTrip === nextTrip && nextDriverStatus && actionButton}
-        </section>
-      )}
-
-      {driverProposals.length > 0 && (
-        <section className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)]">
-          <div className="flex items-center justify-between gap-3">
-            <h4 className="font-semibold text-ink">Đề xuất của tôi</h4>
-            <Badge tone="warn">{driverProposals.length} chờ xử lý</Badge>
-          </div>
-          <div className="mt-3 space-y-2">
-            {driverProposals.slice(0, 3).map((order) => (
-              <article className="rounded-xl border border-slate-200 bg-slate-50 p-3" key={order.id}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-semibold uppercase text-slate-500">{order.code}</p>
-                    <p className="mt-1 font-semibold text-ink">{order.customerName}</p>
-                  </div>
-                  <Badge tone={order.priority === "urgent" ? "warn" : "info"}>{order.priority === "urgent" ? "Khẩn" : "Ngắn"}</Badge>
-                </div>
-                <p className="mt-1 text-sm text-slate-600">{routeSummaryForOrder(order)}</p>
-                <p className="mt-1 text-xs text-slate-500">
-                  {timeOnly(order.startAt)} · {order.orderStatus === "draft" ? "Chờ Sales tiếp nhận" : order.dispatchStatus === "waiting_assignment" ? "Chờ điều hành" : dispatchLabels[order.dispatchStatus]}
-                </p>
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {todayDriverOrders.length > 0 && (
-        <section className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)]">
-          <div className="flex items-center justify-between gap-3">
-            <h4 className="text-lg font-bold text-ink">Lịch hôm nay</h4>
-            <Badge tone="info">{todayDriverOrders.length} chuyến</Badge>
-          </div>
-          <div className="mt-3 divide-y divide-slate-100">
-            {todayDriverOrders.map((order) => {
-              const vehicle = vehicles.find((item) => item.id === order.vehicleId);
-              const isSelected = order.id === selectedTrip?.id;
-              return (
-                <button
-                  className={`grid w-full grid-cols-[72px_28px_1fr_auto] items-center gap-2 rounded-xl px-2 py-3 text-left ${isSelected ? "border border-teal-200 bg-teal-50" : "border border-transparent bg-white"}`}
-                  key={order.id}
-                  onClick={() => setSelectedOrderId(order.id)}
-                  type="button"
-                >
-                  <p className={`text-lg font-bold ${isSelected ? "text-brand" : "text-ink"}`}>{timeOnly(order.startAt)}</p>
-                  <span className={`mx-auto size-4 rounded-full border-4 ${isSelected ? "border-teal-100 bg-brand" : "border-slate-200 bg-white"}`} />
-                  <div className="min-w-0">
-                    <p className="truncate font-bold text-ink">{routeSummaryForOrder(order)}</p>
-                    <p className="mt-1 truncate text-sm text-slate-500">{order.customerName} · {vehicle?.plateNo ?? "Chưa xe"}</p>
-                  </div>
-                  <ChevronRight className="text-slate-400" size={18} />
+      <div className="space-y-4 lg:hidden">
+        {driverView === "today" && (
+          <>
+            {nextTrip ? (
+              <section className="space-y-3">
+                <DriverTripBrief order={nextTrip} payments={payments} vehicle={nextTripVehicle} />
+                <button className="h-12 w-full rounded-xl bg-brand text-base font-extrabold text-white shadow-[0_12px_26px_rgba(15,118,110,0.24)]" onClick={() => setDriverView("detail")} type="button">
+                  Xem chi tiết chuyến
                 </button>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
-      {reportTrip ? (
-        <section className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)]" key={reportTrip.id}>
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm text-slate-500">Báo cáo sau chuyến</p>
-              <h4 className="text-lg font-bold text-ink">{reportTrip.code}</h4>
-              <p className="mt-1 text-xs text-slate-500">
-                {routeSummaryForOrder(reportTrip)}
-              </p>
-            </div>
-            <Badge tone={reportTrip.driverReportStatus === "reported" ? "good" : "warn"}>{reportTrip.driverReportStatus === "reported" ? "Đã báo" : "Cần báo"}</Badge>
-          </div>
-          <p className="mt-2 text-sm text-slate-600">Tài xế chỉ nhập tiền thu hộ và ghi chú cần đối soát.</p>
-          <div className="mt-4">{collectionForm}</div>
-        </section>
-      ) : (
-        <section className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)]">
-          <h4 className="text-lg font-bold text-ink">Báo cáo sau chuyến</h4>
-          <p className="mt-2 text-sm text-slate-500">Chỉ hiện khi tài xế có chuyến đã hoàn thành để nhập tiền thu hộ.</p>
-        </section>
-      )}
-
-        </>
-      )}
+              </section>
+            ) : (
+              <section className="rounded-[22px] border border-slate-200 bg-white p-5 shadow-sm">
+                <h3 className="text-xl font-extrabold text-ink">Hôm nay chưa có chuyến</h3>
+                <p className="mt-2 text-sm text-slate-500">Khi điều hành phân xe, chuyến tiếp theo sẽ hiện ở đây.</p>
+              </section>
+            )}
+            {todayDriverOrders.length > 0 && (
+              <section className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-extrabold text-ink">Lệnh gần đây</h4>
+                  <button className="text-sm font-bold text-brand" onClick={() => setDriverView("schedule")} type="button">Xem tất cả</button>
+                </div>
+                <div className="mt-3 grid gap-2">
+                  {todayDriverOrders.slice(0, 3).map((order) => (
+                    <button className="grid grid-cols-[1fr_auto] rounded-2xl border border-slate-200 p-3 text-left" key={order.id} onClick={() => { setSelectedOrderId(order.id); setDriverView("detail"); }} type="button">
+                      <span className="min-w-0">
+                        <span className="block truncate font-extrabold text-ink">{order.code}</span>
+                        <span className="mt-1 block truncate text-sm text-slate-500">{routeSummaryForOrder(order)}</span>
+                        <span className="mt-1 block text-xs text-slate-500">{timeOnly(order.startAt)} · {order.guestCount ?? "-"} khách</span>
+                      </span>
+                      <Badge tone={order.dispatchStatus === "completed" ? "good" : "warn"}>{dispatchLabels[order.dispatchStatus]}</Badge>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+          </>
+        )}
+        {driverView === "schedule" && (
+          <>
+            <DriverMobileTitle onBack={() => setDriverView("today")} right={<CalendarClock className="text-brand" size={20} />} subtitle={vietnamFriendlyDate(now)} title="Lịch chạy" />
+            <DriverScheduleMobile
+              onOpen={(orderId) => {
+                setSelectedOrderId(orderId);
+                setDriverView("detail");
+              }}
+              orders={todayDriverOrders.length > 0 ? todayDriverOrders : driverOrders}
+              selectedOrderId={selectedTrip?.id}
+              vehicles={vehicles}
+            />
+          </>
+        )}
+        {driverView === "detail" && (
+          <DriverDetailMobile
+            action={actionButton}
+            onBack={() => setDriverView("today")}
+            onChecklist={() => setDriverView("checklist")}
+            onCollect={() => setDriverView("collect")}
+            order={selectedTrip}
+            payments={payments}
+            vehicle={selectedTripVehicle}
+          />
+        )}
+        {driverView === "checklist" && (
+          <DriverChecklistMobile
+            action={actionButton}
+            checked={driverChecklist}
+            onBack={() => setDriverView("detail")}
+            onToggle={(key) => setDriverChecklist((current) => ({ ...current, [key]: !current[key] }))}
+          />
+        )}
+        {driverView === "collect" && (
+          <DriverCollectMobile form={collectionForm} onBack={() => setDriverView("detail")} order={collectionTrip ?? selectedTrip} payments={payments} />
+        )}
       </div>
 
       {driverView === "proposal" && (
@@ -8376,21 +8529,35 @@ function DriverMobilePanel({
       </>
       )}
 
-      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-6 py-3 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur lg:hidden">
-        <div className="mx-auto grid max-w-[520px] grid-cols-2 gap-3">
+      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-4 py-2 shadow-[0_-12px_30px_rgba(15,23,42,0.08)] backdrop-blur lg:hidden">
+        <div className="mx-auto grid max-w-[520px] grid-cols-4 gap-1">
           <button
-            className={`flex h-12 items-center justify-center gap-2 rounded-xl text-sm font-bold ${driverView === "today" ? "bg-teal-50 text-brand" : "text-slate-500"}`}
+            className={`flex h-14 flex-col items-center justify-center gap-1 rounded-xl text-[11px] font-bold ${driverView === "today" ? "bg-teal-50 text-brand" : "text-slate-500"}`}
             onClick={() => setDriverView("today")}
             type="button"
           >
             <Smartphone size={18} /> Hôm nay
           </button>
           <button
-            className={`flex h-12 items-center justify-center gap-2 rounded-xl text-sm font-bold ${driverView === "proposal" ? "bg-teal-50 text-brand" : "text-slate-500"}`}
+            className={`flex h-14 flex-col items-center justify-center gap-1 rounded-xl text-[11px] font-bold ${driverView === "schedule" ? "bg-teal-50 text-brand" : "text-slate-500"}`}
+            onClick={() => setDriverView("schedule")}
+            type="button"
+          >
+            <CalendarClock size={18} /> Lịch chạy
+          </button>
+          <button
+            className={`flex h-14 flex-col items-center justify-center gap-1 rounded-xl text-[11px] font-bold ${driverView === "collect" ? "bg-teal-50 text-brand" : "text-slate-500"}`}
+            onClick={() => setDriverView("collect")}
+            type="button"
+          >
+            <Banknote size={18} /> Thu tiền
+          </button>
+          <button
+            className={`flex h-14 flex-col items-center justify-center gap-1 rounded-xl text-[11px] font-bold ${driverView === "proposal" ? "bg-teal-50 text-brand" : "text-slate-500"}`}
             onClick={() => setDriverView("proposal")}
             type="button"
           >
-            <ClipboardList size={18} /> Báo cuốc
+            <ClipboardList size={18} /> Thêm
           </button>
         </div>
       </nav>
