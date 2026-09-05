@@ -230,7 +230,7 @@ const roleHomeTab: Record<AppRole, Tab> = {
 
 const roleVisibleTabs: Record<AppRole, Tab[]> = {
   sale: ["Lệnh điều xe", "Khách hàng"],
-  dispatcher: ["Điều hành", "Lệnh điều xe"],
+  dispatcher: ["Điều hành"],
   driver: ["Màn làm việc"],
   accountant: ["Tài chính", "Lệnh điều xe"],
   manager: ["Dashboard", "Điều hành", "Tài chính", "Lệnh điều xe"],
@@ -4253,7 +4253,7 @@ export default function OpsApp() {
 
   const driverMobileShell = currentRole === "driver" && isMobileViewport;
   const salesShell = currentRole === "sale";
-  const dispatchShell = currentRole !== "driver" && currentRole !== "sale" && activeTab === "Điều hành";
+  const dispatchShell = currentRole !== "driver" && currentRole !== "sale" && (activeTab === "Điều hành" || (currentRole === "dispatcher" && activeTab === "Lệnh điều xe"));
 
   return (
     <main className={`min-h-screen ${driverMobileShell || salesShell || dispatchShell ? "bg-[#f6f9fb]" : ""}`}>
@@ -4501,7 +4501,7 @@ export default function OpsApp() {
               compact={isMobileViewport}
             />
           )}
-          {activeTab === "Lệnh điều xe" && (
+          {activeTab === "Lệnh điều xe" && currentRole !== "dispatcher" && (
             <OrdersPanel
               companies={state.companies}
               companyContacts={state.companyContacts}
@@ -4541,7 +4541,7 @@ export default function OpsApp() {
               orders={state.orders}
             />
           )}
-          {activeTab === "Điều hành" && selectedOrder && (
+          {(activeTab === "Điều hành" || (currentRole === "dispatcher" && activeTab === "Lệnh điều xe")) && selectedOrder && (
             <DispatchPanel
               assignments={state.assignments}
               calendarMonth={calendarMonth}
@@ -4605,7 +4605,7 @@ export default function OpsApp() {
           )}
           {activeTab === "Audit" && (can(currentRole, "view_audit") ? <AuditPanel events={state.auditEvents} /> : <AccessDenied role={currentRole} />)}
         </div>
-        {currentRole !== "driver" && !salesShell && (
+        {currentRole !== "driver" && !salesShell && !dispatchShell && (
         <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white/95 backdrop-blur lg:hidden">
           <div className="flex gap-2 overflow-x-auto px-3 py-2">
             {visibleTabs.map((item) => {
