@@ -1973,6 +1973,7 @@ export default function OpsApp() {
   const [message, setMessage] = useState(supabaseConfigured ? "Đang kết nối Supabase..." : "Dữ liệu pilot lưu trên trình duyệt máy này.");
   const [now, setNow] = useState(() => new Date());
   const [isMobileViewport, setIsMobileViewport] = useState(() => (typeof window !== "undefined" ? window.matchMedia("(max-width: 1023px)").matches : false));
+  const [salesMobileCanBack, setSalesMobileCanBack] = useState(false);
   const pendingActionsRef = useRef(new Set<string>());
   const [pendingActions, setPendingActions] = useState<Set<string>>(() => new Set());
   const notificationsRef = useRef<HTMLDivElement | null>(null);
@@ -1986,6 +1987,15 @@ export default function OpsApp() {
     updateViewport();
     media.addEventListener("change", updateViewport);
     return () => media.removeEventListener("change", updateViewport);
+  }, []);
+
+  useEffect(() => {
+    const handleSalesScreen = (event: Event) => {
+      const screen = (event as CustomEvent<{ screen?: string }>).detail?.screen;
+      setSalesMobileCanBack(Boolean(screen && screen !== "overview"));
+    };
+    window.addEventListener("sales-mobile-screen", handleSalesScreen);
+    return () => window.removeEventListener("sales-mobile-screen", handleSalesScreen);
   }, []);
 
   const currentRole = roleState ?? "manager";
@@ -2943,6 +2953,15 @@ export default function OpsApp() {
       });
     });
     formElement.reset();
+    window.dispatchEvent(new CustomEvent("sales-order-created", {
+      detail: {
+        orderCode: order.code,
+        orderId: order.id,
+        route: routeSummaryForOrder(order),
+        vehicle: order.vehiclePlateNo || order.externalVehiclePlate || "Chờ điều hành phân xe",
+        driver: order.driverFullName || order.externalDriverName || "Chờ điều hành phân tài xế"
+      }
+    }));
     } finally {
       endAction(actionKey);
     }
@@ -4206,6 +4225,7 @@ export default function OpsApp() {
 
   const driverMobileShell = currentRole === "driver" && isMobileViewport;
   const salesShell = currentRole === "sale";
+  const showSalesBackButton = salesShell && activeTab === "Lệnh điều xe" && salesMobileCanBack;
 
   return (
     <main className={`min-h-screen ${driverMobileShell || salesShell ? "bg-[#f6f9fb]" : ""}`}>
@@ -4298,7 +4318,7 @@ export default function OpsApp() {
                 onClick={() => window.dispatchEvent(new Event("sales-mobile-back"))}
                 type="button"
               >
-                <Menu size={24} />
+                {showSalesBackButton ? <ChevronLeft size={26} /> : <Menu size={24} />}
               </button>
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-gradient-to-br from-brand to-teal-600 text-white shadow-[0_10px_24px_rgba(15,118,110,0.25)] lg:h-11 lg:w-11">
@@ -5728,9 +5748,10 @@ function OrdersPanel({
   const canOperate = can(currentRole, "assign_vehicle");
   const canFinance = can(currentRole, "record_payment") || can(currentRole, "update_invoice") || can(currentRole, "close_order");
   const canViewInternalMoney = currentRole === "accountant" || currentRole === "manager" || currentRole === "admin";
-  const [salesScreen, setSalesScreen] = useState<"overview" | "orders" | "create" | "detail" | "edit">("overview");
+  const [salesScreen, setSalesScreen] = useState<"overview" | "orders" | "create" | "detail" | "edit" | "success">("overview");
   const [salesEditSection, setSalesEditSection] = useState<SalesEditSection>("customer");
-  const [salesMobileView, setSalesMobileView] = useState<"list" | "create" | "detail">("list");
+  const [salesMobileView, setSalesMobileView] = useState<"list" | "create" | "detail" | "success">("list");
+  const [salesSuccess, setSalesSuccess] = useState({ orderCode: "", orderId: "", route: "", vehicle: "", driver: "" });
   const [salesFilter, setSalesFilter] = useState<"all" | "pending" | "need_fix" | "approved" | "soon" | "unpaid">("all");
   const [salesCreateStep, setSalesCreateStep] = useState(1);
   const [salesDraftPreview, setSalesDraftPreview] = useState({
@@ -5839,10 +5860,27 @@ function OrdersPanel({
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
   useEffect(() => {
+    window.dispatchEvent(new CustomEvent("sales-mobile-screen", { detail: { screen: salesScreen } }));
+  }, [salesScreen]);
+
+  useEffect(() => {
+    const handleSalesCreated = (event: Event) => {
+      const detail = (event as CustomEvent<typeof salesSuccess>).detail;
+      if (!detail?.orderCode) return;
+      setSalesSuccess(detail);
+      setSalesScreen("success");
+      setSalesMobileView("success");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+    window.addEventListener("sales-order-created", handleSalesCreated);
+    return () => window.removeEventListener("sales-order-created", handleSalesCreated);
+  }, []);
+
+  useEffect(() => {
     if (!canCreateOrder) return;
     const handleSalesMobileBack = () => {
       if (salesScreen === "overview") return;
-      if (salesScreen === "orders") {
+      if (salesScreen === "orders" || salesScreen === "success") {
         setSalesScreen("overview");
         setSalesMobileView("list");
         window.scrollTo({ top: 0, behavior: "smooth" });
@@ -6335,17 +6373,60 @@ function OrdersPanel({
               {salesCreateStep === 1 ? "Danh sách" : "Quay lại"}
             </button>
             {salesCreateStep < 6 ? (
-              <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-bold text-white hover:bg-teal-800 md:rounded-md" onClick={() => setSalesCreateStep((step) => Math.min(step + 1, 6))} type="button">
+              <button
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-bold text-white hover:bg-teal-800 md:rounded-md"
+                onClick={(event) => {
+                  const form = event.currentTarget.form;
+                  if (form) refreshSalesDraftPreview(form);
+                  setSalesCreateStep((step) => Math.min(step + 1, 6));
+                }}
+                type="button"
+              >
                 Tiếp tục <ChevronRight size={16} />
               </button>
             ) : (
-              <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-bold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300 md:rounded-md" disabled={!canCreateOrder || isActionPending("order:create")} type="submit">
+              <button
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-bold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300 md:rounded-md"
+                disabled={!canCreateOrder || isActionPending("order:create")}
+                onClick={(event) => {
+                  const form = event.currentTarget.form;
+                  if (form) refreshSalesDraftPreview(form);
+                }}
+                type="submit"
+              >
                 <Save size={16} /> {isActionPending("order:create") ? "Đang gửi..." : "Xác nhận & Gửi đề xuất"}
               </button>
             )}
           </div>
         </div>
       </form>
+      )}
+
+      {canCreateOrder && salesScreen === "success" && (
+        <section className="mx-auto max-w-md rounded-[24px] border border-teal-100 bg-white px-6 py-8 text-center shadow-[0_16px_40px_rgba(15,23,42,0.10)]">
+          <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-brand to-teal-500 text-white shadow-[0_12px_28px_rgba(15,118,110,0.28)]">
+            <CheckCircle2 size={42} />
+          </div>
+          <h3 className="mt-5 text-xl font-extrabold text-ink">Đã gửi đề xuất thành công</h3>
+          <p className="mt-2 text-2xl font-extrabold text-brand">{salesSuccess.orderCode}</p>
+          <div className="mt-5 divide-y divide-line rounded-2xl border border-line bg-slate-50/70 px-4 text-left text-sm">
+            <InfoLine label="Hành trình" value={salesSuccess.route || "-"} />
+            <InfoLine label="Xe" value={salesSuccess.vehicle || "Chờ điều hành phân xe"} />
+            <InfoLine label="Tài xế" value={salesSuccess.driver || "Chờ điều hành phân tài xế"} />
+          </div>
+          <div className="mt-6 grid gap-3">
+            <button
+              className="inline-flex h-12 items-center justify-center rounded-xl border border-brand bg-white px-4 text-sm font-extrabold text-brand"
+              onClick={() => salesSuccess.orderId ? openSalesDetail(salesSuccess.orderId) : openSalesOrders()}
+              type="button"
+            >
+              Xem chi tiết lệnh
+            </button>
+            <button className="inline-flex h-12 items-center justify-center rounded-xl bg-brand px-4 text-sm font-extrabold text-white" onClick={openSalesOrders} type="button">
+              Quay về danh sách
+            </button>
+          </div>
+        </section>
       )}
 
       {canCreateOrder && salesScreen === "overview" && driverDraftProposals.length > 0 && (
@@ -6504,7 +6585,7 @@ function OrdersPanel({
         )}
         </div>
       </div>
-      {canCreateOrder && salesMobileView !== "create" && (
+      {canCreateOrder && salesMobileView !== "create" && salesMobileView !== "success" && (
         <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-white/95 px-5 pb-4 pt-2 shadow-[0_-10px_28px_rgba(15,23,42,0.08)] backdrop-blur md:hidden">
           <div className="mx-auto grid max-w-md grid-cols-5 items-end gap-1 text-[11px] font-bold text-slate-500">
             <button className={`grid justify-items-center gap-1 ${salesScreen === "overview" ? "text-brand" : ""}`} onClick={openSalesOverview} type="button">
@@ -6665,25 +6746,8 @@ function SalesOrderPreview({
             </span>
             <ChevronRight className="text-slate-400" size={18} />
           </button>
-          <div className="mt-4 grid gap-4 md:grid-cols-[1fr_auto]">
-            <div className="space-y-4 text-sm">
-              <div className="flex gap-3">
-                <span className="mt-1 h-3 w-3 rounded-full bg-brand" />
-                <div>
-                  <p className="font-bold text-ink">{timeOnly(order.startAt)} - {dateOnly(order.startAt)}</p>
-                  <p className="text-slate-600">Điểm đón</p>
-                  <p className="font-semibold text-ink">{order.pickup}</p>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <span className="mt-1 h-3 w-3 rounded-full bg-red-500" />
-                <div>
-                  <p className="font-bold text-ink">{timeOnly(order.endAt)} - {dateOnly(order.endAt)}</p>
-                  <p className="text-slate-600">Điểm trả</p>
-                  <p className="font-semibold text-ink">{order.dropoff}</p>
-                </div>
-              </div>
-            </div>
+          <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_180px]">
+            <RouteTimelineCard order={order} />
             <div className="rounded-2xl border border-line bg-slate-50 p-4 text-center">
               <p className="text-lg font-extrabold text-ink">{order.vehiclePlateNo || order.externalVehiclePlate || "Chưa có xe"}</p>
               <p className="mt-1 text-sm text-slate-500">{order.serviceLabel} / {order.guestCount ?? "-"} khách</p>
@@ -6760,6 +6824,44 @@ function SalesOrderPreview({
         </button>
       </div>
     </section>
+  );
+}
+
+function RouteTimelineCard({ order }: { order: DispatchOrder }) {
+  const legs = routeLegsForOrder(order);
+  return (
+    <div className="space-y-3">
+      {legs.map((leg, index) => (
+        <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-3 text-sm" key={`${leg.pickup}-${leg.dropoff}-${index}`}>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <span className="rounded-full bg-white px-3 py-1 text-xs font-extrabold text-brand ring-1 ring-teal-100">Chặng {index + 1}</span>
+            <span className="text-xs font-semibold text-slate-500">
+              {leg.startAt ? `${timeOnly(leg.startAt)} · ${dateOnly(leg.startAt)}` : "-"}
+            </span>
+          </div>
+          <div className="grid gap-3">
+            <div className="flex gap-3">
+              <span className="mt-1 h-3 w-3 shrink-0 rounded-full bg-brand" />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-slate-500">Đón khách</p>
+                <p className="break-words font-bold text-ink">{leg.pickup || "-"}</p>
+              </div>
+            </div>
+            <div className="ml-1.5 h-5 border-l border-dashed border-slate-300" />
+            <div className="flex gap-3">
+              <span className="mt-1 h-3 w-3 shrink-0 rounded-full bg-red-500" />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-slate-500">
+                  Trả khách{leg.endAt ? ` · ${timeOnly(leg.endAt)} · ${dateOnly(leg.endAt)}` : ""}
+                </p>
+                <p className="break-words font-bold text-ink">{leg.dropoff || "-"}</p>
+              </div>
+            </div>
+          </div>
+          {leg.note && <p className="mt-3 rounded-xl bg-white px-3 py-2 text-xs font-medium text-slate-600">Ghi chú: {leg.note}</p>}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -7040,7 +7142,7 @@ function InfoLine({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-start justify-between gap-4 py-2 first:pt-0 last:pb-0">
       <span className="shrink-0 text-slate-500">{label}</span>
-      <span className="min-w-0 text-right font-semibold text-ink">{value}</span>
+      <span className="min-w-0 break-words text-right font-semibold text-ink">{value}</span>
     </div>
   );
 }
@@ -7458,14 +7560,34 @@ function CustomersPanel({
   orders: DispatchOrder[];
 }) {
   const canCreateProfile = can(currentRole, "create_order");
+  const salesStyle = currentRole === "sale";
 
   return (
-    <section className="space-y-4">
+    <section className={salesStyle ? "space-y-4" : "space-y-4"}>
+      {salesStyle && (
+        <section className="overflow-hidden rounded-[22px] border border-teal-100 bg-white shadow-[0_10px_28px_rgba(15,23,42,0.08)]">
+          <div className="bg-gradient-to-r from-brand to-teal-600 px-4 py-4 text-white">
+            <h3 className="text-lg font-extrabold">Khách hàng</h3>
+            <p className="mt-1 text-xs font-medium text-teal-50">Tạo nhanh hồ sơ và chọn lại khi lập lệnh.</p>
+          </div>
+          <div className="grid grid-cols-3 divide-x divide-line px-3 py-4 text-center">
+            <StatMini label="Cá nhân" value={String(customers.length)} />
+            <StatMini label="Doanh nghiệp" value={String(companies.length)} />
+            <StatMini label="Contact" value={String(companyContacts.length)} />
+          </div>
+        </section>
+      )}
+
       <div className="grid gap-4 xl:grid-cols-2">
-        <form className="border border-line bg-white p-4 shadow-sm" onSubmit={createCustomer}>
+        <form className={`${salesStyle ? "rounded-[22px] border border-line bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)]" : "border border-line bg-white p-4 shadow-sm"}`} onSubmit={createCustomer}>
           <div className="flex items-center gap-2">
-            <UserRound className="text-brand" size={20} />
-            <h3 className="font-semibold text-ink">Khách cá nhân</h3>
+            <span className={salesStyle ? "grid h-10 w-10 place-items-center rounded-full bg-teal-50 text-brand" : "text-brand"}>
+              <UserRound size={20} />
+            </span>
+            <div>
+              <h3 className="font-extrabold text-ink">Khách cá nhân</h3>
+              {salesStyle && <p className="text-sm text-slate-500">Dùng cho khách lẻ, gia đình, khách du lịch.</p>}
+            </div>
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <Field label="Họ tên"><input className={inputClass()} name="fullName" required /></Field>
@@ -7473,15 +7595,20 @@ function CustomersPanel({
             <Field label="Email"><input className={inputClass()} name="email" type="email" /></Field>
             <Field label="Địa chỉ"><input className={inputClass()} name="address" /></Field>
           </div>
-          <button className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canCreateProfile} type="submit">
+          <button className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-extrabold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canCreateProfile} type="submit">
             <Save size={16} /> Lưu khách cá nhân
           </button>
         </form>
 
-        <form className="border border-line bg-white p-4 shadow-sm" onSubmit={createCompany}>
+        <form className={`${salesStyle ? "rounded-[22px] border border-line bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)]" : "border border-line bg-white p-4 shadow-sm"}`} onSubmit={createCompany}>
           <div className="flex items-center gap-2">
-            <UsersRound className="text-brand" size={20} />
-            <h3 className="font-semibold text-ink">Doanh nghiệp + contact</h3>
+            <span className={salesStyle ? "grid h-10 w-10 place-items-center rounded-full bg-teal-50 text-brand" : "text-brand"}>
+              <UsersRound size={20} />
+            </span>
+            <div>
+              <h3 className="font-extrabold text-ink">Doanh nghiệp + contact</h3>
+              {salesStyle && <p className="text-sm text-slate-500">Lưu công ty, MST, hóa đơn và người liên hệ.</p>}
+            </div>
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <Field label="Tên công ty"><input className={inputClass()} name="legalName" required /></Field>
@@ -7493,44 +7620,46 @@ function CustomersPanel({
             <Field label="Email contact"><input className={inputClass()} name="contactEmail" type="email" /></Field>
             <Field label="Chức vụ"><input className={inputClass()} name="position" /></Field>
           </div>
-          <button className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canCreateProfile} type="submit">
+          <button className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-extrabold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canCreateProfile} type="submit">
             <Save size={16} /> Lưu doanh nghiệp
           </button>
         </form>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <section className="border border-line bg-white shadow-sm">
+        <section className={`${salesStyle ? "overflow-hidden rounded-[22px] border border-line bg-white shadow-[0_10px_28px_rgba(15,23,42,0.08)]" : "border border-line bg-white shadow-sm"}`}>
           <div className="border-b border-line px-4 py-3">
-            <h3 className="font-semibold text-ink">Danh sách khách cá nhân</h3>
+            <h3 className="font-extrabold text-ink">Danh sách khách cá nhân</h3>
           </div>
-          <div className="divide-y divide-line">
+          <div className={salesStyle ? "space-y-3 p-3" : "divide-y divide-line"}>
             {customers.map((customer) => {
               const tripCount = orders.filter((order) => order.customerKind === "individual" && order.contactPhone === customer.phone).length;
               return (
-                <div className="grid gap-2 px-4 py-3 text-sm md:grid-cols-[1fr_130px_90px]" key={customer.id}>
+                <div className={`${salesStyle ? "rounded-2xl border border-line bg-slate-50/60 p-3" : "grid gap-2 px-4 py-3 md:grid-cols-[1fr_130px_90px]"} text-sm`} key={customer.id}>
                   <div>
                     <p className="font-semibold text-ink">{customer.fullName}</p>
                     <p className="text-xs text-slate-500">{customer.phone} / {customer.email || "no email"}</p>
                   </div>
-                  <p className="text-slate-600">{tripCount} lệnh</p>
-                  <Badge tone={customer.status === "active" ? "good" : "warn"}>{customer.status}</Badge>
+                  <div className={salesStyle ? "mt-3 flex items-center justify-between" : "contents"}>
+                    <p className="text-slate-600">{tripCount} lệnh</p>
+                    <Badge tone={customer.status === "active" ? "good" : "warn"}>{customer.status}</Badge>
+                  </div>
                 </div>
               );
             })}
           </div>
         </section>
 
-        <section className="border border-line bg-white shadow-sm">
+        <section className={`${salesStyle ? "overflow-hidden rounded-[22px] border border-line bg-white shadow-[0_10px_28px_rgba(15,23,42,0.08)]" : "border border-line bg-white shadow-sm"}`}>
           <div className="border-b border-line px-4 py-3">
-            <h3 className="font-semibold text-ink">Danh sách doanh nghiệp</h3>
+            <h3 className="font-extrabold text-ink">Danh sách doanh nghiệp</h3>
           </div>
-          <div className="divide-y divide-line">
+          <div className={salesStyle ? "space-y-3 p-3" : "divide-y divide-line"}>
             {companies.map((company) => {
               const contacts = companyContacts.filter((contact) => contact.companyId === company.id);
               const tripCount = orders.filter((order) => order.companyName === company.legalName).length;
               return (
-                <div className="px-4 py-3 text-sm" key={company.id}>
+                <div className={`${salesStyle ? "rounded-2xl border border-line bg-slate-50/60 p-3" : "px-4 py-3"} text-sm`} key={company.id}>
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="font-semibold text-ink">{company.legalName}</p>
