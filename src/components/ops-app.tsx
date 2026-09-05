@@ -7496,106 +7496,205 @@ function DispatchPanel({
   }
 
   function renderAssignmentForm(compactForm = false) {
+    const canSubmitAssignment = canAssignSelectedOrder &&
+      blockingAssignmentIssues.length === 0 &&
+      (assignmentMode === "rented" || Boolean(selectedAssignmentChoice.vehicleId && selectedAssignmentChoice.driverId));
+    const selectedVehicleOrderCount = draftVehicle ? todayOrders.filter((order) => order.vehicleId === draftVehicle.id).length : 0;
+    const selectedDriverOrderCount = draftDriver ? todayOrders.filter((order) => order.driverId === draftDriver.id).length : 0;
+
     return (
-      <form className="rounded-xl border border-line bg-white p-4 shadow-sm" onSubmit={assignOrder}>
+      <form className={`rounded-[22px] border border-line bg-white shadow-sm ${compactForm ? "p-4" : "p-5"}`} onSubmit={assignOrder}>
+        <input name="assignmentMode" type="hidden" value={assignmentMode} />
+        {assignmentMode === "company" && (
+          <>
+            <input name="vehicleId" type="hidden" value={selectedAssignmentChoice.vehicleId} />
+            <input name="driverId" type="hidden" value={selectedAssignmentChoice.driverId} />
+          </>
+        )}
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-slate-500">Điều xe</p>
-            <h3 className="text-xl font-bold text-ink">Chọn xe phù hợp</h3>
+            <p className="text-sm font-extrabold text-slate-500">Điều xe</p>
+            <h3 className="text-2xl font-extrabold leading-tight text-ink">Chọn xe phù hợp</h3>
           </div>
           <Badge tone={canAssignSelectedOrder ? "good" : "warn"}>{canAssignSelectedOrder ? "Có thể điều" : "Chưa duyệt"}</Badge>
         </div>
-        <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs font-bold text-slate-500">
-          {["Chọn xe", "Xác nhận", "Hoàn tất"].map((label, index) => (
-            <div className="space-y-1" key={label}>
-              <span className={`mx-auto grid h-7 w-7 place-items-center rounded-full ${index === 0 ? "bg-brand text-white" : "bg-slate-100 text-slate-500"}`}>{index + 1}</span>
-              <span>{label}</span>
+
+        <div className="mt-5 grid grid-cols-3 gap-2 text-center text-xs font-extrabold text-slate-500">
+          {["Chọn xe", "Xác nhận", "Hoàn tất"].map((label, index) => {
+            const active = index === 0 || (index === 1 && selectedAssignmentChoice.vehicleId && selectedAssignmentChoice.driverId);
+            return (
+              <div className="relative" key={label}>
+                {index > 0 && <span className="absolute right-1/2 top-3 -z-0 h-px w-full bg-slate-200" />}
+                <span className={`relative z-10 mx-auto grid size-7 place-items-center rounded-full ${active ? "bg-brand text-white" : "bg-slate-100 text-slate-400"}`}>{index + 1}</span>
+                <span className="mt-1 block">{label}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-5 rounded-2xl border border-line bg-slate-50 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-extrabold text-slate-500">Thông tin lệnh</p>
+              <p className="mt-1 text-lg font-extrabold text-ink">{selectedOrder.code}</p>
             </div>
+            <Badge tone={statusTone(selectedOrder)}>{dispatchLabels[selectedOrder.dispatchStatus]}</Badge>
+          </div>
+          <div className="mt-3 grid gap-2 text-sm font-semibold text-slate-600 sm:grid-cols-2">
+            <span className="truncate">{routeSummaryForOrder(selectedOrder)}</span>
+            <span>{dateOnly(selectedOrder.startAt)} · {timeOnly(selectedOrder.startAt)}</span>
+            <span>{selectedOrder.guestCount ?? "-"} khách</span>
+            <span>{selectedOrder.serviceLabel || selectedOrder.contractType || "Dịch vụ vận tải"}</span>
+          </div>
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1">
+          {[
+            { id: "company", label: "Xe công ty" },
+            { id: "rented", label: "Thuê ngoài" }
+          ].map((item) => (
+            <button
+              className={`h-10 rounded-xl text-sm font-extrabold transition ${assignmentMode === item.id ? "bg-white text-brand shadow-sm" : "text-slate-500"}`}
+              key={item.id}
+              onClick={() => setAssignmentModeState({ orderId: selectedOrder.id, mode: item.id as NonNullable<DispatchOrder["vehicleOwnership"]> })}
+              type="button"
+            >
+              {item.label}
+            </button>
           ))}
         </div>
-        <div className="mt-4 rounded-lg border border-line bg-panel p-3">
-          <p className="text-sm font-bold text-ink">Thông tin lệnh</p>
-          <InfoRow label="Mã lệnh" value={selectedOrder.code} />
-          <InfoRow label="Tuyến" value={routeSummaryForOrder(selectedOrder)} />
-          <InfoRow label="Thời gian" value={`${timeOnly(selectedOrder.startAt)} · ${dateOnly(selectedOrder.startAt)}`} />
-          <InfoRow label="Số khách" value={`${selectedOrder.guestCount ?? "-"} khách`} />
-        </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
+
+        <div className="mt-5 grid gap-4">
           {selectedOrder.orderStatus !== "confirmed" && (
-            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 md:col-span-2">Lệnh chưa được duyệt nên chưa thể phân xe/tài xế.</p>
+            <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">Lệnh chưa được duyệt nên chưa thể phân xe/tài xế.</p>
           )}
-          <Field label="Nguồn xe">
-            <select className={inputClass()} name="assignmentMode" onChange={(event) => setAssignmentModeState({ orderId: selectedOrder.id, mode: event.target.value as NonNullable<DispatchOrder["vehicleOwnership"]> })} value={assignmentMode}>
-              <option value="company">Xe công ty</option>
-              <option value="rented">Thuê ngoài</option>
-            </select>
-          </Field>
+
           {assignmentMode === "company" ? (
             <>
-              <Field label="Xe">
-                <select className={inputClass()} name="vehicleId" onChange={(event) => setAssignmentChoice({ ...selectedAssignmentChoice, orderId: selectedOrder.id, vehicleId: event.target.value })} required value={selectedAssignmentChoice.vehicleId}>
-                  {vehicles.map((item) => <option disabled={item.status !== "active"} key={item.id} value={item.id}>{vehicleOptionLabel(item)}</option>)}
-                </select>
-              </Field>
-              <Field label="Tài xế">
-                <select
-                  className={inputClass()}
-                  name="driverId"
-                  onChange={(event) => {
-                    const nextDriverId = event.target.value;
-                    const defaultVehicle = vehicles.find((item) => item.defaultDriverId === nextDriverId);
-                    setAssignmentChoice({ orderId: selectedOrder.id, driverId: nextDriverId, vehicleId: defaultVehicle?.id ?? selectedAssignmentChoice.vehicleId });
-                  }}
-                  required
-                  value={selectedAssignmentChoice.driverId}
-                >
-                  {drivers.map((item) => <option disabled={item.status !== "active"} key={item.id} value={item.id}>{driverOptionLabel(item, vehicles)}</option>)}
-                </select>
-              </Field>
-              <div className="md:col-span-2">
-                <div className="grid gap-3 rounded-lg border border-line bg-panel p-3 md:grid-cols-2">
-                  <div>
-                    <p className="text-sm font-bold text-ink">{draftVehicle ? vehicleOptionLabel(draftVehicle) : "Chưa chọn xe"}</p>
-                    <p className="mt-1 text-xs text-slate-500">Trạng thái: {draftVehicle?.status ?? "-"}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-ink">{draftDriver ? `${draftDriver.fullName} / ${draftDriver.phone}` : "Chưa chọn tài xế"}</p>
-                    <p className="mt-1 text-xs text-slate-500">CCCD: {draftDriver?.cccd || "-"}</p>
-                  </div>
-                  <div className="md:col-span-2">
-                    {assignmentIssues.length === 0 ? (
-                      <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">Xe và tài xế đang rảnh trong khung giờ này.</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {assignmentIssues.map((issue) => (
-                          <p className={`rounded-lg border px-3 py-2 text-sm ${issue.tone === "block" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-amber-200 bg-amber-50 text-amber-900"}`} key={issue.text}>{issue.text}</p>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+              <section>
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h4 className="font-extrabold text-ink">Chọn xe phù hợp</h4>
+                  <span className="text-xs font-bold text-slate-500">{vehicles.length} xe</span>
                 </div>
-              </div>
+                <div className="grid gap-2">
+                  {vehicles.slice(0, compactForm ? 4 : 5).map((item) => {
+                    const selected = selectedAssignmentChoice.vehicleId === item.id;
+                    return (
+                      <button
+                        className={`flex items-center justify-between gap-3 rounded-2xl border p-3 text-left transition ${selected ? "border-brand bg-teal-50 shadow-sm" : "border-line bg-white hover:border-teal-200"} ${item.status !== "active" ? "opacity-50" : ""}`}
+                        disabled={item.status !== "active"}
+                        key={item.id}
+                        onClick={() => {
+                          const defaultDriver = drivers.find((driverItem) => driverItem.id === item.defaultDriverId);
+                          setAssignmentChoice({
+                            orderId: selectedOrder.id,
+                            driverId: defaultDriver?.id ?? selectedAssignmentChoice.driverId,
+                            vehicleId: item.id
+                          });
+                        }}
+                        type="button"
+                      >
+                        <span className="flex min-w-0 items-center gap-3">
+                          <span className={`grid size-10 shrink-0 place-items-center rounded-xl ${selected ? "bg-brand text-white" : "bg-blue-50 text-blue-700"}`}><Car size={19} /></span>
+                          <span className="min-w-0">
+                            <span className="block truncate font-extrabold text-ink">{item.plateNo}</span>
+                            <span className="block truncate text-xs font-semibold text-slate-500">{item.type} · {item.seats} chỗ · {selectedVehicleOrderCount} chuyến hôm nay</span>
+                          </span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-2">
+                          <Badge tone={item.status === "active" ? "good" : "warn"}>{item.status === "active" ? "Sẵn sàng" : item.status}</Badge>
+                          <span className={`grid size-5 place-items-center rounded-full border ${selected ? "border-brand bg-brand text-white" : "border-slate-300 bg-white"}`}>{selected && <CheckCircle2 size={14} />}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <section>
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h4 className="font-extrabold text-ink">Chọn tài xế</h4>
+                  <span className="text-xs font-bold text-slate-500">{drivers.length} tài xế</span>
+                </div>
+                <div className="grid gap-2">
+                  {drivers.slice(0, compactForm ? 4 : 5).map((item) => {
+                    const selected = selectedAssignmentChoice.driverId === item.id;
+                    const initials = item.fullName.split(" ").slice(-2).map((part) => part[0]).join("").toUpperCase();
+                    return (
+                      <button
+                        className={`flex items-center justify-between gap-3 rounded-2xl border p-3 text-left transition ${selected ? "border-brand bg-teal-50 shadow-sm" : "border-line bg-white hover:border-teal-200"} ${item.status !== "active" ? "opacity-50" : ""}`}
+                        disabled={item.status !== "active"}
+                        key={item.id}
+                        onClick={() => {
+                          const defaultVehicle = vehicles.find((vehicleItem) => vehicleItem.defaultDriverId === item.id);
+                          setAssignmentChoice({
+                            orderId: selectedOrder.id,
+                            driverId: item.id,
+                            vehicleId: defaultVehicle?.id ?? selectedAssignmentChoice.vehicleId
+                          });
+                        }}
+                        type="button"
+                      >
+                        <span className="flex min-w-0 items-center gap-3">
+                          <span className={`grid size-10 shrink-0 place-items-center rounded-full text-sm font-extrabold ${selected ? "bg-brand text-white" : "bg-slate-100 text-slate-700"}`}>{initials || "TX"}</span>
+                          <span className="min-w-0">
+                            <span className="block truncate font-extrabold text-ink">{item.fullName}</span>
+                            <span className="block truncate text-xs font-semibold text-slate-500">{item.phone} · {selectedDriverOrderCount} chuyến hôm nay</span>
+                          </span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-2">
+                          <Badge tone={item.status === "active" ? "good" : "warn"}>{item.status === "active" ? "Sẵn sàng" : item.status}</Badge>
+                          <span className={`grid size-5 place-items-center rounded-full border ${selected ? "border-brand bg-brand text-white" : "border-slate-300 bg-white"}`}>{selected && <CheckCircle2 size={14} />}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <section className="rounded-2xl border border-line bg-slate-50 p-4">
+                <h4 className="font-extrabold text-ink">Xác nhận</h4>
+                <div className="mt-3 grid gap-2 text-sm">
+                  <InfoLine label="Xe" value={draftVehicle ? vehicleOptionLabel(draftVehicle) : "Chưa chọn xe"} />
+                  <InfoLine label="Tài xế" value={draftDriver ? `${draftDriver.fullName} / ${draftDriver.phone}` : "Chưa chọn tài xế"} />
+                  <InfoLine label="Khung giờ" value={`${timeOnly(selectedOrder.startAt)} - ${timeOnly(selectedOrder.endAt)}`} />
+                </div>
+                <div className="mt-3">
+                  {assignmentIssues.length === 0 ? (
+                    <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800">Xe và tài xế đang rảnh trong khung giờ này.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {assignmentIssues.map((issue) => (
+                        <p className={`rounded-xl border px-3 py-2 text-sm font-semibold ${issue.tone === "block" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-amber-200 bg-amber-50 text-amber-900"}`} key={issue.text}>{issue.text}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </section>
+              <Field label="Ghi chú phân công"><textarea className={textAreaClass()} name="reason" placeholder="Ví dụ: ưu tiên xe quen tuyến, khách đổi giờ..." /></Field>
             </>
           ) : (
-            <>
+            <div className="grid gap-3 md:grid-cols-2">
               <Field label="Biển số xe ngoài *"><input className={inputClass()} defaultValue={selectedOrder.externalVehiclePlate || selectedOrder.vehiclePlateNo || ""} name="externalVehiclePlate" required /></Field>
               <Field label="Loại xe / số chỗ *"><input className={inputClass()} defaultValue={selectedOrder.externalVehicleType || ""} name="externalVehicleType" required /></Field>
               <Field label="Tên tài xế ngoài *"><input className={inputClass()} defaultValue={selectedOrder.externalDriverName || selectedOrder.driverFullName || ""} name="externalDriverName" required /></Field>
               <Field label="SĐT tài xế ngoài *"><input className={inputClass()} defaultValue={selectedOrder.externalDriverPhone || selectedOrder.driverPhone || ""} name="externalDriverPhone" required /></Field>
               <Field label="Giá mua dự kiến *"><input className={inputClass()} defaultValue={selectedOrder.supplierTotalWithVat ?? selectedOrder.vehicleCost ?? 0} min="0" name="externalPurchaseAmount" required type="number" /></Field>
-            </>
+              <div className="md:col-span-2">
+                <Field label="Ghi chú phân công"><textarea className={textAreaClass()} name="reason" placeholder="Ví dụ: nhà xe ngoài đã xác nhận giờ đón..." /></Field>
+              </div>
+            </div>
           )}
-          <div className="md:col-span-2">
-            <Field label="Ghi chú phân công"><textarea className={textAreaClass()} name="reason" placeholder="Ví dụ: ưu tiên xe quen tuyến, khách đổi giờ..." /></Field>
-          </div>
         </div>
-        <button className="mt-4 inline-flex h-12 w-full items-center justify-center gap-2 rounded-md bg-brand px-4 text-sm font-bold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canAssignSelectedOrder || blockingAssignmentIssues.length > 0 || isActionPending(`dispatch:assign:${selectedOrder.id}`)} type="submit">
-          <Car size={18} /> {isActionPending(`dispatch:assign:${selectedOrder.id}`) ? "Đang điều xe..." : compactForm ? "Xác nhận điều xe" : "Điều xe"}
+
+        <button className="mt-5 inline-flex h-13 min-h-13 w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-4 text-base font-extrabold text-white shadow-[0_12px_26px_rgba(15,118,110,0.20)] hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={!canSubmitAssignment || isActionPending(`dispatch:assign:${selectedOrder.id}`)} type="submit">
+          <Car size={19} /> {isActionPending(`dispatch:assign:${selectedOrder.id}`) ? "Đang điều xe..." : "Xác nhận điều xe"}
         </button>
+
         {currentAssignmentHistory.length > 0 && (
-          <div className="mt-4 rounded-lg border border-line bg-panel p-3">
-            <p className="text-sm font-bold text-ink">Lịch sử phân xe</p>
-            <div className="mt-2 space-y-2 text-sm text-slate-600">
+          <div className="mt-4 rounded-2xl border border-line bg-slate-50 p-4">
+            <p className="text-sm font-extrabold text-ink">Lịch sử phân xe</p>
+            <div className="mt-2 space-y-2 text-sm font-semibold text-slate-600">
               {currentAssignmentHistory.map((item) => {
                 const assignedVehicle = vehicles.find((vehicleItem) => vehicleItem.id === item.vehicleId);
                 const assignedDriver = drivers.find((driverItem) => driverItem.id === item.driverId);
