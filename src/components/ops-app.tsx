@@ -3233,6 +3233,46 @@ export default function OpsApp() {
     runCommand("order.update_quote", (current) => updateQuoteStatusCommand(current, selectedOrder.id, nextStatus, audit), `Đã cập nhật báo giá ${selectedOrder.code}: ${quoteLabels[nextStatus]}.`);
   }
 
+  function resendSelectedOrderToDispatch() {
+    if (!selectedOrder) return;
+    if (!can(currentRole, "create_order")) {
+      setMessage(`${roleLabels[currentRole]} không có quyền gửi lại điều hành.`);
+      return;
+    }
+
+    const nextOrder: DispatchOrder = {
+      ...selectedOrder,
+      orderStatus: "pending_dispatch_review",
+      dispatchStatus: selectedOrder.dispatchStatus === "cancelled" ? "waiting_assignment" : selectedOrder.dispatchStatus,
+      salesNote: selectedOrder.salesNote ? `${selectedOrder.salesNote} | Sales gửi lại điều hành` : "Sales gửi lại điều hành"
+    };
+
+    runCommand(
+      "order.submit_proposal",
+      (current) => ({
+        ...current,
+        orders: current.orders.map((order) => (order.id === selectedOrder.id ? nextOrder : order)),
+        auditEvents: [
+          audit({
+            actor: "Sale",
+            entityType: "dispatch_order",
+            entityId: selectedOrder.id,
+            action: "resent_dispatch_proposal",
+            reason: "Sales resent order to dispatcher review"
+          }),
+          ...current.auditEvents
+        ]
+      }),
+      `Đã gửi lại ${selectedOrder.code} vào hàng chờ điều hành duyệt.`
+    );
+    notifyMany(["dispatcher", "manager", "admin"], {
+      eventType: "sales_order_resent_to_dispatch",
+      title: "Sales gửi lại lệnh",
+      body: `${selectedOrder.code} / ${selectedOrder.customerName}`,
+      entityId: selectedOrder.id
+    });
+  }
+
   async function assignOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedOrder) return;
@@ -4431,10 +4471,12 @@ export default function OpsApp() {
               setCustomerKind={setCustomerKind}
               setQuery={setQuery}
               setSelectedOrderId={setSelectedOrderId}
+              setTab={setTab}
               vehicles={state.vehicles}
               createOrder={createOrder}
               cancelOrder={cancelOrder}
               promoteDriverProposalToDispatch={promoteDriverProposalToDispatch}
+              resendSelectedOrderToDispatch={resendSelectedOrderToDispatch}
               updateOrder={updateOrder}
               updateQuoteStatus={updateQuoteStatus}
             />
@@ -5646,9 +5688,11 @@ function OrdersPanel({
   setCustomerKind,
   setQuery,
   setSelectedOrderId,
+  setTab,
   createOrder,
   cancelOrder,
   promoteDriverProposalToDispatch,
+  resendSelectedOrderToDispatch,
   updateOrder,
   updateQuoteStatus,
   vehicles
@@ -5670,9 +5714,11 @@ function OrdersPanel({
   setCustomerKind: (kind: DispatchOrder["customerKind"]) => void;
   setQuery: (query: string) => void;
   setSelectedOrderId: (id: string) => void;
+  setTab: (tab: Tab) => void;
   createOrder: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   cancelOrder: (event: FormEvent<HTMLFormElement>) => void;
   promoteDriverProposalToDispatch: (orderId: string) => Promise<void>;
+  resendSelectedOrderToDispatch: () => void;
   updateOrder: (event: FormEvent<HTMLFormElement>) => void;
   updateQuoteStatus: (nextStatus: QuoteStatus) => void;
   vehicles: Vehicle[];
@@ -5681,9 +5727,9 @@ function OrdersPanel({
   const canOperate = can(currentRole, "assign_vehicle");
   const canFinance = can(currentRole, "record_payment") || can(currentRole, "update_invoice") || can(currentRole, "close_order");
   const canViewInternalMoney = currentRole === "accountant" || currentRole === "manager" || currentRole === "admin";
-  const [salesScreen, setSalesScreen] = useState<"overview" | "orders" | "create" | "detail">("overview");
+  const [salesScreen, setSalesScreen] = useState<"overview" | "orders" | "create" | "detail" | "edit">("overview");
   const [salesMobileView, setSalesMobileView] = useState<"list" | "create" | "detail">("list");
-  const [salesFilter, setSalesFilter] = useState<"all" | "pending" | "need_fix" | "approved" | "soon">("all");
+  const [salesFilter, setSalesFilter] = useState<"all" | "pending" | "need_fix" | "approved" | "soon" | "unpaid">("all");
   const [salesCreateStep, setSalesCreateStep] = useState(1);
   const [salesDraftPreview, setSalesDraftPreview] = useState({
     customer: "Chưa nhập khách",
@@ -5708,6 +5754,7 @@ function OrdersPanel({
       if (salesFilter === "need_fix") return isNeedFixOrder(order);
       if (salesFilter === "approved") return order.orderStatus === "confirmed";
       if (salesFilter === "soon") return isSoonOrder(order);
+      if (salesFilter === "unpaid") return order.paymentStatus !== "paid";
       return true;
     })
     .sort((a, b) => new Date(b.startAt).getTime() - new Date(a.startAt).getTime() || b.code.localeCompare(a.code));
@@ -5769,6 +5816,17 @@ function OrdersPanel({
     setSelectedOrderId(orderId);
     setSalesScreen("detail");
     setSalesMobileView("detail");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  const openSalesEdit = () => {
+    setSalesScreen("edit");
+    setSalesMobileView("detail");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  const openSalesReceivables = () => {
+    setSalesFilter("unpaid");
+    setSalesScreen("orders");
+    setSalesMobileView("list");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
   const refreshSalesDraftPreview = (formElement: HTMLFormElement) => {
@@ -6279,9 +6337,9 @@ function OrdersPanel({
         {canViewInternalMoney && <StatMini label="Biên thấp < 15%" value={String(lowMarginCount)} />}
       </div>
 
-      <div className={canCreateOrder ? (salesScreen === "orders" || salesScreen === "detail" ? "block" : "hidden") : "block"}>
-        <div className={canCreateOrder && salesScreen === "detail" ? "mx-auto max-w-5xl" : canCreateOrder ? "block" : "grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.85fr)]"}>
-        <div className={`${canCreateOrder && salesScreen === "detail" ? "hidden" : "overflow-hidden rounded-[22px] border border-line bg-white shadow-[0_10px_28px_rgba(15,23,42,0.08)]"}`}>
+      <div className={canCreateOrder ? (salesScreen === "orders" || salesScreen === "detail" || salesScreen === "edit" ? "block" : "hidden") : "block"}>
+        <div className={canCreateOrder && (salesScreen === "detail" || salesScreen === "edit") ? "mx-auto max-w-5xl" : canCreateOrder ? "block" : "grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.85fr)]"}>
+        <div className={`${canCreateOrder && (salesScreen === "detail" || salesScreen === "edit") ? "hidden" : "overflow-hidden rounded-[22px] border border-line bg-white shadow-[0_10px_28px_rgba(15,23,42,0.08)]"}`}>
         <div className="flex flex-col gap-3 border-b border-line px-4 py-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h3 className="text-lg font-extrabold text-ink">Lệnh của tôi</h3>
@@ -6345,9 +6403,40 @@ function OrdersPanel({
         </div>
         </div>
         {selectedOrder && (
-          <div className={`${canCreateOrder && salesScreen !== "detail" ? "hidden" : ""} xl:sticky xl:top-4 xl:self-start`}>
+          <div className={`${canCreateOrder && salesScreen !== "detail" && salesScreen !== "edit" ? "hidden" : ""} xl:sticky xl:top-4 xl:self-start`}>
           {canCreateOrder ? (
-            <SalesOrderPreview order={selectedOrder} collectedAmount={selectedOrderCollected} onBack={openSalesOrders} />
+            salesScreen === "edit" ? (
+              <div className="space-y-3">
+                <button
+                  className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-white px-3 text-sm font-bold text-slate-700"
+                  onClick={() => openSalesDetail(selectedOrder.id)}
+                  type="button"
+                >
+                  <ChevronLeft size={16} /> Quay lại preview
+                </button>
+                <OrderDetailPanel
+                  assignments={assignments}
+                  auditEvents={auditEvents}
+                  currentRole={currentRole}
+                  drivers={drivers}
+                  order={selectedOrder}
+                  payments={payments}
+                  cancelOrder={cancelOrder}
+                  updateOrder={updateOrder}
+                  updateQuoteStatus={updateQuoteStatus}
+                  vehicles={vehicles}
+                />
+              </div>
+            ) : (
+              <SalesOrderPreview
+                order={selectedOrder}
+                collectedAmount={selectedOrderCollected}
+                onBack={openSalesOrders}
+                onEditCustomer={openSalesEdit}
+                onEditTrip={openSalesEdit}
+                onResend={resendSelectedOrderToDispatch}
+              />
+            )
           ) : (
             <OrderDetailPanel
               assignments={assignments}
@@ -6372,17 +6461,17 @@ function OrdersPanel({
             <button className={`grid justify-items-center gap-1 ${salesScreen === "overview" ? "text-brand" : ""}`} onClick={openSalesOverview} type="button">
               <TrendingUp size={22} /> Tổng quan
             </button>
-            <button className={`grid justify-items-center gap-1 ${salesScreen === "orders" || salesScreen === "detail" ? "text-brand" : ""}`} onClick={openSalesOrders} type="button">
+            <button className={`grid justify-items-center gap-1 ${salesScreen === "orders" || salesScreen === "detail" || salesScreen === "edit" ? "text-brand" : ""}`} onClick={openSalesOrders} type="button">
               <ClipboardList size={22} /> Lệnh
             </button>
             <button className="-mt-7 grid justify-items-center gap-1 text-brand" onClick={openSalesCreate} type="button">
               <span className="grid h-16 w-16 place-items-center rounded-full bg-gradient-to-r from-brand to-teal-600 text-white shadow-[0_12px_30px_rgba(15,118,110,0.32)] ring-4 ring-white"><Plus size={28} /></span>
               Tạo lệnh
             </button>
-            <button className="grid justify-items-center gap-1" type="button">
+            <button className="grid justify-items-center gap-1" onClick={() => setTab("Khách hàng")} type="button">
               <UsersRound size={22} /> Khách hàng
             </button>
-            <button className="grid justify-items-center gap-1" type="button">
+            <button className={`grid justify-items-center gap-1 ${salesFilter === "unpaid" && salesScreen === "orders" ? "text-brand" : ""}`} onClick={openSalesReceivables} type="button">
               <ReceiptText size={22} /> Công nợ
             </button>
           </div>
@@ -6422,7 +6511,21 @@ function SalesOrderCard({ onOpen, order, selected }: { onOpen: () => void; order
   );
 }
 
-function SalesOrderPreview({ collectedAmount, onBack, order }: { collectedAmount: number; onBack?: () => void; order: DispatchOrder }) {
+function SalesOrderPreview({
+  collectedAmount,
+  onBack,
+  onEditCustomer,
+  onEditTrip,
+  onResend,
+  order
+}: {
+  collectedAmount: number;
+  onBack?: () => void;
+  onEditCustomer?: () => void;
+  onEditTrip?: () => void;
+  onResend?: () => void;
+  order: DispatchOrder;
+}) {
   const remainingAmount = Math.max(order.amountDue - collectedAmount, 0);
   const vatAmount = Math.max(order.amountDue - (order.subtotalAmount ?? order.amountDue), 0);
   return (
@@ -6561,13 +6664,13 @@ function SalesOrderPreview({ collectedAmount, onBack, order }: { collectedAmount
       </div>
 
       <div className="grid gap-2 sm:grid-cols-3">
-        <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-line bg-white px-3 text-sm font-bold text-slate-700" type="button">
+        <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-line bg-white px-3 text-sm font-bold text-slate-700 disabled:opacity-50" disabled={!onEditCustomer} onClick={onEditCustomer} type="button">
           <UserRound size={16} /> Sửa khách hàng
         </button>
-        <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-line bg-white px-3 text-sm font-bold text-slate-700" type="button">
+        <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-line bg-white px-3 text-sm font-bold text-slate-700 disabled:opacity-50" disabled={!onEditTrip} onClick={onEditTrip} type="button">
           <MapPin size={16} /> Sửa hành trình
         </button>
-        <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-brand px-3 text-sm font-bold text-white" type="button">
+        <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-brand px-3 text-sm font-bold text-white disabled:bg-slate-300" disabled={!onResend} onClick={onResend} type="button">
           <Navigation size={16} /> Gửi lại điều hành
         </button>
       </div>
