@@ -12,6 +12,7 @@ import {
   ClipboardList,
   Clock3,
   FileText,
+  LogOut,
   MapPin,
   Menu,
   Navigation,
@@ -33,6 +34,7 @@ import {
   UsersRound
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   assignments as seedAssignments,
@@ -417,6 +419,55 @@ function Badge({ children, tone = "neutral" }: { children: React.ReactNode; tone
   }[tone];
 
   return <span className={`inline-flex h-7 items-center rounded-md border px-2 text-xs font-medium ${toneClass}`}>{children}</span>;
+}
+
+function readableAuthName(label: string, fallback: string) {
+  const trimmed = label.trim();
+  if (!trimmed || trimmed.startsWith("Đang ") || trimmed.startsWith("Chưa ") || trimmed.startsWith("Auth ") || trimmed === "Local demo") return fallback;
+  return trimmed;
+}
+
+function greetingName(label: string, fallback: string) {
+  return `Mr./Mrs. ${readableAuthName(label, fallback)}`;
+}
+
+function RoleAccountControls({
+  authLabel,
+  compact = false,
+  onSignOut,
+  roleLabel
+}: {
+  authLabel: string;
+  compact?: boolean;
+  onSignOut: () => void;
+  roleLabel: string;
+}) {
+  const name = readableAuthName(authLabel, "Người dùng");
+  return (
+    <div className={`flex items-center gap-2 ${compact ? "" : "rounded-2xl border border-line bg-white px-3 py-2"}`}>
+      {!compact && (
+        <div className="grid size-9 shrink-0 place-items-center rounded-full bg-teal-50 text-sm font-extrabold text-brand">
+          {name.slice(0, 1).toUpperCase()}
+        </div>
+      )}
+      {!compact && (
+        <div className="min-w-0">
+          <p className="truncate text-sm font-extrabold text-ink">{name}</p>
+          <p className="text-xs font-semibold text-slate-500">{roleLabel}</p>
+        </div>
+      )}
+      <Link className="inline-flex h-9 shrink-0 items-center justify-center rounded-xl border border-line bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50" href="/auth">
+        Đăng nhập
+      </Link>
+      <button
+        className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700 hover:bg-rose-100"
+        onClick={onSignOut}
+        type="button"
+      >
+        <LogOut size={15} /> Đăng xuất
+      </button>
+    </div>
+  );
 }
 
 function StatCard({ label, value, icon: Icon, detail }: { label: string; value: string; icon: typeof Car; detail: string }) {
@@ -2020,6 +2071,7 @@ function startupTiming(label: string, startedAt: number, detail?: Record<string,
 }
 
 export default function OpsApp() {
+  const router = useRouter();
   const repository = useMemo(() => createOpsRepository(storageKey), []);
   const persistedStateRef = useRef<OpsState | null>(null);
   const [tab, setTab] = useState<Tab>("Dashboard");
@@ -2276,6 +2328,23 @@ export default function OpsApp() {
       void supabase.removeChannel(channel);
     };
   }, [authUserId]);
+
+  async function signOutFromApp() {
+    try {
+      if (supabaseConfigured) {
+        const supabase = createSupabaseBrowserClient();
+        await supabase.auth.signOut();
+      }
+    } finally {
+      setRoleState(null);
+      setAuthUserId(null);
+      setAuthDriverId(undefined);
+      setAuthLabel("Chưa đăng nhập");
+      setShowNotifications(false);
+      setMessage("Đã đăng xuất. Vui lòng đăng nhập lại để vận hành.");
+      router.push("/auth");
+    }
+  }
 
   useEffect(() => {
     if (!supabaseConfigured || !authReady || !roleState) return;
@@ -4295,6 +4364,10 @@ export default function OpsApp() {
   const salesShell = currentRole === "sale";
   const dispatchShell = currentRole !== "driver" && currentRole !== "sale" && (activeTab === "Điều hành" || (currentRole === "dispatcher" && activeTab === "Lệnh điều xe"));
   const financeShell = currentRole === "accountant" && activeTab === "Tài chính";
+  const displayName = readableAuthName(authLabel, roleLabels[currentRole]);
+  const displayGreeting = greetingName(authLabel, roleLabels[currentRole]);
+  const userActions = <RoleAccountControls authLabel={authLabel} onSignOut={() => void signOutFromApp()} roleLabel={roleLabels[currentRole]} />;
+  const compactUserActions = <RoleAccountControls authLabel={authLabel} compact onSignOut={() => void signOutFromApp()} roleLabel={roleLabels[currentRole]} />;
 
   return (
     <main className={`min-h-screen ${driverMobileShell || salesShell || dispatchShell || financeShell ? "bg-[#f6f9fb]" : ""}`}>
@@ -4340,7 +4413,7 @@ export default function OpsApp() {
                   <Badge tone="good">Audit on</Badge>
                 </>
               )}
-              <Badge tone="info">{authLabel}</Badge>
+              <Badge tone="info">{displayName}</Badge>
               <Badge tone="info">{roleLabels[currentRole]}</Badge>
               <div className="relative" ref={notificationsRef}>
                 <button
@@ -4361,7 +4434,7 @@ export default function OpsApp() {
                   </div>
                 )}
               </div>
-              <Link className="inline-flex h-9 items-center rounded-md border border-line bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50" href="/auth">Auth</Link>
+              <RoleAccountControls authLabel={authLabel} compact onSignOut={() => void signOutFromApp()} roleLabel={roleLabels[currentRole]} />
               {currentRole === "admin" && canCleanTripData && (
                 <button
                   className="inline-flex h-9 items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 text-sm font-medium text-amber-900 hover:bg-amber-100"
@@ -4394,7 +4467,7 @@ export default function OpsApp() {
                   <Route size={25} />
                 </div>
                 <div className="min-w-0">
-                  <h1 className="truncate text-xl font-extrabold leading-tight text-ink lg:text-lg">Chào {authLabel || "Sales"}</h1>
+                  <h1 className="text-xl font-extrabold leading-tight text-ink lg:text-lg">Chào {displayGreeting}</h1>
                   <p className="text-sm font-medium text-slate-500">{vietnamFriendlyDate(now)}</p>
                 </div>
               </div>
@@ -4425,11 +4498,18 @@ export default function OpsApp() {
                   )}
                 </button>
                 <div className="hidden items-center gap-3 border-l border-line pl-4 lg:flex">
-                  <div className="grid h-11 w-11 place-items-center rounded-full bg-teal-50 text-sm font-bold text-brand">{(authLabel || "S").slice(0, 1).toUpperCase()}</div>
+                  <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-teal-50 text-sm font-bold text-brand">{displayName.slice(0, 1).toUpperCase()}</div>
                   <div>
-                    <p className="text-sm font-bold text-ink">{authLabel || "Sales"}</p>
+                    <p className="max-w-[220px] truncate text-sm font-bold text-ink" title={displayName}>{displayName}</p>
                     <p className="text-xs text-slate-500">Sales</p>
                   </div>
+                  <button
+                    className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700 hover:bg-rose-100"
+                    onClick={() => void signOutFromApp()}
+                    type="button"
+                  >
+                    <LogOut size={15} /> Đăng xuất
+                  </button>
                 </div>
                 {showNotifications && visibleNotifications.length > 0 && (
                   <div className="absolute right-0 top-14 z-30 w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-line bg-white p-2 text-sm shadow-xl">
@@ -4604,10 +4684,13 @@ export default function OpsApp() {
               updateOrder={updateOrder}
               vehicles={state.vehicles}
               compact={isMobileViewport}
+              accountControls={compactUserActions}
             />
           )}
           {activeTab === "Màn làm việc" && (
             <DriverMobilePanel
+              authLabel={authLabel}
+              onSignOut={() => void signOutFromApp()}
               currentRole={currentRole}
               drivers={state.drivers}
               mobileDriverId={mobileDriverId}
@@ -4642,6 +4725,7 @@ export default function OpsApp() {
               updateInvoiceStatus={updateInvoiceStatus}
               reconcileOrder={reconcileOrder}
               vehicles={state.vehicles}
+              accountControls={compactUserActions}
             />
           )}
           {activeTab === "Audit" && (can(currentRole, "view_audit") ? <AuditPanel events={state.auditEvents} /> : <AccessDenied role={currentRole} />)}
@@ -6569,24 +6653,24 @@ function OrdersPanel({
           {visibleOrders.length === 0 && <p className="px-1 py-3 text-sm text-slate-500">Không có lệnh phù hợp bộ lọc.</p>}
         </div>
         <div className="hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[780px] border-collapse text-sm">
+          <table className="w-full min-w-[920px] table-fixed border-collapse text-sm">
             <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
               <tr>
-                <th className="px-4 py-3 font-semibold">Mã lệnh</th>
-                <th className="px-4 py-3 font-semibold">Khách hàng</th>
+                <th className="w-[190px] px-4 py-3 font-semibold">Mã lệnh</th>
+                <th className="w-[150px] px-4 py-3 font-semibold">Khách hàng</th>
                 <th className="px-4 py-3 font-semibold">Tuyến</th>
-                <th className="px-4 py-3 font-semibold">Thời gian</th>
-                <th className="px-4 py-3 font-semibold">Số chỗ</th>
-                <th className="px-4 py-3 font-semibold">Tổng tiền</th>
-                <th className="px-4 py-3 font-semibold">Trạng thái</th>
+                <th className="w-[132px] px-4 py-3 font-semibold">Thời gian</th>
+                <th className="w-[86px] px-4 py-3 font-semibold">Số chỗ</th>
+                <th className="w-[126px] px-4 py-3 font-semibold">Tổng tiền</th>
+                <th className="w-[190px] px-4 py-3 font-semibold">Trạng thái</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
               {visibleOrders.map((order) => (
                 <tr key={order.id} className={`cursor-pointer align-middle hover:bg-teal-50/60 ${selectedOrderId === order.id ? "bg-teal-50/70" : ""}`} onClick={() => openSalesDetail(order.id)}>
-                  <td className="px-4 py-4 font-bold text-ink">{order.code}</td>
-                  <td className="px-4 py-4">{order.customerName}</td>
-                  <td className="px-4 py-4 font-semibold text-slate-700">{routeSummaryForOrder(order)}</td>
+                  <td className="px-4 py-4 font-bold leading-snug text-ink [overflow-wrap:anywhere]">{order.code}</td>
+                  <td className="px-4 py-4"><span className="line-clamp-2 leading-snug">{order.customerName}</span></td>
+                  <td className="px-4 py-4 font-semibold text-slate-700"><span className="line-clamp-2 leading-snug">{routeSummaryForOrder(order)}</span></td>
                   <td className="px-4 py-4 text-slate-600">{timeOnly(order.startAt)} · {dateOnly(order.startAt)}</td>
                   <td className="px-4 py-4">{order.guestCount ?? "-"} chỗ</td>
                   <td className="px-4 py-4 font-bold">{money(order.amountDue)}</td>
@@ -7221,6 +7305,7 @@ function InfoRow({ label, strong = false, value }: { label: string; strong?: boo
 }
 
 function DispatchPanel({
+  accountControls,
   assignments,
   calendarDay,
   calendarMonth,
@@ -7238,6 +7323,7 @@ function DispatchPanel({
   updateOrder,
   vehicles
 }: {
+  accountControls?: ReactNode;
   assignments: Assignment[];
   auditEvents: AuditEvent[];
   calendarDay: Date;
@@ -7428,7 +7514,7 @@ function DispatchPanel({
   function renderOrderTable() {
     return (
       <div className="overflow-hidden rounded-lg border border-line bg-white shadow-sm">
-        <div className="grid grid-cols-[1fr_140px_120px_120px_140px_120px] border-b border-line bg-slate-50 px-4 py-3 text-xs font-bold uppercase text-slate-500">
+        <div className="grid grid-cols-[minmax(170px,1fr)_minmax(120px,140px)_minmax(160px,1fr)_72px_minmax(150px,1fr)_110px] border-b border-line bg-slate-50 px-4 py-3 text-xs font-bold uppercase text-slate-500">
           <span>Mã lệnh</span><span>Khách hàng</span><span>Tuyến</span><span>Giờ</span><span>Xe/Tài xế</span><span>Trạng thái</span>
         </div>
         <div className="divide-y divide-line">
@@ -7436,12 +7522,12 @@ function DispatchPanel({
             const assignedVehicle = vehicles.find((item) => item.id === order.vehicleId);
             const assignedDriver = drivers.find((item) => item.id === order.driverId);
             return (
-              <button className={`grid w-full grid-cols-[1fr_140px_120px_120px_140px_120px] items-center px-4 py-3 text-left text-sm hover:bg-teal-50/50 ${selectedOrder.id === order.id ? "bg-teal-50" : ""}`} key={order.id} onClick={() => selectOrder(order.id)} type="button">
-                <span className="font-bold text-ink">{order.code}</span>
+              <button className={`grid w-full grid-cols-[minmax(170px,1fr)_minmax(120px,140px)_minmax(160px,1fr)_72px_minmax(150px,1fr)_110px] items-center px-4 py-3 text-left text-sm hover:bg-teal-50/50 ${selectedOrder.id === order.id ? "bg-teal-50" : ""}`} key={order.id} onClick={() => selectOrder(order.id)} type="button">
+                <span className="pr-3 font-bold leading-snug text-ink [overflow-wrap:anywhere]">{order.code}</span>
                 <span className="truncate text-slate-700">{order.customerName}</span>
-                <span className="truncate text-slate-700">{`${order.pickup} -> ${order.dropoff}`}</span>
+                <span className="line-clamp-2 pr-3 leading-snug text-slate-700">{`${order.pickup} -> ${order.dropoff}`}</span>
                 <span className="text-slate-700">{timeOnly(order.startAt)}</span>
-                <span className="truncate text-slate-700">{assignedVehicle?.plateNo ?? order.externalVehiclePlate ?? "Chưa xe"} / {assignedDriver?.fullName ?? order.externalDriverName ?? "-"}</span>
+                <span className="line-clamp-2 pr-3 leading-snug text-slate-700">{assignedVehicle?.plateNo ?? order.externalVehiclePlate ?? "Chưa xe"} / {assignedDriver?.fullName ?? order.externalDriverName ?? "-"}</span>
                 <span><Badge tone={statusTone(order)}>{dispatchLabels[order.dispatchStatus]}</Badge></span>
               </button>
             );
@@ -8179,14 +8265,14 @@ function DispatchPanel({
 
   function renderDispatchHeader(title: string, subtitle: string) {
     return (
-      <header className="flex h-[72px] items-center justify-between border-b border-line bg-white px-6">
-        <div>
+      <header className="flex min-h-[72px] flex-wrap items-center justify-between gap-3 border-b border-line bg-white px-6 py-3">
+        <div className="min-w-0">
           <h2 className="text-2xl font-extrabold text-ink">{title}</h2>
-          <p className="text-sm font-medium text-slate-500">{subtitle}</p>
+          <p className="truncate text-sm font-medium text-slate-500">{subtitle}</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
           <input
-            className={`${inputClass()} h-10 w-44`}
+            className={`${inputClass()} h-10 w-40 shrink-0`}
             onChange={(event) => {
               const next = new Date(`${event.target.value}T00:00:00`);
               setCalendarDay(next);
@@ -8198,7 +8284,7 @@ function DispatchPanel({
           <div className="relative">
             <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
             <input
-              className="h-10 w-72 rounded-xl border border-line bg-slate-50 pl-9 pr-3 text-sm font-medium outline-none focus:border-brand focus:bg-white"
+                className="h-10 w-56 rounded-xl border border-line bg-slate-50 pl-9 pr-3 text-sm font-medium outline-none focus:border-brand focus:bg-white xl:w-72"
               onChange={(event) => setDispatchSearch(event.target.value)}
               placeholder="Tìm mã lệnh, khách hàng, tuyến..."
               value={dispatchSearch}
@@ -8208,6 +8294,7 @@ function DispatchPanel({
             <Bell size={18} />
             {pendingReviewOrders.length > 0 && <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-red-500 px-1 text-[11px] font-bold text-white">{pendingReviewOrders.length}</span>}
           </button>
+          {accountControls}
           {showDispatchAlerts && <div className="dispatch-alerts right-6 top-14"><strong>Đề xuất chờ duyệt</strong>{pendingReviewOrders.length === 0 ? <p>Không có đề xuất mới.</p> : pendingReviewOrders.map((order) => <button key={order.id} onClick={() => { setSelectedOrderId(order.id); setDesktopView("orders"); setShowDispatchAlerts(false); }} type="button">{order.code}<span className="block text-slate-500">{order.customerName}</span></button>)}</div>}
         </div>
       </header>
@@ -8218,7 +8305,7 @@ function DispatchPanel({
     const rows = dispatchQueue.slice(0, limit);
     return (
       <div className="overflow-hidden rounded-2xl border border-line bg-white">
-        <div className="grid grid-cols-[1.05fr_1.2fr_92px_72px_110px] border-b border-line bg-slate-50 px-4 py-3 text-xs font-extrabold uppercase text-slate-500">
+        <div className="grid grid-cols-[minmax(102px,1fr)_minmax(128px,1.2fr)_52px_54px_88px] border-b border-line bg-slate-50 px-3 py-3 text-xs font-extrabold uppercase text-slate-500">
           <span>Mã lệnh</span>
           <span>Tuyến</span>
           <span>Giờ</span>
@@ -8228,13 +8315,13 @@ function DispatchPanel({
         <div className="divide-y divide-line">
           {rows.map((order) => (
             <button
-              className={`grid w-full grid-cols-[1.05fr_1.2fr_92px_72px_110px] items-center px-4 py-3 text-left text-sm transition hover:bg-teal-50/60 ${selectedOrder.id === order.id ? "bg-teal-50/80" : "bg-white"}`}
+              className={`grid w-full grid-cols-[minmax(102px,1fr)_minmax(128px,1.2fr)_52px_54px_88px] items-center px-3 py-3 text-left text-sm transition hover:bg-teal-50/60 ${selectedOrder.id === order.id ? "bg-teal-50/80" : "bg-white"}`}
               key={order.id}
               onClick={() => setSelectedOrderId(order.id)}
               type="button"
             >
-              <span className="truncate font-extrabold text-ink">{order.code}</span>
-              <span className="truncate font-semibold text-slate-700">{routeSummaryForOrder(order)}</span>
+              <span className="pr-3 font-extrabold leading-snug text-ink [overflow-wrap:anywhere]">{order.code}</span>
+              <span className="line-clamp-2 pr-3 font-semibold leading-snug text-slate-700">{routeSummaryForOrder(order)}</span>
               <span className="font-semibold text-slate-600">{timeOnly(order.startAt)}</span>
               <span className="font-semibold text-slate-600">{order.guestCount ?? "-"}</span>
               <span><Badge tone={statusTone(order)}>{dispatchLabels[order.dispatchStatus]}</Badge></span>
@@ -8393,9 +8480,9 @@ function DispatchPanel({
           <div className="mt-3 space-y-2">
             {attentionItems.length === 0 && <p className="rounded-xl bg-emerald-50 px-3 py-3 text-sm font-semibold text-emerald-800">Không có cảnh báo vận hành.</p>}
             {attentionItems.slice(0, 3).map((order) => (
-              <button className="w-full rounded-xl border border-line bg-slate-50 p-3 text-left hover:border-brand" key={order.id} onClick={() => setSelectedOrderId(order.id)} type="button">
-                <p className="font-extrabold text-ink">{order.code}</p>
-                <p className="mt-1 text-xs font-semibold text-slate-600">{timeOnly(order.startAt)} · {routeSummaryForOrder(order)}</p>
+              <button className="w-full overflow-hidden rounded-xl border border-line bg-slate-50 p-3 text-left hover:border-brand" key={order.id} onClick={() => setSelectedOrderId(order.id)} type="button">
+                <p className="font-extrabold leading-snug text-ink [overflow-wrap:anywhere]">{order.code}</p>
+                <p className="mt-1 line-clamp-3 text-xs font-semibold leading-snug text-slate-600">{timeOnly(order.startAt)} · {routeSummaryForOrder(order)}</p>
                 <p className="mt-2 text-xs font-bold text-orange-700">{order.changedNearStart ? "Lệnh đổi gần giờ" : order.vehicleId ? dispatchLabels[order.dispatchStatus] : "Chưa phân xe"}</p>
               </button>
             ))}
@@ -9311,6 +9398,7 @@ function DriverCollectMobile({ form, onBack, order, payments }: { form?: ReactNo
 }
 
 function DriverMobilePanel({
+  authLabel,
   authDriverId,
   currentRole,
   drivers,
@@ -9326,8 +9414,10 @@ function DriverMobilePanel({
   submitDriverProposal,
   submitDriverTripReport,
   updateOrderDispatchStatus,
+  onSignOut,
   vehicles
 }: {
+  authLabel: string;
   authDriverId?: string;
   currentRole: AppRole;
   drivers: Driver[];
@@ -9343,6 +9433,7 @@ function DriverMobilePanel({
   submitDriverProposal: (event: FormEvent<HTMLFormElement>) => Promise<boolean>;
   submitDriverTripReport: (event: FormEvent<HTMLFormElement>) => Promise<boolean>;
   updateOrderDispatchStatus: (orderId: string, nextStatus: DispatchStatus, reason: string, actor?: string) => Promise<void> | void;
+  onSignOut: () => void;
   vehicles: Vehicle[];
 }) {
   const [urgent, setUrgent] = useState(false);
@@ -9399,6 +9490,14 @@ function DriverMobilePanel({
   const completedCountToday = completedTripsToday.length;
   const pendingCollectionCount = todayDriverOrders.filter((order) => driverPaymentSnapshot(order, payments).driverCollectionAmount > 0).length;
   const canUpdate = can(currentRole, "update_dispatch_status");
+  const driverDisplayName = selectedDriver?.fullName ?? readableAuthName(authLabel, "tài xế");
+  const driverNavItems: Array<{ label: string; view: DriverView; icon: typeof Smartphone }> = [
+    { label: "Tổng quan", view: "today", icon: Smartphone },
+    { label: "Lịch chạy", view: "schedule", icon: CalendarClock },
+    { label: "Thu tiền", view: "collect", icon: Banknote },
+    { label: "Báo cuốc", view: "proposal", icon: ClipboardList },
+    { label: "Tài khoản", view: "today", icon: UserRound }
+  ];
   const actionButton = selectedTrip && nextDriverStatus ? (
     <SwipeAction
       disabled={!canUpdate || isActionPending(`dispatch:status:${selectedTrip.id}:${nextDriverStatus}`)}
@@ -9474,15 +9573,9 @@ function DriverMobilePanel({
           </div>
         </div>
         <nav className="mt-8 grid gap-2 text-sm font-bold text-slate-600">
-          {[
-            ["Tổng quan", Smartphone],
-            ["Lịch chạy", CalendarClock],
-            ["Thu tiền", Banknote],
-            ["Lịch sử chuyến", ClipboardList],
-            ["Tài khoản", UserRound]
-          ].map(([label, Icon]) => (
-            <button className={`flex h-11 items-center gap-3 rounded-xl px-3 text-left ${label === "Tổng quan" ? "bg-teal-50 text-brand" : "hover:bg-slate-50"}`} key={String(label)} type="button">
-              <Icon size={18} /> {String(label)}
+          {driverNavItems.map(({ label, view, icon: Icon }) => (
+            <button className={`flex h-11 items-center gap-3 rounded-xl px-3 text-left ${driverView === view ? "bg-teal-50 text-brand" : "hover:bg-slate-50"}`} key={label} onClick={() => setDriverView(view)} type="button">
+              <Icon size={18} /> {label}
             </button>
           ))}
         </nav>
@@ -9503,7 +9596,7 @@ function DriverMobilePanel({
             <Route size={24} />
           </span>
           <div className="min-w-0">
-            <h3 className="truncate text-xl font-bold text-ink">Chào {selectedDriver?.fullName ?? "tài xế"}</h3>
+            <h3 className="truncate text-xl font-bold text-ink">Chào {greetingName(driverDisplayName, "tài xế")}</h3>
             <p className="text-sm text-slate-500">{vietnamFriendlyDate(now)}</p>
           </div>
         </div>
@@ -9515,7 +9608,7 @@ function DriverMobilePanel({
 
       <div className="hidden items-center justify-between gap-4 lg:flex">
         <div>
-          <h2 className="text-2xl font-extrabold text-ink">Chào {selectedDriver?.fullName ?? "tài xế"}</h2>
+          <h2 className="break-words text-2xl font-extrabold text-ink">Chào {greetingName(driverDisplayName, "tài xế")}</h2>
           <p className="mt-1 text-sm font-medium text-slate-500">{vietnamFriendlyDate(now)}</p>
         </div>
         <div className="flex items-center gap-3">
@@ -9526,10 +9619,13 @@ function DriverMobilePanel({
           <div className="flex items-center gap-2 rounded-2xl border border-line bg-white px-3 py-2">
             <UserRound className="text-brand" size={18} />
             <div>
-              <p className="text-sm font-bold text-ink">{selectedDriver?.fullName ?? "Tài xế"}</p>
+              <p className="max-w-[220px] truncate text-sm font-bold text-ink" title={driverDisplayName}>{driverDisplayName}</p>
               <p className="text-xs text-slate-500">Tài xế</p>
             </div>
           </div>
+          <button className="inline-flex h-11 items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700 hover:bg-rose-100" onClick={onSignOut} type="button">
+            <LogOut size={15} /> Đăng xuất
+          </button>
         </div>
       </div>
 
@@ -9537,7 +9633,10 @@ function DriverMobilePanel({
         <section className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)]">
           <div className="flex items-center justify-between gap-3">
             <h4 className="text-lg font-bold text-ink">Thông báo</h4>
-            <Badge tone={driverNotifications.length > 0 ? "info" : "good"}>{driverNotifications.length} mới</Badge>
+            <div className="flex items-center gap-2">
+              <Badge tone={driverNotifications.length > 0 ? "info" : "good"}>{driverNotifications.length} mới</Badge>
+              <button className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700" onClick={onSignOut} type="button"><LogOut size={15} /> Đăng xuất</button>
+            </div>
           </div>
           <div className="mt-3 space-y-2">
             {driverNotifications.length === 0 && <p className="text-sm text-slate-500">Chưa có thông báo dành cho tài xế.</p>}
@@ -9605,7 +9704,40 @@ function DriverMobilePanel({
           <DriverMetricCard detail="Hoàn thành trong ngày" icon={CheckCircle2} label="Hoàn thành" value={String(completedCountToday)} />
         </div>
 
-        <div className="hidden grid-cols-[1fr_420px] gap-4 lg:grid">
+        {driverView === "schedule" && (
+          <section className="hidden rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_14px_36px_rgba(15,23,42,0.06)] lg:block">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold text-slate-500">Tài xế</p>
+                <h3 className="text-xl font-extrabold text-ink">Lịch chạy</h3>
+              </div>
+              <Badge tone="info">{todayDriverOrders.length || driverOrders.length} chuyến</Badge>
+            </div>
+            <div className="mt-4">
+              <DriverScheduleMobile
+                onOpen={(orderId) => {
+                  setSelectedOrderId(orderId);
+                  setDriverView("detail");
+                }}
+                orders={todayDriverOrders.length > 0 ? todayDriverOrders : driverOrders}
+                selectedOrderId={selectedTrip?.id}
+                vehicles={vehicles}
+              />
+            </div>
+          </section>
+        )}
+
+        {driverView === "collect" && (
+          <section className="hidden max-w-2xl rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_14px_36px_rgba(15,23,42,0.06)] lg:block">
+            <div className="mb-4">
+              <p className="text-sm font-bold text-slate-500">Thu tiền</p>
+              <h3 className="text-xl font-extrabold text-ink">{collectionTrip?.code ?? selectedTrip?.code ?? "Chưa chọn chuyến"}</h3>
+            </div>
+            {collectionForm ?? <p className="text-sm font-semibold text-slate-500">Chưa có chuyến cần ghi nhận thu.</p>}
+          </section>
+        )}
+
+        <div className={`${driverView === "today" || driverView === "detail" || driverView === "checklist" ? "lg:grid" : "lg:hidden"} hidden grid-cols-[minmax(0,1fr)_minmax(360px,420px)] gap-4`}>
           <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_14px_36px_rgba(15,23,42,0.06)]">
             <div className="flex items-center justify-between gap-3">
               <h3 className="text-xl font-extrabold text-ink">Lịch chạy hôm nay ({tripCountToday})</h3>
@@ -9619,7 +9751,7 @@ function DriverMobilePanel({
                     <p className="text-2xl font-extrabold text-ink">{timeOnly(order.startAt)}</p>
                     <div className="min-w-0">
                       <p className="truncate font-extrabold text-ink">{routeSummaryForOrder(order)}</p>
-                      <p className="mt-1 text-sm text-slate-500">{order.guestCount ?? "-"} khách · {order.code}</p>
+                      <p className="mt-1 text-sm text-slate-500 [overflow-wrap:anywhere]">{order.guestCount ?? "-"} khách · {order.code}</p>
                     </div>
                     <Badge tone={order.dispatchStatus === "in_progress" ? "info" : order.dispatchStatus === "completed" ? "good" : "warn"}>{dispatchLabels[order.dispatchStatus]}</Badge>
                   </button>
@@ -9633,7 +9765,7 @@ function DriverMobilePanel({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-bold text-slate-500">Chi tiết chuyến</p>
-                <h3 className="mt-1 text-xl font-extrabold text-ink">{selectedTrip?.code ?? "Chưa chọn chuyến"}</h3>
+                <h3 className="mt-1 break-words text-xl font-extrabold text-ink">{selectedTrip?.code ?? "Chưa chọn chuyến"}</h3>
               </div>
               {selectedTrip && <Badge tone="info">{dispatchLabels[selectedTrip.dispatchStatus]}</Badge>}
             </div>
@@ -9735,7 +9867,7 @@ function DriverMobilePanel({
       </div>
 
       {driverView === "proposal" && (
-      <section className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)] lg:hidden">
+      <section className="rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.08)] lg:max-w-3xl">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-sm text-slate-500">Đề xuất từ tài xế</p>
@@ -9969,6 +10101,7 @@ function MasterDataPanel({
 }
 
 function FinancePanel({
+  accountControls,
   assignments,
   currentRole,
   drivers,
@@ -9982,6 +10115,7 @@ function FinancePanel({
   reconcileOrder,
   vehicles
 }: {
+  accountControls?: ReactNode;
   assignments: Assignment[];
   currentRole: AppRole;
   drivers: Driver[];
@@ -10138,6 +10272,7 @@ function FinancePanel({
           <Bell size={18} />
           {financeQueue.length > 0 && <span className="absolute -right-1 -top-1 rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white">{financeQueue.length}</span>}
         </button>
+        <div className="hidden lg:block">{accountControls}</div>
       </div>
     </header>
   );
@@ -10532,17 +10667,17 @@ function FinancePanel({
 
   return (
     <section className="finance-accounting-shell -mx-4 -my-4 min-h-[calc(100vh-140px)] bg-slate-100 px-4 py-4 pb-24 lg:mx-0 lg:my-0 lg:rounded-3xl lg:p-5">
-      <div className="mx-auto max-w-7xl lg:grid lg:grid-cols-[360px_minmax(0,1fr)] lg:gap-5">
+      <div className="mx-auto max-w-[1560px] lg:grid lg:grid-cols-[380px_minmax(0,1fr)] lg:gap-5">
         <aside className="hidden space-y-4 lg:block">
           {renderQueue()}
         </aside>
         <main className="mx-auto max-w-md space-y-4 lg:max-w-none">
-          <div className="hidden gap-2 lg:flex">
+          <div className="hidden flex-wrap gap-2 lg:flex">
             {navItems.map((item) => {
               const Icon = item.icon;
               const active = financeView === item.id;
               return (
-                <button className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-sm font-bold ${active ? "bg-[#0a9b81] text-white" : "bg-white text-slate-600"}`} key={item.id} onClick={() => setFinanceView(item.id)} type="button">
+                <button className={`inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-xl px-4 text-sm font-bold ${active ? "bg-[#0a9b81] text-white" : "bg-white text-slate-600"}`} key={item.id} onClick={() => setFinanceView(item.id)} type="button">
                   <Icon size={16} /> {item.label}
                 </button>
               );
