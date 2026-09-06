@@ -710,12 +710,14 @@ function DocumentPreview({ title, body }: { title: string; body: string }) {
 
 function FinalDispatchOrderSheet({
   assignments = [],
+  compact = false,
   drivers = [],
   order,
   payments,
   vehicles = []
 }: {
   assignments?: Assignment[];
+  compact?: boolean;
   drivers?: Driver[];
   order: DispatchOrder;
   payments: Payment[];
@@ -1023,6 +1025,66 @@ function FinalDispatchOrderSheet({
     }
   }
 
+  const finalOrderTable = (
+    <div className={`${compact ? "max-h-[360px]" : "max-h-[560px]"} overflow-auto border border-line bg-white`}>
+      <table className="w-full min-w-[760px] border-collapse text-left text-xs text-slate-800">
+        <thead>
+          <tr>
+            <th className="border border-slate-300 bg-white px-2 py-2 text-center text-base font-bold text-ink" colSpan={3}>LỆNH ĐIỀU XE</th>
+          </tr>
+          <tr className="bg-slate-50">
+            <th className="w-40 border border-slate-300 px-2 py-1 font-semibold">Nhóm</th>
+            <th className="w-80 border border-slate-300 px-2 py-1 font-semibold">Thông tin</th>
+            <th className="border border-slate-300 px-2 py-1 font-semibold">Giá trị</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr className={row.tone === "yellow" ? "bg-yellow-100" : row.tone === "blue" ? "bg-cyan-100" : "bg-white"} key={`${row.group}-${row.label}-${index}`}>
+              <td className="border border-slate-300 px-2 py-1 align-top text-slate-700">{row.group}</td>
+              <td className="border border-slate-300 px-2 py-1 align-top">{row.label}</td>
+              <td className="border border-slate-300 px-2 py-1 align-top font-medium text-ink">{row.value || "-"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  if (compact) {
+    return (
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_2px_10px_rgba(15,23,42,0.04)]">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Công cụ xuất final</p>
+            <h3 className="truncate text-base font-extrabold text-slate-950">Lệnh điều xe final</h3>
+          </div>
+          <Badge tone={order.reconciliationStatus === "closed" ? "good" : "info"}>{exportStatus}</Badge>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <button className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-[#0a7f6a] hover:bg-teal-50" onClick={exportFinalOrder} type="button">
+            Tải bản in
+          </button>
+          <button className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-[#0a7f6a] hover:bg-teal-50" onClick={exportFinalPdfData} type="button">
+            Payload n8n
+          </button>
+          <button
+            className="h-11 rounded-xl bg-[#0a9b81] px-3 text-xs font-bold text-white shadow-lg shadow-teal-700/20 hover:bg-[#087e69] disabled:cursor-not-allowed disabled:bg-slate-300"
+            disabled={isSendingPdfPayload}
+            onClick={sendFinalPdfPayload}
+            type="button"
+          >
+            {isSendingPdfPayload ? "Đang gửi..." : "Gửi n8n"}
+          </button>
+        </div>
+        <details className="mt-3 rounded-xl border border-slate-100 bg-slate-50">
+          <summary className="cursor-pointer px-3 py-2 text-sm font-bold text-slate-700">Xem bảng dữ liệu final đầy đủ</summary>
+          <div className="p-3 pt-0">{finalOrderTable}</div>
+        </details>
+      </section>
+    );
+  }
+
   return (
     <section className="border border-line bg-panel p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -1045,29 +1107,7 @@ function FinalDispatchOrderSheet({
           </button>
         </div>
       </div>
-      <div className="max-h-[560px] overflow-auto border border-line bg-white">
-        <table className="w-full min-w-[760px] border-collapse text-left text-xs text-slate-800">
-          <thead>
-            <tr>
-              <th className="border border-slate-300 bg-white px-2 py-2 text-center text-base font-bold text-ink" colSpan={3}>LỆNH ĐIỀU XE</th>
-            </tr>
-            <tr className="bg-slate-50">
-              <th className="w-40 border border-slate-300 px-2 py-1 font-semibold">Nhóm</th>
-              <th className="w-80 border border-slate-300 px-2 py-1 font-semibold">Thông tin</th>
-              <th className="border border-slate-300 px-2 py-1 font-semibold">Giá trị</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, index) => (
-              <tr className={row.tone === "yellow" ? "bg-yellow-100" : row.tone === "blue" ? "bg-cyan-100" : "bg-white"} key={`${row.group}-${row.label}-${index}`}>
-                <td className="border border-slate-300 px-2 py-1 align-top text-slate-700">{row.group}</td>
-                <td className="border border-slate-300 px-2 py-1 align-top">{row.label}</td>
-                <td className="border border-slate-300 px-2 py-1 align-top font-medium text-ink">{row.value || "-"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {finalOrderTable}
     </section>
   );
 }
@@ -10051,6 +10091,12 @@ function FinancePanel({
     { label: "Hồ sơ chưa bị hủy", ok: selectedOrder.orderStatus !== "cancelled" }
   ];
   const closeCheckCount = closeChecks.filter((item) => item.ok).length;
+  const previewTransport = resolveOrderTransport(selectedOrder, assignments, vehicles, drivers);
+  const previewRouteLegs = routeLegsForOrder(selectedOrder);
+  const previewIsRentedVehicle = selectedOrder.vehicleOwnership === "rented" || previewTransport.vehicleOwnership === "partner" || previewTransport.vehicleOwnership === "rented";
+  const previewSupplierTotal = previewIsRentedVehicle ? selectedOrder.supplierTotalWithVat ?? orderCost(selectedOrder) : 0;
+  const previewCustomerName = selectedOrder.customerKind === "company" ? selectedOrder.companyName || selectedOrder.customerName : selectedOrder.customerName;
+  const previewReady = closeCheckCount === closeChecks.length && selectedIssues.length === 0;
 
   const selectFinanceOrder = (orderId: string, view: typeof financeView = "profile") => {
     setSelectedOrderId(orderId);
@@ -10073,6 +10119,7 @@ function FinancePanel({
     { id: "profile", label: "Hồ sơ", icon: FileText },
     { id: "payment", label: "Thu tiền", icon: Banknote },
     { id: "documents", label: "Chứng từ", icon: ReceiptText },
+    { id: "preview", label: "Preview", icon: Save },
     { id: "close", label: "Đóng HS", icon: CheckCircle2 }
   ];
 
@@ -10097,14 +10144,14 @@ function FinancePanel({
 
   const renderBottomNav = () => (
     <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-white/95 px-3 pb-5 pt-2 shadow-[0_-4px_16px_rgba(15,23,42,0.06)] backdrop-blur lg:hidden">
-      <div className="mx-auto grid max-w-md grid-cols-5 gap-1">
+      <div className="mx-auto grid max-w-md grid-cols-6 gap-1">
         {navItems.map((item) => {
           const Icon = item.icon;
           const active = financeView === item.id;
           return (
-            <button className={`flex min-h-14 flex-col items-center justify-center rounded-xl text-[11px] font-bold ${active ? "border border-teal-200 bg-teal-50 text-[#0a9b81]" : "text-slate-500"}`} key={item.id} onClick={() => setFinanceView(item.id)} type="button">
-              <Icon size={18} />
-              <span className="mt-1 truncate">{item.label}</span>
+            <button className={`flex min-h-14 min-w-0 flex-col items-center justify-center rounded-xl px-1 text-[10px] font-bold ${active ? "border border-teal-200 bg-teal-50 text-[#0a9b81]" : "text-slate-500"}`} key={item.id} onClick={() => setFinanceView(item.id)} type="button">
+              <Icon size={17} />
+              <span className="mt-1 w-full truncate text-center leading-tight">{item.label}</span>
             </button>
           );
         })}
@@ -10334,34 +10381,105 @@ function FinancePanel({
   const renderPreview = () => (
     <div className="space-y-4">
       {renderFinanceHeader("Preview final", "Rà soát trước khi gửi lệnh điều xe")}
-      <section className={`${financeCardClass} space-y-3 p-4`}>
-        <div className="flex items-center justify-between gap-3">
+      <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-[#067765] via-[#0a9b81] to-[#15b89b] p-5 text-white shadow-xl shadow-teal-900/20">
+        <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="truncate text-lg font-extrabold text-slate-950">{selectedOrder.code}</p>
-            <p className="line-clamp-2 text-sm font-semibold text-slate-600">{routeSummaryForOrder(selectedOrder)}</p>
+            <p className="text-xs font-bold uppercase tracking-wide text-teal-100">Lệnh điều xe final</p>
+            <h2 className="mt-1 break-words text-2xl font-black leading-tight">{selectedOrder.code}</h2>
           </div>
-          <Badge tone={selectedIssues.length === 0 ? "good" : "warn"}>{selectedIssues.length === 0 ? "Sẵn sàng" : `${selectedIssues.length} lưu ý`}</Badge>
+          <span className="shrink-0 rounded-full bg-white/20 px-3 py-1 text-xs font-extrabold ring-1 ring-white/25">{previewReady ? "Sẵn sàng" : `${selectedIssues.length || closeChecks.length - closeCheckCount} lưu ý`}</span>
         </div>
-        <div className="grid grid-cols-3 gap-2 rounded-2xl bg-slate-50 p-3">
-          <StatMini label="Phải thu" value={money(selectedOrder.amountDue)} />
-          <StatMini label="Đã thu" value={money(paid)} />
-          <StatMini label="Còn nợ" value={money(debt)} />
+        <p className="mt-4 line-clamp-3 text-sm font-semibold leading-6 text-teal-50">{routeSummaryForOrder(selectedOrder)}</p>
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          <div className="rounded-2xl bg-white/15 p-3 ring-1 ring-white/15"><p className="text-[10px] font-bold uppercase text-teal-100">Khách</p><p className="mt-1 truncate text-sm font-black">{selectedOrder.guestCount || 0}</p></div>
+          <div className="rounded-2xl bg-white/15 p-3 ring-1 ring-white/15"><p className="text-[10px] font-bold uppercase text-teal-100">VAT</p><p className="mt-1 truncate text-sm font-black">{selectedOrder.vatRate ?? 0}%</p></div>
+          <div className="rounded-2xl bg-white/15 p-3 ring-1 ring-white/15"><p className="text-[10px] font-bold uppercase text-teal-100">Đã thu</p><p className="mt-1 truncate text-sm font-black">{money(paid)}</p></div>
         </div>
       </section>
+
+      <section className={`${financeCardClass} overflow-hidden`}>
+        <div className="border-b border-slate-100 p-4">
+          <h3 className="text-sm font-extrabold text-slate-900">Thông tin cần kế toán kiểm tra</h3>
+          <p className="mt-1 text-xs font-medium text-slate-500">Tổng hợp dữ liệu hiện có trước khi gửi payload n8n.</p>
+        </div>
+        <div className="grid gap-0 divide-y divide-slate-100 lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+          <div className="space-y-3 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{selectedOrder.customerKind === "company" ? "Doanh nghiệp" : "Khách cá nhân"}</p>
+              <Badge tone="info">{selectedOrder.customerKind === "company" ? "B2B" : "B2C"}</Badge>
+            </div>
+            <p className="break-words text-base font-extrabold text-slate-950">{previewCustomerName}</p>
+            <div className="space-y-2 text-xs font-semibold text-slate-600">
+              <div className="flex justify-between gap-3"><span className="shrink-0">Liên hệ</span><span className="min-w-0 text-right font-bold text-slate-900 [overflow-wrap:anywhere]">{selectedOrder.contactName || selectedOrder.customerName} / {selectedOrder.contactPhone || "-"}</span></div>
+              <div className="flex justify-between gap-3"><span className="shrink-0">MST/CCCD</span><span className="min-w-0 text-right font-bold text-slate-900 [overflow-wrap:anywhere]">{selectedOrder.taxCode || selectedOrder.customerCccd || "-"}</span></div>
+              <div className="flex justify-between gap-3"><span className="shrink-0">Hóa đơn ra</span><span className="text-right font-bold text-slate-900">{invoiceLabels[selectedOrder.invoiceStatus]}</span></div>
+            </div>
+          </div>
+          <div className="space-y-3 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{previewIsRentedVehicle ? "NCC / xe thuê ngoài" : "Xe công ty"}</p>
+              <Badge tone={previewIsRentedVehicle ? "warn" : "good"}>{previewIsRentedVehicle ? "Cần NCC" : "Nội bộ"}</Badge>
+            </div>
+            <p className="break-words text-base font-extrabold text-slate-950">{previewIsRentedVehicle ? selectedOrder.supplierCompanyName || selectedOrder.supplierOwnerName || "Chưa có NCC" : previewTransport.vehiclePlate}</p>
+            <div className="space-y-2 text-xs font-semibold text-slate-600">
+              <div className="flex justify-between gap-3"><span className="shrink-0">Tài xế</span><span className="min-w-0 text-right font-bold text-slate-900 [overflow-wrap:anywhere]">{previewTransport.driverName} / {previewTransport.driverPhone}</span></div>
+              <div className="flex justify-between gap-3"><span className="shrink-0">Chi phí mua</span><span className="text-right font-bold text-slate-900">{money(previewSupplierTotal)}</span></div>
+              <div className="flex justify-between gap-3"><span className="shrink-0">HĐ đầu vào</span><span className="text-right font-bold text-slate-900">{previewIsRentedVehicle ? (selectedOrder.supplierInvoiceRequired ? "Có yêu cầu" : "Không yêu cầu") : "Không áp dụng"}</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section className={`${financeCardClass} p-4`}>
-        <h3 className="text-sm font-extrabold text-slate-900">Checklist trước final</h3>
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-extrabold text-slate-900">Hành trình</h3>
+          <Badge tone="neutral">{formatDateTime(selectedOrder.startAt)}</Badge>
+        </div>
+        <div className="mt-4 space-y-3">
+          {(previewRouteLegs.length > 0 ? previewRouteLegs : [{ pickup: selectedOrder.pickup, dropoff: selectedOrder.dropoff, startAt: selectedOrder.startAt, endAt: selectedOrder.endAt, note: "" }]).map((leg, index) => (
+            <div className="grid grid-cols-[42px_minmax(0,1fr)] gap-3" key={`${leg.pickup}-${leg.dropoff}-${index}`}>
+              <div className="text-right text-xs font-black text-[#0a9b81]">{leg.startAt ? timeOnly(leg.startAt) : "--:--"}</div>
+              <div className="relative border-l-2 border-teal-100 pb-3 pl-4 last:pb-0">
+                <span className="absolute -left-[5px] top-1 h-2 w-2 rounded-full bg-[#0a9b81]" />
+                <p className="break-words text-sm font-extrabold text-slate-950">{leg.pickup || "-"}</p>
+                <p className="mt-1 break-words text-xs font-semibold text-slate-500">Đến: {leg.dropoff || "-"}{leg.note ? ` • ${leg.note}` : ""}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className={`${financeCardClass} p-4`}>
+        <h3 className="text-sm font-extrabold text-slate-900">Tài chính final</h3>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <div className="rounded-2xl bg-slate-50 p-3"><p className="text-[11px] font-bold text-slate-500">Trước thuế</p><p className="mt-1 text-sm font-black text-slate-950">{money(selectedOrder.subtotalAmount ?? selectedOrder.amountDue)}</p></div>
+          <div className="rounded-2xl bg-slate-50 p-3"><p className="text-[11px] font-bold text-slate-500">Tiền thuế</p><p className="mt-1 text-sm font-black text-slate-950">{money(selectedOrder.vatAmount ?? 0)}</p></div>
+          <div className="rounded-2xl bg-emerald-50 p-3"><p className="text-[11px] font-bold text-emerald-700">Tổng thu</p><p className="mt-1 text-sm font-black text-[#0a9b81]">{money(selectedOrder.amountDue)}</p></div>
+          <div className="rounded-2xl bg-rose-50 p-3"><p className="text-[11px] font-bold text-rose-600">Còn phải thu</p><p className="mt-1 text-sm font-black text-rose-600">{money(debt)}</p></div>
+        </div>
+      </section>
+
+      <section className={`${financeCardClass} p-4`}>
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-extrabold text-slate-900">Checklist gửi n8n</h3>
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600">{closeCheckCount}/{closeChecks.length}</span>
+        </div>
         <div className="mt-3 space-y-2">
           {closeChecks.map((item) => (
             <p className="flex items-center gap-2 text-sm font-semibold text-slate-700" key={item.label}>
               <CheckCircle2 className={item.ok ? "text-[#0a9b81]" : "text-slate-300"} size={17} />
-              <span>{item.label}</span>
+              <span className="min-w-0 break-words">{item.label}</span>
             </p>
           ))}
         </div>
+        {selectedIssues.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {selectedIssues.slice(0, 5).map((issue) => <Badge key={issue} tone={issue.includes("Thiếu") || issue.includes("nợ") ? "warn" : "info"}>{issue}</Badge>)}
+          </div>
+        )}
       </section>
-      <section className={`${financeCardClass} p-4`}>
-        <FinalDispatchOrderSheet assignments={assignments} drivers={drivers} order={selectedOrder} payments={selectedPayments} vehicles={vehicles} />
-      </section>
+
+      <FinalDispatchOrderSheet compact assignments={assignments} drivers={drivers} order={selectedOrder} payments={selectedPayments} vehicles={vehicles} />
     </div>
   );
 
@@ -10420,7 +10538,7 @@ function FinancePanel({
         </aside>
         <main className="mx-auto max-w-md space-y-4 lg:max-w-none">
           <div className="hidden gap-2 lg:flex">
-            {navItems.concat([{ id: "preview", label: "Preview", icon: Save }]).map((item) => {
+            {navItems.map((item) => {
               const Icon = item.icon;
               const active = financeView === item.id;
               return (
