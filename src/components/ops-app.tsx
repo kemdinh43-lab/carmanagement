@@ -48,7 +48,7 @@ import {
   vehicles as seedVehicles
 } from "@/data/demo";
 import { hasSupabaseBrowserConfig } from "@/lib/config";
-import { calculatePaymentStatus, canMoveDispatchStatus, findAssignmentConflict, getOperationalAlerts, money } from "@/lib/domain";
+import { calculateVatSummary, canMoveDispatchStatus, findAssignmentConflict, getOperationalAlerts, money, notificationDedupeId, summarizeOrderPayments } from "@/lib/domain";
 import { emptyOpsState } from "@/lib/empty-ops-state";
 import {
   assignVehicleDriver,
@@ -622,12 +622,16 @@ function ServiceFields({ initialCode, initialLabel }: { initialCode?: string; in
 }
 
 function VatCalculatorFields({ initialSubtotal = 0, initialVatRate = 0, initialTotal = 0 }: { initialSubtotal?: number; initialVatRate?: number; initialTotal?: number }) {
-  const startingSubtotal = initialSubtotal || initialTotal || 0;
-  const startingTotal = initialTotal && initialSubtotal ? initialTotal : Math.round(startingSubtotal * (1 + initialVatRate / 100));
+  const startingSummary = calculateVatSummary({
+    subtotalAmount: initialSubtotal || initialTotal || 0,
+    vatRate: initialVatRate,
+    amountDue: initialTotal,
+    basis: initialTotal && !initialSubtotal ? "total" : "subtotal"
+  });
   const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const [subtotal, setSubtotal] = useState(startingSubtotal);
-  const [vatRate, setVatRate] = useState(initialVatRate);
-  const [total, setTotal] = useState(startingTotal);
+  const [subtotal, setSubtotal] = useState(startingSummary.subtotalAmount);
+  const [vatRate, setVatRate] = useState(startingSummary.vatRate);
+  const [total, setTotal] = useState(startingSummary.amountDue);
   const [basis, setBasis] = useState<"subtotal" | "total">("subtotal");
   const vatAmount = Math.max(0, total - subtotal);
 
@@ -638,35 +642,32 @@ function VatCalculatorFields({ initialSubtotal = 0, initialVatRate = 0, initialT
   }
 
   function changeSubtotal(value: number) {
-    const nextSubtotal = Number.isFinite(value) ? value : 0;
+    const nextSummary = calculateVatSummary({ subtotalAmount: value, vatRate, basis: "subtotal" });
     setBasis("subtotal");
-    setSubtotal(nextSubtotal);
-    setTotal(Math.round(nextSubtotal * (1 + vatRate / 100)));
+    setSubtotal(nextSummary.subtotalAmount);
+    setTotal(nextSummary.amountDue);
     notifyFormChanged();
   }
 
   function changeVatRate(value: number) {
-    const nextRate = Number.isFinite(value) ? value : 0;
-    setVatRate(nextRate);
-    if (basis === "subtotal") {
-      setTotal(Math.round(subtotal * (1 + nextRate / 100)));
-      notifyFormChanged();
-      return;
-    }
-    setSubtotal(Math.round(total / (1 + nextRate / 100)));
+    const nextSummary = calculateVatSummary({ subtotalAmount: subtotal, amountDue: total, vatRate: value, basis });
+    setVatRate(nextSummary.vatRate);
+    setSubtotal(nextSummary.subtotalAmount);
+    setTotal(nextSummary.amountDue);
     notifyFormChanged();
   }
 
   function changeTotal(value: number) {
-    const nextTotal = Number.isFinite(value) ? value : 0;
+    const nextSummary = calculateVatSummary({ amountDue: value, vatRate, basis: "total" });
     setBasis("total");
-    setTotal(nextTotal);
-    setSubtotal(Math.round(nextTotal / (1 + vatRate / 100)));
+    setSubtotal(nextSummary.subtotalAmount);
+    setTotal(nextSummary.amountDue);
     notifyFormChanged();
   }
 
   return (
     <div className="contents" ref={wrapperRef}>
+      <input name="vatBasis" type="hidden" value={basis} />
       <Field label="Tiền trước thuế"><input className={inputClass()} min="0" name="subtotalAmount" onChange={(event) => changeSubtotal(Number(event.target.value))} type="number" value={subtotal} /></Field>
       <Field label="VAT">
         <select className={inputClass()} name="vatRate" onChange={(event) => changeVatRate(Number(event.target.value))} value={vatRate}>
@@ -686,12 +687,13 @@ function SalesCreatePaymentFields({ initialSubtotal = 0, initialVatRate = 0 }: {
   const [subtotal, setSubtotal] = useState(initialSubtotal);
   const [vatRate, setVatRate] = useState(initialVatRate);
   const [prepaid, setPrepaid] = useState(0);
-  const vatAmount = Math.round(subtotal * (vatRate / 100));
-  const total = Math.max(0, subtotal + vatAmount);
+  const paymentSummary = calculateVatSummary({ subtotalAmount: subtotal, vatRate, basis: "subtotal" });
+  const { vatAmount, amountDue: total } = paymentSummary;
   const remaining = Math.max(total - prepaid, 0);
 
   return (
     <>
+      <input name="vatBasis" type="hidden" value="subtotal" />
       <Field label="Tiền trước thuế">
         <input
           className={inputClass()}
@@ -780,11 +782,7 @@ function FinalDispatchOrderSheet({
   const endTime = timeOnly(order.endAt);
   const routeText = routeSummaryForOrder(order);
   const pdfRouteText = routeText.replaceAll("→", "->");
-  const validPayments = payments
-    .filter((payment) => payment.orderId === order.id && payment.status === "valid")
-    .sort((a, b) => new Date(a.paidAt).getTime() - new Date(b.paidAt).getTime());
-  const paid = validPayments.reduce((sum, payment) => sum + payment.amount, 0);
-  const debt = Math.max(order.amountDue - paid, 0);
+  const { validPayments, paidAmount: paid, remainingAmount: debt } = summarizeOrderPayments(order, payments);
   const extraChargeAmount = order.driverExpenseOther ?? 0;
   const extraChargeReason = driverReportNoteParts(order.driverExpenseNote).extraChargeReason;
   const routeLegRows = routeLegsForOrder(order).map((leg, index) => ({
@@ -897,6 +895,14 @@ function FinalDispatchOrderSheet({
     ...paymentRows
   ];
   const exportStatus = order.reconciliationStatus === "closed" ? "Bản chính thức" : "Bản xem trước";
+  const finalPdfIdempotencyKey = [
+    "final-order-pdf",
+    order.id,
+    order.reconciliationStatus,
+    order.invoiceStatus,
+    order.paymentStatus,
+    validPayments.map((payment) => payment.id).join(".") || "no-payments"
+  ].join(":");
   const [isSendingPdfPayload, setIsSendingPdfPayload] = useState(false);
 
   function exportFinalOrder() {
@@ -937,6 +943,7 @@ function FinalDispatchOrderSheet({
     return {
       delivery: {
         schema: "aot_final_dispatch_order_pdf_v1",
+        idempotency_key: finalPdfIdempotencyKey,
         generated_at: new Date().toISOString(),
         status: order.reconciliationStatus === "closed" ? "official" : "preview",
         filename: `Lenh_dieu_xe_${fileCode}.pdf`,
@@ -1054,12 +1061,14 @@ function FinalDispatchOrderSheet({
   }
 
   async function sendFinalPdfPayload() {
+    if (isSendingPdfPayload) return;
     setIsSendingPdfPayload(true);
     try {
+      const pdfData = buildFinalPdfData();
       const response = await fetch("/api/final-order-pdf", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildFinalPdfData())
+        headers: { "Content-Type": "application/json", "Idempotency-Key": finalPdfIdempotencyKey },
+        body: JSON.stringify(pdfData)
       });
       const result = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
 
@@ -1661,16 +1670,12 @@ function paymentCollectorInfo(payment: Payment, order: DispatchOrder, transport:
 }
 
 function vatFromForm(form: FormData) {
-  const subtotalAmount = Number(form.get("subtotalAmount") || 0);
-  const vatRate = Number(form.get("vatRate") || 0);
-  const totalAmount = Number(form.get("amountDue") || 0);
-  const vatAmount = Number(form.get("vatAmount") || 0);
-  return {
-    subtotalAmount: Number.isFinite(subtotalAmount) ? subtotalAmount : 0,
-    vatRate: Number.isFinite(vatRate) ? vatRate : 0,
-    vatAmount: Number.isFinite(vatAmount) ? vatAmount : 0,
-    amountDue: Number.isFinite(totalAmount) ? totalAmount : 0
-  };
+  return calculateVatSummary({
+    subtotalAmount: Number(form.get("subtotalAmount") || 0),
+    vatRate: Number(form.get("vatRate") || 0),
+    amountDue: Number(form.get("amountDue") || 0),
+    basis: form.get("vatBasis") === "total" ? "total" : "subtotal"
+  });
 }
 
 function routeLegsForOrder(order: DispatchOrder): DispatchRouteLeg[] {
@@ -2697,8 +2702,11 @@ export default function OpsApp() {
   }
 
   function notify(input: Omit<AppNotification, "id" | "createdAt">) {
-    const notification: AppNotification = { ...input, id: makeId("noti"), createdAt: new Date().toISOString() };
-    setState((current) => ({ ...current, notifications: [notification, ...(current.notifications ?? [])].slice(0, 30) }));
+    const notification: AppNotification = { ...input, id: notificationDedupeId(input), createdAt: new Date().toISOString() };
+    setState((current) => ({
+      ...current,
+      notifications: [notification, ...(current.notifications ?? []).filter((item) => item.id !== notification.id)].slice(0, 30)
+    }));
     if (!supabaseConfigured) return;
     const supabase = createSupabaseBrowserClient();
     const basePayload = {
@@ -3047,7 +3055,7 @@ export default function OpsApp() {
         reference: "Tạm ứng trước chuyến",
         note: String(form.get("prepaymentNote") || "").trim() || undefined
       };
-      const paymentStatus = calculatePaymentStatus(order.amountDue, [prepayment]);
+      const paymentStatus = summarizeOrderPayments(order, [prepayment]).paymentStatus;
       const savedPrepayment = await runSupabaseRpc(
         "record_sales_prepayment",
         {
@@ -4087,8 +4095,7 @@ export default function OpsApp() {
       note: String(form.get("note") || "").trim() || undefined
     };
     const nextPayments = [payment, ...state.payments];
-    const orderPayments = nextPayments.filter((item) => item.orderId === selectedOrder.id);
-    const paymentStatus = calculatePaymentStatus(selectedOrder.amountDue, orderPayments);
+    const paymentStatus = summarizeOrderPayments(selectedOrder, nextPayments).paymentStatus;
 
     const actionKey = `finance:payment:${selectedOrder.id}`;
     if (!beginAction(actionKey, "Ghi payment")) return;
@@ -10130,11 +10137,10 @@ function FinancePanel({
   vehicles: Vehicle[];
 }) {
   const activeOrders = orders.filter((order) => order.orderStatus !== "cancelled");
-  const selectedPayments = payments
-    .filter((payment) => payment.orderId === selectedOrder.id)
-    .sort((a, b) => new Date(a.paidAt).getTime() - new Date(b.paidAt).getTime());
-  const paid = selectedPayments.filter((payment) => payment.status === "valid").reduce((sum, payment) => sum + payment.amount, 0);
-  const debt = Math.max(selectedOrder.amountDue - paid, 0);
+  const selectedPaymentSummary = summarizeOrderPayments(selectedOrder, payments);
+  const selectedPayments = selectedPaymentSummary.validPayments;
+  const paid = selectedPaymentSummary.paidAmount;
+  const debt = selectedPaymentSummary.remainingAmount;
   const totalReceivable = activeOrders.reduce((sum, order) => sum + order.amountDue, 0);
   const totalCollected = payments
     .filter((payment) => payment.status === "valid" && activeOrders.some((order) => order.id === payment.orderId))
@@ -10148,8 +10154,7 @@ function FinancePanel({
     .filter((order) => order.driverReportStatus === "reported" && (order.driverCollectedAmount ?? 0) > 0)
     .reduce((sum, order) => sum + (order.driverCollectedAmount ?? 0), 0);
   const profileIssues = (order: DispatchOrder) => {
-    const orderPaid = payments.filter((payment) => payment.orderId === order.id && payment.status === "valid").reduce((sum, payment) => sum + payment.amount, 0);
-    const orderDebt = Math.max(order.amountDue - orderPaid, 0);
+    const orderDebt = summarizeOrderPayments(order, payments).remainingAmount;
     const issues: string[] = [];
     if (order.dispatchStatus === "completed" && order.reconciliationStatus !== "closed") issues.push("Chờ đối soát");
     if (orderDebt > 0) issues.push(`Còn nợ khách ${money(orderDebt)}`);
@@ -10295,8 +10300,7 @@ function FinancePanel({
   );
 
   const renderQueueCard = (order: DispatchOrder) => {
-    const orderPaid = payments.filter((payment) => payment.orderId === order.id && payment.status === "valid").reduce((sum, payment) => sum + payment.amount, 0);
-    const orderDebt = Math.max(order.amountDue - orderPaid, 0);
+    const orderDebt = summarizeOrderPayments(order, payments).remainingAmount;
     const issues = profileIssues(order);
     return (
       <article className={`${financeCardClass} p-4`} key={order.id}>

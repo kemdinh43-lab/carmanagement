@@ -8,6 +8,7 @@ type FinalOrderPayload = {
   city?: unknown;
   delivery?: {
     schema?: unknown;
+    idempotency_key?: unknown;
     filename?: unknown;
     pdf_base64?: unknown;
     pdf_mime_type?: unknown;
@@ -323,6 +324,7 @@ export async function POST(request: Request) {
   const validationError = validatePayload(payload);
   if (validationError) return NextResponse.json({ error: validationError }, { status: 400 });
   const finalPayload = payload as FinalOrderPayload & { order_no: string };
+  const idempotencyKey = text(finalPayload.delivery?.idempotency_key, request.headers.get("Idempotency-Key") || finalPayload.order_no);
   let pdfBuffer: Buffer;
   try {
     pdfBuffer = await renderFinalOrderPdf(finalPayload);
@@ -350,6 +352,7 @@ export async function POST(request: Request) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey,
         ...(secret ? { "x-aot-webhook-secret": secret } : {})
       },
       body: JSON.stringify(payloadWithPdf)
@@ -358,12 +361,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `Không gọi được n8n webhook: ${error instanceof Error ? error.message : "unknown error"}` }, { status: 502 });
   }
 
-  const text = await response.text();
-  let n8nResponse: unknown = text;
+  const responseText = await response.text();
+  let n8nResponse: unknown = responseText;
   try {
-    n8nResponse = text ? JSON.parse(text) : null;
+    n8nResponse = responseText ? JSON.parse(responseText) : null;
   } catch {
-    n8nResponse = text.slice(0, 1000);
+    n8nResponse = responseText.slice(0, 1000);
   }
 
   if (!response.ok) {

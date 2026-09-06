@@ -1,4 +1,75 @@
-import type { Assignment, DispatchOrder, DispatchStatus, Payment, PaymentStatus, TimeWindow } from "./types";
+import type { AppNotification, Assignment, DispatchOrder, DispatchStatus, Payment, PaymentStatus, TimeWindow } from "./types";
+
+export type VatBasis = "subtotal" | "total";
+
+export interface VatInput {
+  subtotalAmount?: number;
+  vatRate?: number;
+  amountDue?: number;
+  basis?: VatBasis;
+}
+
+export interface VatSummary {
+  subtotalAmount: number;
+  vatRate: number;
+  vatAmount: number;
+  amountDue: number;
+}
+
+function safeNumber(value: number | undefined, fallback = 0) {
+  return Number.isFinite(value) ? Number(value) : fallback;
+}
+
+function safeMoneyValue(value: number | undefined) {
+  return Math.max(0, Math.round(safeNumber(value)));
+}
+
+export function calculateVatSummary(input: VatInput): VatSummary {
+  const vatRate = Math.max(0, safeNumber(input.vatRate));
+  const divisor = 1 + vatRate / 100;
+  const basis = input.basis ?? "subtotal";
+
+  if (basis === "total") {
+    const amountDue = safeMoneyValue(input.amountDue);
+    const subtotalAmount = divisor > 0 ? safeMoneyValue(amountDue / divisor) : amountDue;
+    return {
+      subtotalAmount,
+      vatRate,
+      vatAmount: Math.max(0, amountDue - subtotalAmount),
+      amountDue
+    };
+  }
+
+  const subtotalAmount = safeMoneyValue(input.subtotalAmount);
+  const amountDue = safeMoneyValue(subtotalAmount * divisor);
+  return {
+    subtotalAmount,
+    vatRate,
+    vatAmount: Math.max(0, amountDue - subtotalAmount),
+    amountDue
+  };
+}
+
+export function summarizeOrderPayments(order: Pick<DispatchOrder, "id" | "amountDue">, payments: Payment[]) {
+  const validPayments = payments
+    .filter((payment) => payment.orderId === order.id && payment.status === "valid")
+    .sort((a, b) => new Date(a.paidAt).getTime() - new Date(b.paidAt).getTime());
+  const paidAmount = validPayments.reduce((sum, payment) => sum + payment.amount, 0);
+  const remainingAmount = Math.max(order.amountDue - paidAmount, 0);
+  return {
+    validPayments,
+    paidAmount,
+    remainingAmount,
+    paymentStatus: calculatePaymentStatus(order.amountDue, validPayments)
+  };
+}
+
+export function notificationDedupeId(input: Pick<AppNotification, "audience" | "entityId" | "eventType" | "title">) {
+  const eventKey = input.eventType || input.title;
+  const entityKey = input.entityId || "global";
+  const raw = `${input.audience}:${eventKey}:${entityKey}`;
+  return `noti_${raw.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 140)}`;
+}
 
 export function overlaps(a: TimeWindow, b: TimeWindow): boolean {
   const aStart = new Date(a.startAt).getTime();
