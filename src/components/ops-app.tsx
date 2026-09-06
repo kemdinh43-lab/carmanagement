@@ -345,25 +345,27 @@ function RoleAccountControls({
   roleLabel: string;
 }) {
   const name = readableAuthName(authLabel, "Người dùng");
+  const displayName = greetingName(authLabel, "Người dùng");
   return (
-    <div className={`flex items-center gap-2 ${compact ? "" : "rounded-2xl border border-line bg-white px-3 py-2"}`}>
+    <div className={`flex min-w-0 items-center gap-2 ${compact ? "" : "max-w-full rounded-2xl border border-line bg-white px-3 py-2 shadow-sm"}`}>
       {!compact && (
         <div className="grid size-9 shrink-0 place-items-center rounded-full bg-teal-50 text-sm font-extrabold text-brand">
           {name.slice(0, 1).toUpperCase()}
         </div>
       )}
       {!compact && (
-        <div className="min-w-0">
-          <p className="truncate text-sm font-extrabold text-ink">{name}</p>
-          <p className="text-xs font-semibold text-slate-500">{roleLabel}</p>
+        <div className="min-w-0 max-w-[220px] xl:max-w-[280px]">
+          <p className="truncate text-sm font-extrabold text-ink" title={displayName}>{displayName}</p>
+          <p className="truncate text-xs font-semibold text-slate-500">{roleLabel}</p>
         </div>
       )}
-      <Link className="inline-flex h-9 shrink-0 items-center justify-center rounded-xl border border-line bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50" href="/auth">
+      <Link className="inline-flex h-9 shrink-0 items-center justify-center rounded-xl border border-line bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50" href="/auth" title="Đăng nhập / đổi tài khoản">
         Đăng nhập
       </Link>
       <button
         className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700 hover:bg-rose-100"
         onClick={onSignOut}
+        title="Đăng xuất"
         type="button"
       >
         <LogOut size={15} /> Đăng xuất
@@ -3633,8 +3635,8 @@ export default function OpsApp() {
   const financeShell = currentRole === "accountant" && activeTab === "Tài chính";
   const displayName = readableAuthName(authLabel, roleLabels[currentRole]);
   const displayGreeting = greetingName(authLabel, roleLabels[currentRole]);
-  const userActions = <RoleAccountControls authLabel={authLabel} onSignOut={() => void signOutFromApp()} roleLabel={roleLabels[currentRole]} />;
   const compactUserActions = <RoleAccountControls authLabel={authLabel} compact onSignOut={() => void signOutFromApp()} roleLabel={roleLabels[currentRole]} />;
+  const userActions = <RoleAccountControls authLabel={authLabel} onSignOut={() => void signOutFromApp()} roleLabel={roleLabels[currentRole]} />;
 
   return (
     <main className={`min-h-screen ${driverMobileShell || salesShell || dispatchShell || financeShell ? "bg-[#f6f9fb]" : ""}`}>
@@ -3669,18 +3671,18 @@ export default function OpsApp() {
         {!driverMobileShell && !salesShell && !dispatchShell && !financeShell && (
         <header className="border-b border-line bg-white px-5 py-4 lg:px-8">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
+            <div className="min-w-0">
               <p className="text-sm text-slate-500">{roleLabels[currentRole]} - {vietnamDateTimeLiveLabel(now)}</p>
-              <h2 className="text-2xl font-semibold text-ink">{tabLabel(activeTab, currentRole)}</h2>
+              <h2 className="truncate text-2xl font-semibold text-ink">{tabLabel(activeTab, currentRole)}</h2>
+              <p className="mt-1 truncate text-sm font-semibold text-slate-600" title={displayGreeting}>Chào {displayGreeting}</p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex min-w-0 flex-wrap justify-start gap-2 md:justify-end">
               {currentRole === "admin" && (
                 <>
                   <Badge tone={supabaseConfigured ? "good" : "info"}>{supabaseConfigured ? "Supabase config ready" : "Local demo mode"}</Badge>
                   <Badge tone="good">Audit on</Badge>
                 </>
               )}
-              <Badge tone="info">{displayName}</Badge>
               <Badge tone="info">{roleLabels[currentRole]}</Badge>
               <div className="relative" ref={notificationsRef}>
                 <button
@@ -3701,7 +3703,7 @@ export default function OpsApp() {
                   </div>
                 )}
               </div>
-              <RoleAccountControls authLabel={authLabel} compact onSignOut={() => void signOutFromApp()} roleLabel={roleLabels[currentRole]} />
+              {compactUserActions}
               {currentRole === "admin" && canCleanTripData && (
                 <button
                   className="inline-flex h-9 items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 text-sm font-medium text-amber-900 hover:bg-amber-100"
@@ -3951,7 +3953,7 @@ export default function OpsApp() {
               updateOrder={updateOrder}
               vehicles={state.vehicles}
               compact={isMobileViewport}
-              accountControls={compactUserActions}
+              accountControls={userActions}
             />
           )}
           {activeTab === "Màn làm việc" && (
@@ -3992,7 +3994,7 @@ export default function OpsApp() {
               updateInvoiceStatus={updateInvoiceStatus}
               reconcileOrder={reconcileOrder}
               vehicles={state.vehicles}
-              accountControls={compactUserActions}
+              accountControls={userActions}
             />
           )}
           {activeTab === "Audit" && (can(currentRole, "view_audit") ? <AuditPanel events={state.auditEvents} /> : <AccessDenied role={currentRole} />)}
@@ -4010,7 +4012,7 @@ export default function OpsApp() {
                   type="button"
                 >
                   <Icon size={16} />
-                  <span>{item}</span>
+                  <span>{tabLabel(item, currentRole)}</span>
                 </button>
               );
             })}
@@ -7533,11 +7535,11 @@ function DispatchPanel({
   function renderDispatchHeader(title: string, subtitle: string) {
     return (
       <header className="flex min-h-[72px] flex-wrap items-center justify-between gap-3 border-b border-line bg-white px-6 py-3">
-        <div className="min-w-0">
-          <h2 className="text-2xl font-extrabold text-ink">{title}</h2>
+        <div className="min-w-0 flex-1 basis-[280px]">
+          <h2 className="truncate text-2xl font-extrabold text-ink" title={title}>{title}</h2>
           <p className="truncate text-sm font-medium text-slate-500">{subtitle}</p>
         </div>
-        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+        <div className="flex min-w-0 flex-[2] flex-wrap items-center justify-end gap-2">
           <input
             className={`${inputClass()} h-10 w-40 shrink-0`}
             onChange={(event) => {
@@ -7561,7 +7563,7 @@ function DispatchPanel({
             <Bell size={18} />
             {pendingReviewOrders.length > 0 && <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-red-500 px-1 text-[11px] font-bold text-white">{pendingReviewOrders.length}</span>}
           </button>
-          {accountControls}
+          <div className="min-w-0 max-w-full">{accountControls}</div>
           {showDispatchAlerts && <div className="dispatch-alerts right-6 top-14"><strong>Đề xuất chờ duyệt</strong>{pendingReviewOrders.length === 0 ? <p>Không có đề xuất mới.</p> : pendingReviewOrders.map((order) => <button key={order.id} onClick={() => { setSelectedOrderId(order.id); setDesktopView("orders"); setShowDispatchAlerts(false); }} type="button">{order.code}<span className="block text-slate-500">{order.customerName}</span></button>)}</div>}
         </div>
       </header>
@@ -9537,7 +9539,7 @@ function FinancePanel({
           <Bell size={18} />
           {financeQueue.length > 0 && <span className="absolute -right-1 -top-1 rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white">{financeQueue.length}</span>}
         </button>
-        <div className="hidden lg:block">{accountControls}</div>
+        <div className="hidden min-w-0 max-w-[420px] lg:block">{accountControls}</div>
       </div>
     </header>
   );
