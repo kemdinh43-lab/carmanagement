@@ -431,6 +431,30 @@ export function buildDispatchProposalIntegrationPayload(order: DispatchOrder, au
   const legs = routeLegsForOrder(order);
   const actionLabel = audience === "dispatcher" ? "Duyệt xe / phân tài xế" : "Xem và xử lý lệnh";
   const actionUrl = appOrderActionUrl(order, "dispatch");
+  const customerLines = order.customerKind === "company"
+    ? [
+        `Công ty: ${order.companyName || order.customerName}`,
+        `MST: ${order.taxCode || "-"}`,
+        `Người sử dụng: ${order.contactName || "-"}`,
+        `SĐT: ${order.contactPhone || "-"}`
+      ]
+    : [
+        `Khách: ${order.customerName}`,
+        `SĐT: ${order.contactPhone || "-"}`,
+        order.customerCccd ? `CCCD: ${order.customerCccd}` : ""
+      ].filter(Boolean);
+  const customerHtmlLines = order.customerKind === "company"
+    ? [
+        `Công ty: ${telegramHtml(order.companyName || order.customerName)}`,
+        `MST: ${telegramHtml(order.taxCode || "-")}`,
+        `Người sử dụng: ${telegramHtml(order.contactName || "-")}`,
+        `SĐT: ${telegramHtml(order.contactPhone || "-")}`
+      ]
+    : [
+        `Khách: ${telegramHtml(order.customerName)}`,
+        `SĐT: ${telegramHtml(order.contactPhone || "-")}`,
+        order.customerCccd ? `CCCD: ${telegramHtml(order.customerCccd)}` : ""
+      ].filter(Boolean);
   const routePayload = legs.map((leg, index) => ({
     index: index + 1,
     label: `Chặng ${index + 1}: ${leg.pickup || "-"} -> ${leg.dropoff || "-"}`,
@@ -450,7 +474,7 @@ export function buildDispatchProposalIntegrationPayload(order: DispatchOrder, au
     "Lệnh chờ điều hành duyệt",
     "Việc cần làm: Kiểm tra thông tin lệnh và duyệt hoặc từ chối.",
     `Thông tin: ${order.code}`,
-    `Khách: ${order.contactName || order.customerName} / ${order.contactPhone}`,
+    ...customerLines,
     `Giá bán: ${money(order.amountDue)}`,
     "",
     ...routeText,
@@ -461,7 +485,7 @@ export function buildDispatchProposalIntegrationPayload(order: DispatchOrder, au
     "<b>Lệnh chờ điều hành duyệt</b>",
     "Việc cần làm: Kiểm tra thông tin lệnh và duyệt hoặc từ chối.",
     `Thông tin: <b>${telegramHtml(order.code)}</b>`,
-    `Khách: ${telegramHtml(order.contactName || order.customerName)} / ${telegramHtml(order.contactPhone)}`,
+    ...customerHtmlLines,
     `Giá bán: ${telegramHtml(money(order.amountDue))}`,
     "",
     ...routePayload.flatMap((leg) => [
@@ -486,7 +510,11 @@ export function buildDispatchProposalIntegrationPayload(order: DispatchOrder, au
     order: {
       id: order.id,
       code: order.code,
-      customer_name: order.contactName || order.customerName,
+      customer_kind: order.customerKind,
+      customer_name: order.customerName,
+      company_name: order.companyName ?? null,
+      tax_code: order.taxCode ?? null,
+      contact_name: order.contactName ?? null,
       customer_phone: order.contactPhone,
       amount_due: order.amountDue,
       amount_due_label: money(order.amountDue)

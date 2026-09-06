@@ -2249,7 +2249,10 @@ export default function OpsApp() {
         orderId: order.id,
         route: routeSummaryForOrder(order),
         vehicle: order.vehiclePlateNo || order.externalVehiclePlate || "Chờ điều hành phân xe",
-        driver: order.driverFullName || order.externalDriverName || "Chờ điều hành phân tài xế"
+        driver: order.driverFullName || order.externalDriverName || "Chờ điều hành phân tài xế",
+        notification: supabaseConfigured
+          ? "Đã ghi thông báo cho điều hành và đưa event vào hàng chờ n8n/Telegram."
+          : "Local demo: đã tạo thông báo trong trình duyệt, không gửi Telegram."
       }
     }));
     } finally {
@@ -5058,12 +5061,19 @@ function OrdersPanel({
   const [salesScreen, setSalesScreen] = useState<"overview" | "orders" | "create" | "detail" | "edit" | "success">("overview");
   const [salesEditSection, setSalesEditSection] = useState<SalesEditSection>("customer");
   const [salesMobileView, setSalesMobileView] = useState<"list" | "create" | "detail" | "success">("list");
-  const [salesSuccess, setSalesSuccess] = useState({ orderCode: "", orderId: "", route: "", vehicle: "", driver: "" });
+  const [salesSuccess, setSalesSuccess] = useState({ orderCode: "", orderId: "", route: "", vehicle: "", driver: "", notification: "" });
   const [salesFilter, setSalesFilter] = useState<"all" | "pending" | "need_fix" | "approved" | "soon" | "unpaid">("all");
   const [salesCreateStep, setSalesCreateStep] = useState(1);
   const [salesDraftPreview, setSalesDraftPreview] = useState({
     customer: "Chưa nhập khách",
+    companyName: "",
+    taxCode: "",
+    contactName: "",
     phone: "Chưa nhập SĐT",
+    billingEmail: "",
+    identityNo: "",
+    address: "",
+    bankInfo: "",
     route: "Chưa nhập hành trình",
     service: "Chưa chọn dịch vụ",
     unit: "Chuyến",
@@ -5199,11 +5209,25 @@ function OrdersPanel({
   const refreshSalesDraftPreview = (formElement: HTMLFormElement) => {
     const form = new FormData(formElement);
     const kind = String(form.get("customerKind") || customerKind);
+    const selectedCustomer = customers.find((customer) => customer.id === String(form.get("customerId") || ""));
+    const selectedCompany = companies.find((company) => company.id === String(form.get("companyId") || ""));
+    const selectedContact = companyContacts.find((contact) => contact.id === String(form.get("contactId") || ""));
+    const companyName = selectedCompany?.legalName || String(form.get("companyName") || "").trim();
+    const contactName = selectedContact?.fullName || String(form.get("contactName") || "").trim();
     const customer = kind === "company"
-      ? String(form.get("companyName") || form.get("contactName") || "Chưa nhập doanh nghiệp")
-      : String(form.get("customerName") || "Chưa nhập khách");
-    const contactName = String(form.get("contactName") || customer);
-    const phone = String(form.get("contactPhone") || "Chưa nhập SĐT");
+      ? companyName || "Chưa nhập tên công ty"
+      : selectedCustomer?.fullName || String(form.get("customerName") || "").trim() || "Chưa nhập khách";
+    const phone = kind === "company"
+      ? selectedContact?.phone || String(form.get("contactPhone") || "").trim() || "Chưa nhập SĐT"
+      : selectedCustomer?.phone || String(form.get("contactPhone") || "").trim() || "Chưa nhập SĐT";
+    const taxCode = selectedCompany?.taxCode || String(form.get("taxCode") || "").trim();
+    const billingEmail = selectedCompany?.billingEmail || String(form.get("billingEmail") || "").trim();
+    const identityNo = String(form.get("customerCccd") || "").trim();
+    const address = kind === "company"
+      ? selectedCompany?.legalAddress || String(form.get("companyAddress") || "").trim()
+      : String(form.get("customerAddress") || "").trim();
+    const bankAccount = kind === "company" ? String(form.get("companyBankAccount") || "").trim() : String(form.get("customerBankAccount") || "").trim();
+    const bankName = kind === "company" ? String(form.get("companyBankName") || "").trim() : String(form.get("customerBankName") || "").trim();
     const pickups = form.getAll("routeLegPickup").map(String).filter(Boolean);
     const dropoffs = form.getAll("routeLegDropoff").map(String).filter(Boolean);
     const starts = form.getAll("routeLegStartAt").map(String).filter(Boolean);
@@ -5220,8 +5244,15 @@ function OrdersPanel({
     const service = String(form.get("serviceLabel") || form.get("serviceCode") || "Chưa chọn dịch vụ");
     const unit = String(form.get("unit") || "Chuyến");
     setSalesDraftPreview({
-      customer: kind === "company" ? `${customer} / ${contactName}` : customer,
+      customer,
+      companyName: kind === "company" ? customer : "",
+      taxCode: kind === "company" ? taxCode || "Chưa nhập MST" : "",
+      contactName: kind === "company" ? contactName || "Chưa nhập người sử dụng" : "",
       phone,
+      billingEmail: kind === "company" ? billingEmail || "Chưa nhập email HĐ" : "",
+      identityNo: identityNo || "",
+      address: address || "",
+      bankInfo: [bankAccount, bankName].filter(Boolean).join(" / "),
       route: `${pickup} -> ${dropoff}`,
       service,
       unit,
@@ -5493,6 +5524,7 @@ function OrdersPanel({
                   </Field>
                   <Field label="Tên công ty mới"><input className={inputClass()} name="companyName" /></Field>
                   <Field label="Người sử dụng dịch vụ"><input className={inputClass()} name="contactName" /></Field>
+                  <Field label="SĐT người sử dụng"><input className={inputClass()} name="contactPhone" /></Field>
                   <Field label="CCCD người sử dụng"><input className={inputClass()} name="customerCccd" /></Field>
                   <Field label="MST"><input className={inputClass()} name="taxCode" /></Field>
                   <Field label="Email nhận HĐ"><input className={inputClass()} name="billingEmail" type="email" /></Field>
@@ -5636,8 +5668,26 @@ function OrdersPanel({
                 <div className="flex items-center gap-2 font-bold text-ink"><UserRound className="text-brand" size={17} /> Khách hàng</div>
                 <div className="mt-2 divide-y divide-slate-200 text-sm">
                   <InfoLine label="Loại khách" value={salesDraftPreview.kind} />
-                  <InfoLine label="Khách / người dùng" value={salesDraftPreview.customer} />
-                  <InfoLine label="SĐT" value={salesDraftPreview.phone} />
+                  {salesDraftPreview.kind === "Doanh nghiệp" ? (
+                    <>
+                      <InfoLine label="Tên công ty" value={salesDraftPreview.companyName || salesDraftPreview.customer} />
+                      <InfoLine label="MST" value={salesDraftPreview.taxCode} />
+                      <InfoLine label="Người sử dụng" value={salesDraftPreview.contactName} />
+                      <InfoLine label="SĐT người sử dụng" value={salesDraftPreview.phone} />
+                      <InfoLine label="Email HĐ" value={salesDraftPreview.billingEmail} />
+                      {salesDraftPreview.identityNo && <InfoLine label="CCCD người sử dụng" value={salesDraftPreview.identityNo} />}
+                      {salesDraftPreview.address && <InfoLine label="Địa chỉ công ty" value={salesDraftPreview.address} />}
+                      {salesDraftPreview.bankInfo && <InfoLine label="Tài khoản công ty" value={salesDraftPreview.bankInfo} />}
+                    </>
+                  ) : (
+                    <>
+                      <InfoLine label="Họ tên khách" value={salesDraftPreview.customer} />
+                      <InfoLine label="SĐT" value={salesDraftPreview.phone} />
+                      {salesDraftPreview.identityNo && <InfoLine label="CCCD" value={salesDraftPreview.identityNo} />}
+                      {salesDraftPreview.address && <InfoLine label="Địa chỉ" value={salesDraftPreview.address} />}
+                      {salesDraftPreview.bankInfo && <InfoLine label="Tài khoản khách" value={salesDraftPreview.bankInfo} />}
+                    </>
+                  )}
                 </div>
               </div>
               <div className="rounded-2xl border border-line bg-slate-50/60 p-3">
@@ -5711,10 +5761,14 @@ function OrdersPanel({
           </div>
           <h3 className="mt-5 text-xl font-extrabold text-ink">Đã tạo lệnh điều xe thành công</h3>
           <p className="mt-2 text-2xl font-extrabold text-brand">{salesSuccess.orderCode}</p>
+          <p className="mt-2 rounded-2xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-bold text-teal-800">
+            Đã gửi đề xuất vào hàng chờ điều hành xét duyệt.
+          </p>
           <div className="mt-5 divide-y divide-line rounded-2xl border border-line bg-slate-50/70 px-4 text-left text-sm">
             <InfoLine label="Hành trình" value={salesSuccess.route || "-"} />
             <InfoLine label="Xe" value={salesSuccess.vehicle || "Chờ điều hành phân xe"} />
             <InfoLine label="Tài xế" value={salesSuccess.driver || "Chờ điều hành phân tài xế"} />
+            <InfoLine label="Thông báo" value={salesSuccess.notification || "Đã tạo thông báo nội bộ."} />
           </div>
           <div className="mt-6 grid gap-3">
             <button
