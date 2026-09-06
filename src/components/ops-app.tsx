@@ -233,7 +233,7 @@ const roleVisibleTabs: Record<AppRole, Tab[]> = {
   sale: ["Lệnh điều xe", "Khách hàng"],
   dispatcher: ["Điều hành"],
   driver: ["Màn làm việc"],
-  accountant: ["Tài chính", "Lệnh điều xe"],
+  accountant: ["Tài chính"],
   manager: ["Dashboard", "Điều hành", "Tài chính", "Lệnh điều xe"],
   admin: ["Dashboard", "Điều hành", "Tài chính", "Lệnh điều xe", "Users", "Khách hàng", "Master data", "Audit"]
 };
@@ -251,8 +251,7 @@ const roleTabLabels: Partial<Record<AppRole, Partial<Record<Tab, string>>>> = {
     "Màn làm việc": "Hôm nay"
   },
   accountant: {
-    "Tài chính": "Cần đối soát",
-    "Lệnh điều xe": "Hồ sơ lệnh"
+    "Tài chính": "Cần xử lý"
   },
   manager: {
     "Dashboard": "Tổng quan",
@@ -4255,10 +4254,11 @@ export default function OpsApp() {
   const driverMobileShell = currentRole === "driver" && isMobileViewport;
   const salesShell = currentRole === "sale";
   const dispatchShell = currentRole !== "driver" && currentRole !== "sale" && (activeTab === "Điều hành" || (currentRole === "dispatcher" && activeTab === "Lệnh điều xe"));
+  const financeShell = currentRole === "accountant" && activeTab === "Tài chính";
 
   return (
-    <main className={`min-h-screen ${driverMobileShell || salesShell || dispatchShell ? "bg-[#f6f9fb]" : ""}`}>
-      <aside className={`fixed inset-y-0 left-0 hidden w-64 border-r border-line bg-white px-4 py-5 ${dispatchShell ? "" : "lg:block"}`}>
+    <main className={`min-h-screen ${driverMobileShell || salesShell || dispatchShell || financeShell ? "bg-[#f6f9fb]" : ""}`}>
+      <aside className={`fixed inset-y-0 left-0 hidden w-64 border-r border-line bg-white px-4 py-5 ${dispatchShell || financeShell ? "" : "lg:block"}`}>
         <div className="flex items-center gap-3">
           <div className="grid size-10 place-items-center rounded-md bg-brand text-white">
             <Route size={22} />
@@ -4285,8 +4285,8 @@ export default function OpsApp() {
         </nav>
       </aside>
 
-      <section className={dispatchShell ? "" : "lg:pl-64"}>
-        {!driverMobileShell && !salesShell && !dispatchShell && (
+      <section className={dispatchShell || financeShell ? "" : "lg:pl-64"}>
+        {!driverMobileShell && !salesShell && !dispatchShell && !financeShell && (
         <header className="border-b border-line bg-white px-5 py-4 lg:px-8">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
@@ -4453,7 +4453,7 @@ export default function OpsApp() {
             </div>
           </div>
         )}
-        {currentRole !== "driver" && !salesShell && !dispatchShell && (
+        {currentRole !== "driver" && !salesShell && !dispatchShell && !financeShell && (
         <div className="border-b border-line bg-white px-3 py-3 lg:hidden">
           <div className="flex gap-2 overflow-x-auto pb-1">
             {visibleTabs.map((item) => (
@@ -4473,8 +4473,8 @@ export default function OpsApp() {
         </div>
         )}
 
-        <div className={driverMobileShell ? "pb-28" : salesShell ? "space-y-5 px-4 pb-28 pt-2 lg:px-6 lg:py-5" : dispatchShell ? "pb-28 lg:pb-0" : "space-y-6 p-5 pb-28 lg:p-8"}>
-          {currentRole !== "driver" && currentRole !== "sale" && !dispatchShell && (
+        <div className={driverMobileShell ? "pb-28" : salesShell ? "space-y-5 px-4 pb-28 pt-2 lg:px-6 lg:py-5" : dispatchShell ? "pb-28 lg:pb-0" : financeShell ? "" : "space-y-6 p-5 pb-28 lg:p-8"}>
+          {currentRole !== "driver" && currentRole !== "sale" && !dispatchShell && !financeShell && (
             <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <StatCard label="Chuyến hôm nay" value={String(todayOrders.length)} icon={CalendarClock} detail="Tính theo ngày chạy, không theo ngày tạo." />
               <StatCard label="Chờ duyệt" value={String(pendingDispatchReviewCount)} icon={ClipboardList} detail="Sale đã gửi đề xuất, điều hành cần xét duyệt." />
@@ -4606,7 +4606,7 @@ export default function OpsApp() {
           )}
           {activeTab === "Audit" && (can(currentRole, "view_audit") ? <AuditPanel events={state.auditEvents} /> : <AccessDenied role={currentRole} />)}
         </div>
-        {currentRole !== "driver" && !salesShell && !dispatchShell && (
+        {currentRole !== "driver" && !salesShell && !dispatchShell && !financeShell && (
         <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white/95 backdrop-blur lg:hidden">
           <div className="flex gap-2 overflow-x-auto px-3 py-2">
             {visibleTabs.map((item) => {
