@@ -1845,9 +1845,13 @@ export default function OpsApp() {
 
   async function notify(input: Omit<AppNotification, "id" | "createdAt">) {
     const notification: AppNotification = { ...input, id: notificationDedupeId(input), createdAt: new Date().toISOString() };
+    // A submitted proposal is a single event; other actions can be intentionally repeated.
+    const ignoreDuplicates = input.eventType === "dispatch_proposal_submitted";
     setState((current) => ({
       ...current,
-      notifications: [notification, ...(current.notifications ?? []).filter((item) => item.id !== notification.id)].slice(0, 30)
+      notifications: ignoreDuplicates && (current.notifications ?? []).some((item) => item.id === notification.id)
+        ? current.notifications
+        : [notification, ...(current.notifications ?? []).filter((item) => item.id !== notification.id)].slice(0, 30)
     }));
     if (!supabaseConfigured) return true;
     const supabase = createSupabaseBrowserClient();
@@ -1868,12 +1872,13 @@ export default function OpsApp() {
     };
     const { error: initialError } = await supabase
       .from("app_notifications" as never)
-      .upsert(targetedPayload as never);
+      .upsert(targetedPayload as never, { onConflict: "id", ignoreDuplicates })
+      .abortSignal(AbortSignal.timeout(10000));
     let notificationError = initialError;
     if (notificationError) {
       const missingNewColumns = notificationError.message.includes("target_user_id") || notificationError.message.includes("target_driver_id") || notificationError.message.includes("event_type");
       if (missingNewColumns) {
-        const retry = await supabase.from("app_notifications" as never).upsert(basePayload as never);
+        const retry = await supabase.from("app_notifications" as never).upsert(basePayload as never, { onConflict: "id", ignoreDuplicates }).abortSignal(AbortSignal.timeout(10000));
         notificationError = retry.error;
       }
     }
@@ -1906,7 +1911,7 @@ export default function OpsApp() {
         },
         status: "pending",
         created_at: event.createdAt
-      } as never);
+      } as never, { onConflict: "id", ignoreDuplicates }).abortSignal(AbortSignal.timeout(10000));
       if (error) {
         if (!error.message.includes("app_integration_events")) {
           setMessage(`Không đưa được thông báo ${event.audience} vào hàng chờ n8n/Telegram: ${error.message}`);
@@ -2227,7 +2232,17 @@ export default function OpsApp() {
     }
     setSelectedOrderId(order.id);
     setTab("Lệnh điều xe");
-    const notificationResults = await Promise.all([
+    const result: SalesOrderCreatedResult = {
+      orderCode: order.code,
+      orderId: order.id,
+      route: routeSummaryForOrder(order),
+      vehicle: order.vehiclePlateNo || order.externalVehiclePlate || "Chờ điều hành phân xe",
+      driver: order.driverFullName || order.externalDriverName || "Chờ điều hành phân tài xế",
+      notification: [...submissionWarnings, "Lệnh đã lưu. Đang gửi thông báo cho điều hành."].join(" ")
+    };
+    formElement.reset();
+    window.dispatchEvent(new CustomEvent("sales-order-created", { detail: result }));
+    void Promise.allSettled([
       notify({
         audience: "sale",
         eventType: "dispatch_proposal_submitted",
@@ -2245,25 +2260,17 @@ export default function OpsApp() {
         entityId: order.id,
         payload: buildDispatchProposalIntegrationPayload(order, audience)
       }))
-    ]);
-    const notificationsQueued = notificationResults.every(Boolean);
-    const result: SalesOrderCreatedResult = {
-      orderCode: order.code,
-      orderId: order.id,
-      route: routeSummaryForOrder(order),
-      vehicle: order.vehiclePlateNo || order.externalVehiclePlate || "Chờ điều hành phân xe",
-      driver: order.driverFullName || order.externalDriverName || "Chờ điều hành phân tài xế",
-      notification: notificationsQueued && supabaseConfigured
+    ]).then((notificationResults) => {
+      const notificationsQueued = notificationResults.every((item) => item.status === "fulfilled" && item.value);
+      const notification = notificationsQueued && supabaseConfigured
         ? "Đã ghi thông báo cho điều hành và đưa event vào hàng chờ n8n/Telegram."
         : supabaseConfigured
           ? "Đã tạo lệnh, nhưng thông báo/n8n queue cần kiểm tra lại."
-        : "Local demo: đã tạo thông báo trong trình duyệt, không gửi Telegram."
-    };
-    if (submissionWarnings.length) {
-      result.notification = `${submissionWarnings.join(" ")} ${result.notification}`;
-    }
-    formElement.reset();
-    window.dispatchEvent(new CustomEvent("sales-order-created", { detail: result }));
+          : "Local demo: đã tạo thông báo trong trình duyệt, không gửi Telegram.";
+      window.dispatchEvent(new CustomEvent("sales-order-notification", {
+        detail: { orderId: order.id, notification: [...submissionWarnings, notification].join(" ") }
+      }));
+    });
     return result;
     } finally {
       endAction(actionKey);
@@ -2278,7 +2285,7 @@ export default function OpsApp() {
     }
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
-    const driverId = currentRole === "driver" ? authDriverId || mobileDriverId : mobileDriverId;
+    const driverId = currentRole === "driver" ? authDriverId : mobileDriverId;
     const selectedDriver = state.drivers.find((driver) => driver.id === driverId);
     const customerName = String(form.get("customerName") || "").trim();
     const contactPhone = String(form.get("contactPhone") || "").trim();
@@ -2387,13 +2394,13 @@ export default function OpsApp() {
     const form = new FormData(formElement);
     const orderId = String(form.get("orderId") || "").trim();
     const targetOrder = state.orders.find((order) => order.id === orderId);
-    const driverId = currentRole === "driver" ? authDriverId || mobileDriverId : mobileDriverId;
+    const driverId = currentRole === "driver" ? authDriverId : mobileDriverId;
 
     if (!targetOrder) {
       setMessage("Chưa xác định được chuyến để ghi báo cáo.");
       return false;
     }
-    if (targetOrder.driverId !== driverId) {
+    if (!driverId || targetOrder.driverId !== driverId) {
       setMessage("Báo cáo chỉ được ghi cho chuyến của tài xế đang chọn.");
       return false;
     }
@@ -5049,7 +5056,7 @@ type SalesOrderCreatedResult = {
   notification: string;
 };
 
-function OrdersPanel({
+export function OrdersPanel({
   assignments,
   auditEvents,
   companies,
@@ -5234,7 +5241,15 @@ function OrdersPanel({
       window.scrollTo({ top: 0, behavior: "smooth" });
     };
     window.addEventListener("sales-order-created", handleSalesCreated);
-    return () => window.removeEventListener("sales-order-created", handleSalesCreated);
+    const handleNotification = (event: Event) => {
+      const detail = (event as CustomEvent<{ orderId: string; notification: string }>).detail;
+      setSalesSuccess((current) => current.orderId === detail.orderId ? { ...current, notification: detail.notification } : current);
+    };
+    window.addEventListener("sales-order-notification", handleNotification);
+    return () => {
+      window.removeEventListener("sales-order-created", handleSalesCreated);
+      window.removeEventListener("sales-order-notification", handleNotification);
+    };
   }, []);
 
   useEffect(() => {
@@ -5419,7 +5434,6 @@ function OrdersPanel({
       <form
         className={`${salesScreen === "create" ? "block" : "hidden"} overflow-hidden rounded-[22px] border border-line bg-white shadow-[0_10px_28px_rgba(15,23,42,0.08)]`}
         onChange={(event) => refreshSalesDraftPreview(event.currentTarget)}
-        onInput={(event) => refreshSalesDraftPreview(event.currentTarget)}
         onSubmit={async (event) => {
           const result = await createOrder(event);
           if (!result?.orderCode) return;
@@ -8708,11 +8722,13 @@ function DriverMobilePanel({
   const [driverSuccess, setDriverSuccess] = useState<DriverSuccessState | null>(null);
   const collectionFormRef = useRef<HTMLFormElement | null>(null);
   const lockedDriverId = currentRole === "driver" ? authDriverId : undefined;
-  const selectedDriver = drivers.find((driver) => driver.id === (lockedDriverId ?? mobileDriverId)) ?? drivers[0];
+  const selectedDriver = currentRole === "driver"
+    ? drivers.find((driver) => driver.id === lockedDriverId)
+    : drivers.find((driver) => driver.id === mobileDriverId) ?? drivers[0];
   const nowMs = now.getTime();
   const todayKey = vietnamDateKey(now);
   const driverOrders = orders
-    .filter((order) => order.driverId === selectedDriver?.id && order.dispatchStatus !== "cancelled")
+    .filter((order) => selectedDriver && order.driverId === selectedDriver.id && order.dispatchStatus !== "cancelled")
     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
   const todayDriverOrders = driverOrders.filter((order) => orderDateKey(order) === todayKey);
   const activeOrder = driverOrders.find((order) => order.dispatchStatus === "in_progress") ?? driverOrders.find((order) => order.dispatchStatus === "driver_accepted");
@@ -8720,7 +8736,7 @@ function DriverMobilePanel({
     .filter((order) => !["completed", "cancelled", "in_progress", "driver_accepted"].includes(order.dispatchStatus) && new Date(order.startAt).getTime() >= nowMs)
     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
   const driverProposals = orders
-    .filter((order) => order.source === "Driver" && order.sourceOwnerName === selectedDriver?.fullName && ["draft", "pending_dispatch_review"].includes(order.orderStatus))
+    .filter((order) => selectedDriver && order.source === "Driver" && order.sourceOwnerName === selectedDriver.fullName && ["draft", "pending_dispatch_review"].includes(order.orderStatus))
     .sort((a, b) => new Date(b.startAt).getTime() - new Date(a.startAt).getTime());
   const driverEntityIds = new Set([...driverOrders.map((order) => order.id), ...driverProposals.map((order) => order.id)]);
   const assignedFallbackNotifications: AppNotification[] = upcomingTrips.slice(0, 3).map((order) => ({
@@ -8830,6 +8846,11 @@ function DriverMobilePanel({
 
   return (
     <section className="mx-auto w-full max-w-[1480px] pb-24 lg:grid lg:grid-cols-[220px_1fr] lg:gap-5 lg:pb-6">
+      {currentRole === "driver" && !selectedDriver && (
+        <p role="alert" className="border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 lg:col-span-2">
+          Tài khoản chưa liên kết với hồ sơ tài xế. Vui lòng liên hệ quản trị để bổ sung.
+        </p>
+      )}
       <aside className="hidden rounded-3xl border border-slate-200 bg-white p-4 shadow-[0_14px_36px_rgba(15,23,42,0.06)] lg:block">
         <div className="flex items-center gap-3">
           <span className="grid size-11 place-items-center rounded-xl bg-brand text-white"><Route size={24} /></span>
