@@ -2184,7 +2184,10 @@ export default function OpsApp() {
     );
     if (!saved) return;
     const syncedTransportFields = await syncOrderTransportCodeFields(order);
-    if (!syncedTransportFields) return;
+    const submissionWarnings: string[] = [];
+    if (!syncedTransportFields) {
+      submissionWarnings.push("Thông tin mã vận chuyển chưa lưu đủ; cần bổ sung trong sửa lệnh.");
+    }
 
     runCommand("order.submit_proposal", (current) => submitDispatchProposal(current, order, audit), `Đã gửi đề xuất điều xe ${order.code} vào hàng chờ điều hành xét duyệt.`);
     if (prepaymentAmount > 0) {
@@ -2218,6 +2221,7 @@ export default function OpsApp() {
       if (savedPrepayment) {
         applySalesPrepayment(order, prepayment, paymentStatus);
       } else {
+        submissionWarnings.push("Tạm ứng chưa được ghi nhận; cần kiểm tra và ghi nhận lại ở Tài chính.");
         setMessage(`Đã tạo lệnh ${order.code}, nhưng chưa ghi được tạm ứng. Vui lòng ghi nhận lại ở Tài chính.`);
       }
     }
@@ -2255,6 +2259,9 @@ export default function OpsApp() {
           ? "Đã tạo lệnh, nhưng thông báo/n8n queue cần kiểm tra lại."
         : "Local demo: đã tạo thông báo trong trình duyệt, không gửi Telegram."
     };
+    if (submissionWarnings.length) {
+      result.notification = `${submissionWarnings.join(" ")} ${result.notification}`;
+    }
     formElement.reset();
     window.dispatchEvent(new CustomEvent("sales-order-created", { detail: result }));
     return result;
@@ -2842,19 +2849,19 @@ export default function OpsApp() {
     }
   }
 
-  async function updateOrderDispatchStatus(orderId: string, nextStatus: DispatchStatus, reason: string, actor = "Dispatcher") {
+  async function updateOrderDispatchStatus(orderId: string, nextStatus: DispatchStatus, reason: string, actor = "Dispatcher"): Promise<boolean> {
     const targetOrder = state.orders.find((order) => order.id === orderId);
-    if (!targetOrder) return;
+    if (!targetOrder) return false;
     if (!can(currentRole, "update_dispatch_status")) {
       setMessage(`${roleLabels[currentRole]} không có quyền cập nhật trạng thái điều hành.`);
-      return;
+      return false;
     }
     if (!canMoveDispatchStatus(targetOrder.dispatchStatus, nextStatus)) {
       setMessage(`Không thể chuyển ${targetOrder.code} từ ${dispatchLabels[targetOrder.dispatchStatus]} sang ${dispatchLabels[nextStatus]}.`);
-      return;
+      return false;
     }
     const actionKey = `dispatch:status:${orderId}:${nextStatus}`;
-    if (!beginAction(actionKey, "Cập nhật trạng thái chuyến")) return;
+    if (!beginAction(actionKey, "Cập nhật trạng thái chuyến")) return false;
     try {
     const saved = await runSupabaseRpc(
       "update_dispatch_status",
@@ -2866,7 +2873,7 @@ export default function OpsApp() {
       },
       `Không lưu được trạng thái ${targetOrder.code}`
     );
-    if (!saved) return;
+    if (!saved) return false;
 
     runCommand(
       "dispatch.update_status",
@@ -2881,6 +2888,7 @@ export default function OpsApp() {
     } else if (nextStatus === "in_progress") {
       notify({ audience: "dispatcher", eventType: "trip_started", title: "Chuyến đang chạy", body: `${targetOrder.code} đang trên đường.`, entityId: orderId });
     }
+    return true;
     } finally {
       endAction(actionKey);
     }
@@ -3822,30 +3830,44 @@ export default function OpsApp() {
               orders={state.orders}
             />
           )}
-          {(activeTab === "Điều hành" || (currentRole === "dispatcher" && activeTab === "Lệnh điều xe")) && selectedOrder && (
-            <DispatchPanel
-              assignments={state.assignments}
-              calendarMonth={calendarMonth}
-              calendarDay={calendarDay}
-              drivers={state.drivers}
-              orders={state.orders}
-              payments={state.payments}
-              selectedOrder={selectedOrder}
-              currentRole={currentRole}
-              isActionPending={isActionPending}
-              assignOrder={assignOrder}
-              auditEvents={state.auditEvents}
-              cancelOrder={cancelOrder}
-              reviewDispatchProposal={reviewDispatchProposal}
-              setCalendarMonth={setCalendarMonth}
-              setCalendarDay={setCalendarDay}
-              setSelectedOrderId={setSelectedOrderId}
-              updateDispatchStatus={updateDispatchStatus}
-              updateOrder={updateOrder}
-              vehicles={state.vehicles}
-              compact={isMobileViewport}
-              accountControls={userActions}
-            />
+          {(activeTab === "Điều hành" || (currentRole === "dispatcher" && activeTab === "Lệnh điều xe")) && (
+            selectedOrder ? (
+              <DispatchPanel
+                assignments={state.assignments}
+                calendarMonth={calendarMonth}
+                calendarDay={calendarDay}
+                drivers={state.drivers}
+                orders={state.orders}
+                payments={state.payments}
+                selectedOrder={selectedOrder}
+                currentRole={currentRole}
+                isActionPending={isActionPending}
+                assignOrder={assignOrder}
+                auditEvents={state.auditEvents}
+                cancelOrder={cancelOrder}
+                reviewDispatchProposal={reviewDispatchProposal}
+                setCalendarMonth={setCalendarMonth}
+                setCalendarDay={setCalendarDay}
+                setSelectedOrderId={setSelectedOrderId}
+                updateDispatchStatus={updateDispatchStatus}
+                updateOrder={updateOrder}
+                vehicles={state.vehicles}
+                compact={isMobileViewport}
+                accountControls={userActions}
+              />
+            ) : (
+              <EmptyOperationalState
+                accountControls={userActions}
+                role={currentRole}
+                title="Chưa có lệnh điều hành"
+                description="Dữ liệu lệnh đã được dọn sạch. Khi Sales gửi đề xuất mới, lệnh sẽ xuất hiện ở đây để điều hành duyệt và phân xe."
+                stats={[
+                  ["Tài xế", state.drivers.length],
+                  ["Xe", state.vehicles.length],
+                  ["Chờ điều xe", 0]
+                ]}
+              />
+            )
           )}
           {activeTab === "Màn làm việc" && (
             <DriverMobilePanel
@@ -3871,22 +3893,36 @@ export default function OpsApp() {
           )}
           {activeTab === "Users" && <AdminUsersPanel currentRole={currentRole} />}
           {activeTab === "Master data" && <MasterDataPanel createDriver={createDriver} createVehicle={createVehicle} currentRole={currentRole} drivers={state.drivers} vehicles={state.vehicles} />}
-          {activeTab === "Tài chính" && selectedOrder && (
-            <FinancePanel
-              assignments={state.assignments}
-              currentRole={currentRole}
-              drivers={state.drivers}
-              orders={state.orders}
-              payments={state.payments}
-              selectedOrder={selectedOrder}
-              isActionPending={isActionPending}
-              setSelectedOrderId={setSelectedOrderId}
-              recordPayment={recordPayment}
-              updateInvoiceStatus={updateInvoiceStatus}
-              reconcileOrder={reconcileOrder}
-              vehicles={state.vehicles}
-              accountControls={userActions}
-            />
+          {activeTab === "Tài chính" && (
+            selectedOrder ? (
+              <FinancePanel
+                assignments={state.assignments}
+                currentRole={currentRole}
+                drivers={state.drivers}
+                orders={state.orders}
+                payments={state.payments}
+                selectedOrder={selectedOrder}
+                isActionPending={isActionPending}
+                setSelectedOrderId={setSelectedOrderId}
+                recordPayment={recordPayment}
+                updateInvoiceStatus={updateInvoiceStatus}
+                reconcileOrder={reconcileOrder}
+                vehicles={state.vehicles}
+                accountControls={userActions}
+              />
+            ) : (
+              <EmptyOperationalState
+                accountControls={userActions}
+                role={currentRole}
+                title="Chưa có hồ sơ kế toán"
+                description="Chưa có lệnh nào để đối soát. Sau khi Sales tạo lệnh và điều hành xử lý, kế toán sẽ thấy hồ sơ, thanh toán, chứng từ và preview final tại đây."
+                stats={[
+                  ["Lệnh", state.orders.length],
+                  ["Thanh toán", state.payments.length],
+                  ["Chưa đối soát", 0]
+                ]}
+              />
+            )
           )}
           {activeTab === "Audit" && (can(currentRole, "view_audit") ? <AuditPanel events={state.auditEvents} /> : <AccessDenied role={currentRole} />)}
         </div>
@@ -8661,7 +8697,7 @@ function DriverMobilePanel({
   setSelectedOrderId: (id: string) => void;
   submitDriverProposal: (event: FormEvent<HTMLFormElement>) => Promise<boolean>;
   submitDriverTripReport: (event: FormEvent<HTMLFormElement>) => Promise<boolean>;
-  updateOrderDispatchStatus: (orderId: string, nextStatus: DispatchStatus, reason: string, actor?: string) => Promise<void> | void;
+  updateOrderDispatchStatus: (orderId: string, nextStatus: DispatchStatus, reason: string, actor?: string) => Promise<boolean>;
   onSignOut: () => void;
   vehicles: Vehicle[];
 }) {
@@ -8733,7 +8769,8 @@ function DriverMobilePanel({
       label={nextDriverStatus === "in_progress" ? "Bắt đầu chuyến" : nextDriverStatus === "driver_accepted" ? "Sẵn sàng khởi hành" : "Hoàn thành chuyến"}
       loading={isActionPending(`dispatch:status:${selectedTrip.id}:${nextDriverStatus}`)}
       onComplete={() => {
-        void Promise.resolve(updateOrderDispatchStatus(selectedTrip.id, nextDriverStatus, driverActionLabel(selectedTrip), "Driver")).then(() => {
+        void updateOrderDispatchStatus(selectedTrip.id, nextDriverStatus, driverActionLabel(selectedTrip), "Driver").then((saved) => {
+          if (!saved) return;
           setDriverSuccess({
             title: nextDriverStatus === "completed" ? "Hoàn thành chuyến đi!" : `Đã ${driverActionLabel(selectedTrip).toLowerCase()}`,
             detail: nextDriverStatus === "completed" ? "Chuyến đã được ghi nhận, bạn có thể nhập thu hộ để kế toán đối soát." : driverActionDetail({ ...selectedTrip, dispatchStatus: nextDriverStatus }),
@@ -9923,6 +9960,46 @@ function StatMini({ label, value }: { label: string; value: string }) {
       <p className="text-sm text-slate-500">{label}</p>
       <p className="mt-1 font-semibold text-ink">{value}</p>
     </div>
+  );
+}
+
+function EmptyOperationalState({
+  accountControls,
+  description,
+  role,
+  stats,
+  title
+}: {
+  accountControls?: ReactNode;
+  description: string;
+  role: AppRole;
+  stats: Array<[string, number]>;
+  title: string;
+}) {
+  return (
+    <section className="mx-auto flex min-h-[calc(100dvh-180px)] w-full max-w-3xl flex-col justify-center px-4 py-10">
+      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_14px_36px_rgba(15,23,42,0.06)] sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-extrabold uppercase tracking-wide text-[#0a9b81]">{roleLabels[role]}</p>
+            <h2 className="mt-1 break-words text-2xl font-black leading-tight text-slate-950">{title}</h2>
+          </div>
+          {accountControls}
+        </div>
+        <p className="mt-3 text-sm font-semibold leading-6 text-slate-500">{description}</p>
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          {stats.map(([label, value]) => (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4" key={label}>
+              <p className="text-xs font-bold text-slate-500">{label}</p>
+              <p className="mt-2 text-3xl font-black text-slate-950">{value}</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-5 rounded-2xl border border-teal-100 bg-teal-50 p-4 text-sm font-semibold leading-6 text-teal-900">
+          Dữ liệu nền vẫn còn. Màn này sẽ tự có nội dung ngay khi có lệnh mới từ luồng Sales.
+        </div>
+      </div>
+    </section>
   );
 }
 
