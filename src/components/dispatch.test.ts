@@ -34,6 +34,7 @@ function orderFixture(overrides: Partial<DispatchOrder> = {}): DispatchOrder {
     contactName: "DINH THANH TUNG",
     contactPhone: "0988 000 111",
     taxCode: "0401234567",
+    companyAddress: "12 Bach Dang, Da Nang",
     pickup: "Kiệt 18/3b Phan Tứ, TP Đà Nẵng",
     dropoff: "Bà Nà Hills",
     routeLegs: [
@@ -230,4 +231,115 @@ it("requires driver confirmation before accepting an assigned trip and removes s
   fireEvent.click(within(container).getByRole("button", { name: "Có" }));
 
   expect(updateStatus).toHaveBeenCalledWith("assigned-trip", "driver_accepted", "Nhận chuyến", "Driver");
+});
+
+it("keeps driver collection on the selected trip and shows customer fields for paperwork", () => {
+  const oldCompleted = orderFixture({
+    id: "old-completed",
+    code: "V0001/08.2026/NĐ/DL/T/DAD-DAD",
+    amountDue: 1200000,
+    dispatchStatus: "completed",
+    startAt: "2026-09-15T10:33:00+07:00",
+    endAt: "2026-09-15T13:33:00+07:00"
+  });
+  const selectedCompleted = orderFixture({
+    id: "selected-completed",
+    code: "V0004/07.2026/NĐ/DL/T/DAD-DAD",
+    amountDue: 772000,
+    companyName: "Angel One Travel Company",
+    contactName: "Nguyen Quynh Chi",
+    dispatchStatus: "completed",
+    startAt: "2026-09-15T15:40:00+07:00",
+    endAt: "2026-09-15T22:00:00+07:00"
+  });
+  const { container } = render(createElement(DriverMobilePanel, {
+    authDriverId: driver.id,
+    authLabel: driver.fullName,
+    currentRole: "driver",
+    drivers: [driver],
+    isActionPending: () => false,
+    mobileDriverId: driver.id,
+    notifications: [],
+    now: new Date("2026-09-15T08:00:00+07:00"),
+    onSignOut: vi.fn(),
+    orders: [oldCompleted, selectedCompleted],
+    payments: [],
+    selectedOrderId: selectedCompleted.id,
+    setMobileDriverId: vi.fn(),
+    setSelectedOrderId: vi.fn(),
+    submitDriverProposal: vi.fn(async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      return true;
+    }),
+    submitDriverTripReport: vi.fn(async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      return true;
+    }),
+    updateOrderDispatchStatus: vi.fn(async () => true),
+    vehicles: [vehicle]
+  }));
+
+  fireEvent.click(within(container).getAllByRole("button", { name: /Thu tiền/ })[0]);
+
+  expect(within(container).getAllByText("V0004/07.2026/NĐ/DL/T/DAD-DAD").length).toBeGreaterThan(0);
+  expect(container.querySelector<HTMLInputElement>('input[name="orderId"]')!.value).toBe("selected-completed");
+  expect(within(container).getByText("Tổng tiền phải thu")).toBeTruthy();
+  expect(container.textContent).toContain("772.000");
+  expect(within(container).getByText("Tên công ty")).toBeTruthy();
+  expect(within(container).getByText("Angel One Travel Company")).toBeTruthy();
+  expect(within(container).getByText("MST")).toBeTruthy();
+  expect(within(container).getByText("0401234567")).toBeTruthy();
+  expect(within(container).getByText("Địa chỉ")).toBeTruthy();
+  expect(within(container).getByText("12 Bach Dang, Da Nang")).toBeTruthy();
+  expect(within(container).getAllByText("Nguyen Quynh Chi").length).toBeGreaterThan(0);
+});
+
+it("shows individual customer identity fields in driver detail", () => {
+  const individualOrder = orderFixture({
+    id: "individual-trip",
+    code: "INDIVIDUAL-TRIP",
+    customerKind: "individual",
+    customerName: "Le Hoang Vu",
+    companyName: undefined,
+    taxCode: undefined,
+    customerCccd: "201234567",
+    customerAddress: "34 Hai Phong, Da Nang",
+    contactName: "Le Hoang Vu",
+    dispatchStatus: "assigned",
+    orderStatus: "confirmed"
+  });
+  const { container } = render(createElement(DriverMobilePanel, {
+    authDriverId: driver.id,
+    authLabel: driver.fullName,
+    currentRole: "driver",
+    drivers: [driver],
+    isActionPending: () => false,
+    mobileDriverId: driver.id,
+    notifications: [],
+    now: new Date("2026-09-15T08:00:00+07:00"),
+    onSignOut: vi.fn(),
+    orders: [individualOrder],
+    payments: [],
+    selectedOrderId: individualOrder.id,
+    setMobileDriverId: vi.fn(),
+    setSelectedOrderId: vi.fn(),
+    submitDriverProposal: vi.fn(async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      return true;
+    }),
+    submitDriverTripReport: vi.fn(async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      return true;
+    }),
+    updateOrderDispatchStatus: vi.fn(async () => true),
+    vehicles: [vehicle]
+  }));
+
+  fireEvent.click(within(container).getByRole("button", { name: /Xem chi tiết chuyến/ }));
+
+  expect(within(container).getAllByText("Khách hàng").length).toBeGreaterThan(0);
+  expect(within(container).getAllByText("Le Hoang Vu").length).toBeGreaterThan(0);
+  expect(within(container).getByText("CCCD")).toBeTruthy();
+  expect(within(container).getByText("201234567")).toBeTruthy();
+  expect(within(container).getByText("34 Hai Phong, Da Nang")).toBeTruthy();
 });

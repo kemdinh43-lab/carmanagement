@@ -8415,6 +8415,36 @@ function DriverRouteLine({ order }: { order: DispatchOrder }) {
   );
 }
 
+function DriverCustomerInfoCard({ order }: { order: DispatchOrder }) {
+  const isCompany = order.customerKind === "company";
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <h4 className="flex items-center gap-2 font-extrabold text-ink">
+        <UserRound className="text-brand" size={18} /> Thông tin khách / phiếu
+      </h4>
+      <div className="mt-3 divide-y divide-slate-100 text-sm">
+        {isCompany ? (
+          <>
+            <InfoLine label="Tên công ty" value={order.companyName || order.customerName || "-"} />
+            <InfoLine label="MST" value={order.taxCode || "-"} />
+            <InfoLine label="Địa chỉ" value={order.companyAddress || order.customerAddress || "-"} />
+            <InfoLine label="SĐT" value={order.contactPhone || "-"} />
+            <InfoLine label="Người sử dụng" value={order.contactName || order.customerName || "-"} />
+          </>
+        ) : (
+          <>
+            <InfoLine label="Khách hàng" value={order.customerName || "-"} />
+            <InfoLine label="CCCD" value={order.customerCccd || "-"} />
+            <InfoLine label="Địa chỉ" value={order.customerAddress || "-"} />
+            <InfoLine label="SĐT" value={order.contactPhone || "-"} />
+            <InfoLine label="Người sử dụng" value={order.contactName || order.customerName || "-"} />
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function DriverTripBrief({ order, payments, vehicle }: { driver?: Driver; order: DispatchOrder; payments: Payment[]; vehicle?: Vehicle }) {
   const { driverCollectionAmount } = driverPaymentSnapshot(order, payments);
   const paymentNote = order.collectionAccountOwner || order.collectionBankAccount || order.collectionBankName
@@ -8585,12 +8615,7 @@ function DriverDetailMobile({
       {tab === "overview" && (
         <div className="grid gap-3">
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><DriverRouteLine order={order} /></section>
-          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h4 className="flex items-center gap-2 font-extrabold text-ink"><UserRound className="text-brand" size={18} /> Khách hàng</h4>
-            <InfoLine label="Tên khách" value={order.contactName || order.customerName} />
-            <InfoLine label="SĐT" value={order.contactPhone || "-"} />
-            <InfoLine label="Số khách" value={`${order.guestCount ?? "-"} khách`} />
-          </section>
+          <DriverCustomerInfoCard order={order} />
         </div>
       )}
       {tab === "trip" && (
@@ -8671,6 +8696,7 @@ function DriverCollectMobile({ form, onBack, order, payments }: { form?: ReactNo
           <p className="mt-1 text-3xl font-extrabold text-brand">{money(snapshot.driverCollectionAmount)}</p>
         </div>
       </section>
+      <DriverCustomerInfoCard order={order} />
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         {form ?? <p className="text-sm font-semibold text-slate-500">Chuyến cần hoàn thành trước khi tài xế xác nhận số tiền đã thu.</p>}
       </section>
@@ -8760,11 +8786,12 @@ export function DriverMobilePanel({
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 5);
   const nextTrip = activeOrder ?? newlyAssignedTrips[0] ?? upcomingTrips[0] ?? todayDriverOrders.find((order) => order.dispatchStatus !== "completed") ?? driverOrders.find((order) => order.dispatchStatus !== "completed") ?? driverOrders[0];
-  const selectedTrip = driverOrders.find((order) => order.id === selectedOrderId) ?? nextTrip;
+  const explicitlySelectedTrip = driverOrders.find((order) => order.id === selectedOrderId);
+  const selectedTrip = explicitlySelectedTrip ?? nextTrip;
   const completedTripsToday = todayDriverOrders.filter((order) => order.dispatchStatus === "completed");
   const completedTrips = driverOrders.filter((order) => order.dispatchStatus === "completed");
   const reportTrip = selectedTrip?.dispatchStatus === "completed" ? selectedTrip : completedTripsToday[completedTripsToday.length - 1] ?? completedTrips[completedTrips.length - 1];
-  const collectionTrip = selectedTrip?.dispatchStatus === "completed" ? selectedTrip : reportTrip;
+  const collectionTrip = selectedTrip ?? reportTrip;
   const reportTripCollectedAmount = collectionTrip?.driverCollectedAmount ?? 0;
   const reportTripExtraChargeAmount = collectionTrip?.driverExpenseOther ?? 0;
   const reportTripNoteParts = driverReportNoteParts(collectionTrip?.driverExpenseNote);
