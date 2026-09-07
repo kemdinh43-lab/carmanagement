@@ -8393,24 +8393,35 @@ function DriverMetricCard({ detail, icon: Icon, label, value }: { detail?: strin
 
 function DriverRouteLine({ order }: { order: DispatchOrder }) {
   const legs = routeLegsForOrder(order);
-  const first = legs[0];
-  const last = legs[legs.length - 1] ?? first;
   return (
-    <div className="grid grid-cols-[18px_1fr] gap-x-3 gap-y-1">
-      <span className="mt-1 size-4 rounded-full border-4 border-blue-100 bg-blue-600" />
-      <div>
-        <p className="font-extrabold text-ink">{timeOnly(first?.startAt ?? order.startAt)} <span className="font-bold">Đón khách</span></p>
-        <p className="text-sm font-semibold text-slate-700">{first?.pickup || order.pickup}</p>
-        {first?.note && <p className="text-xs text-slate-500">{first.note}</p>}
-      </div>
-      <span className="ml-[7px] min-h-7 border-l-2 border-blue-100" />
-      <div />
-      <span className="mt-1 size-4 rounded-full bg-blue-600" />
-      <div>
-        <p className="font-extrabold text-ink">{timeOnly(last?.endAt ?? order.endAt)} <span className="font-bold">Trả khách</span></p>
-        <p className="text-sm font-semibold text-slate-700">{last?.dropoff || order.dropoff}</p>
-        {last?.note && <p className="text-xs text-slate-500">{last.note}</p>}
-      </div>
+    <div className="grid gap-3">
+      {legs.map((leg, index) => {
+        const legStartAt = leg.startAt || order.startAt;
+        const legEndAt = leg.endAt || order.endAt;
+        return (
+          <div className="rounded-2xl border border-slate-200 bg-white p-3" key={`${legStartAt}-${leg.pickup}-${index}`}>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <span className="rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-xs font-extrabold text-brand">Chặng {index + 1}</span>
+              <span className="text-xs font-extrabold text-slate-500">{timeOnly(legStartAt)} - {timeOnly(legEndAt)}</span>
+            </div>
+            <div className="grid grid-cols-[18px_1fr] gap-x-3 gap-y-1">
+              <span className="mt-1 size-4 rounded-full border-4 border-blue-100 bg-blue-600" />
+              <div>
+                <p className="font-extrabold text-ink">{timeOnly(legStartAt)} <span className="font-bold">Đón khách</span></p>
+                <p className="text-sm font-semibold text-slate-700">{leg.pickup || order.pickup}</p>
+              </div>
+              <span className="ml-[7px] min-h-7 border-l-2 border-blue-100" />
+              <div />
+              <span className="mt-1 size-4 rounded-full bg-blue-600" />
+              <div>
+                <p className="font-extrabold text-ink">{timeOnly(legEndAt)} <span className="font-bold">Trả khách</span></p>
+                <p className="text-sm font-semibold text-slate-700">{leg.dropoff || order.dropoff}</p>
+              </div>
+            </div>
+            {leg.note && <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">{leg.note}</p>}
+          </div>
+        );
+      })}
     </div>
   );
 }

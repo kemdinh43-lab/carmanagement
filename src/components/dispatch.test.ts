@@ -344,6 +344,54 @@ it("shows individual customer identity fields in driver detail", () => {
   expect(within(container).getByText("34 Hai Phong, Da Nang")).toBeTruthy();
 });
 
+it("shows every route leg in driver trip overview and route tabs", () => {
+  const twoLegOrder = orderFixture({
+    id: "two-leg-driver-trip",
+    code: "TWO-LEG-DRIVER-TRIP",
+    dispatchStatus: "assigned",
+    orderStatus: "confirmed"
+  });
+  const { container } = render(createElement(DriverMobilePanel, {
+    authDriverId: driver.id,
+    authLabel: driver.fullName,
+    currentRole: "driver",
+    drivers: [driver],
+    isActionPending: () => false,
+    mobileDriverId: driver.id,
+    notifications: [],
+    now: new Date("2026-09-15T08:00:00+07:00"),
+    onSignOut: vi.fn(),
+    orders: [twoLegOrder],
+    payments: [],
+    selectedOrderId: twoLegOrder.id,
+    setMobileDriverId: vi.fn(),
+    setSelectedOrderId: vi.fn(),
+    submitDriverProposal: vi.fn(async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      return true;
+    }),
+    submitDriverTripReport: vi.fn(async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      return true;
+    }),
+    updateOrderDispatchStatus: vi.fn(async () => true),
+    vehicles: [vehicle]
+  }));
+
+  fireEvent.click(within(container).getByRole("button", { name: /Xem chi tiết chuyến/ }));
+
+  expect(within(container).getAllByText("Chặng 1").length).toBeGreaterThan(0);
+  expect(within(container).getAllByText("Chặng 2").length).toBeGreaterThan(0);
+  expect(within(container).getAllByText("Kiệt 18/3b Phan Tứ, TP Đà Nẵng").length).toBeGreaterThan(0);
+  expect(within(container).getAllByText("Hoi An Ancient Town").length).toBeGreaterThanOrEqual(2);
+  expect(within(container).getAllByText("Bà Nà Hills").length).toBeGreaterThan(0);
+
+  fireEvent.click(within(container).getByRole("button", { name: "Hành trình" }));
+
+  expect(within(container).getAllByText("Chặng 1").length).toBeGreaterThan(0);
+  expect(within(container).getAllByText("Chặng 2").length).toBeGreaterThan(0);
+});
+
 it("prioritizes the active driver trip before completed trips across today and schedule views", () => {
   const completedTrip = orderFixture({
     id: "completed-trip",
