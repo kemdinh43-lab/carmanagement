@@ -6644,7 +6644,7 @@ function InfoRow({ label, strong = false, value }: { label: string; strong?: boo
   );
 }
 
-function DispatchPanel({
+export function DispatchPanel({
   accountControls,
   assignments,
   calendarDay,
@@ -6653,6 +6653,7 @@ function DispatchPanel({
   drivers,
   isActionPending,
   orders,
+  payments,
   selectedOrder,
   assignOrder,
   reviewDispatchProposal,
@@ -6708,15 +6709,18 @@ function DispatchPanel({
   const driver = drivers.find((item) => item.id === selectedOrder.driverId);
   const canAssignVehicle = can(currentRole, "assign_vehicle");
   const canUpdateDispatchStatus = can(currentRole, "update_dispatch_status");
-  const pendingReviewOrders = orders.filter((order) => order.orderStatus === "pending_dispatch_review");
+  const byReviewPriority = (a: DispatchOrder, b: DispatchOrder) =>
+    Number(b.orderStatus === "pending_dispatch_review") - Number(a.orderStatus === "pending_dispatch_review") ||
+    new Date(a.startAt).getTime() - new Date(b.startAt).getTime();
+  const pendingReviewOrders = orders.filter((order) => order.orderStatus === "pending_dispatch_review").sort(byReviewPriority);
   const confirmedOrders = orders.filter((order) => order.orderStatus === "confirmed");
   const dispatchBaseQueue = orders
     .filter((order) => order.orderStatus === "pending_dispatch_review" || order.dispatchStatus === "waiting_assignment" || order.dispatchStatus === "assigned" || order.dispatchStatus === "driver_accepted" || order.dispatchStatus === "in_progress")
-    .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+    .sort(byReviewPriority);
   const dispatchQueue = dispatchBaseQueue
     .filter((order) => `${order.code} ${order.customerName} ${routeSummaryForOrder(order)}`.toLocaleLowerCase("vi").includes(dispatchSearch.toLocaleLowerCase("vi")))
     .filter((order) => queueFilter === "Tất cả" || (queueFilter === "Chờ điều xe" ? order.dispatchStatus === "waiting_assignment" || order.orderStatus === "pending_dispatch_review" : queueFilter === "Đang chạy" ? order.dispatchStatus === "in_progress" : order.dispatchStatus === "assigned" || order.dispatchStatus === "driver_accepted"))
-    .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+    .sort(byReviewPriority);
   const todayKey = dateKey(calendarDay);
   const todayOrders = confirmedOrders
     .filter((order) => orderDateKey(order) === todayKey)
@@ -6781,7 +6785,6 @@ function DispatchPanel({
     { label: "Đang chạy", value: runningOrders.length, tone: "green", icon: Navigation },
     { label: "Hoàn thành", value: completedToday.length, tone: "slate", icon: CheckCircle2 }
   ];
-  const routeLegs = routeLegsForOrder(selectedOrder);
   const selectedVehicleLabel = selectedOrder.vehicleOwnership === "rented"
     ? selectedOrder.externalVehiclePlate || selectedOrder.vehiclePlateNo || "Xe thuê ngoài"
     : vehicle?.plateNo ?? "Chưa có xe";
@@ -6879,21 +6882,8 @@ function DispatchPanel({
 
   function renderRouteTimeline(order: DispatchOrder, dense = false) {
     return (
-      <div className="space-y-3">
-        {routeLegsForOrder(order).map((leg, index) => (
-          <div className="grid grid-cols-[26px_1fr] gap-3" key={`${leg.pickup}-${leg.dropoff}-${index}`}>
-            <div className="flex flex-col items-center">
-              <span className={`mt-1 h-3 w-3 rounded-full ${index === 0 ? "bg-brand" : "bg-rose-500"}`} />
-              {index < routeLegsForOrder(order).length - 1 && <span className="mt-1 h-full min-h-10 w-px bg-slate-200" />}
-            </div>
-            <div className={dense ? "pb-1" : "rounded-lg border border-line bg-white p-3"}>
-              <p className="font-bold text-ink">{leg.startAt ? timeOnly(leg.startAt) : timeOnly(order.startAt)}{leg.endAt ? ` - ${timeOnly(leg.endAt)}` : ""}</p>
-              <p className="mt-1 text-sm font-semibold text-slate-700">{index === 0 ? "Đón khách" : index === routeLegsForOrder(order).length - 1 ? "Trả khách" : `Chặng ${index + 1}`}</p>
-              <p className="text-sm text-slate-600">{`${leg.pickup} -> ${leg.dropoff}`}</p>
-              {leg.note && <p className="mt-1 text-xs text-slate-500">{leg.note}</p>}
-            </div>
-          </div>
-        ))}
+      <div className={dense ? "text-sm" : ""}>
+        <RouteTimelineCard order={order} />
       </div>
     );
   }
@@ -7237,11 +7227,19 @@ function DispatchPanel({
     const editVehicleOwnership = selectedOrder.vehicleOwnership ?? (transport.vehicleOwnership === "partner" || transport.vehicleOwnership === "rented" ? "rented" : "company");
     const editSupplierInvoiceRequired = selectedOrder.supplierInvoiceRequired ?? transport.supplierInvoiceRequired ?? true;
     return (
-      <form className={`dispatch-supplier-form rounded-lg border border-line bg-white shadow-sm ${compactForm ? "pb-24" : ""}`} onSubmit={updateOrder}>
+      <form key={selectedOrder.id} className={`dispatch-supplier-form rounded-lg border border-line bg-white shadow-sm ${compactForm ? "pb-24" : ""}`} onSubmit={updateOrder}>
         <div className="border-b border-line px-4 py-3">
           <p className="text-[11px] font-extrabold uppercase tracking-wide text-brand">Sửa lệnh điều hành</p>
           <h3 className="mt-1 truncate text-lg font-extrabold text-ink">{selectedOrder.code}</h3>
-          <p className="mt-1 text-xs font-semibold text-slate-500">Bổ sung xe thuê ngoài và hồ sơ NCC, dữ liệu lưu qua Supabase hiện tại.</p>
+          <p className="mt-1 text-xs font-semibold text-slate-500">{selectedOrder.customerName}</p>
+        </div>
+        <div className="space-y-3 border-b border-line p-4">
+          <InfoLine label="Khách hàng" value={selectedOrder.companyName || selectedOrder.customerName} />
+          {selectedOrder.customerKind === "company" && <InfoLine label="MST" value={selectedOrder.taxCode || "-"} />}
+          <InfoLine label="Liên hệ" value={`${selectedOrder.contactName || selectedOrder.customerName} / ${selectedOrder.contactPhone}`} />
+          <RouteTimelineCard order={selectedOrder} />
+          <InfoLine label="Tổng thanh toán" value={money(selectedOrder.amountDue)} />
+          <InfoLine label="Đã thu / tạm ứng" value={money(summarizeOrderPayments(selectedOrder, payments).paidAmount)} />
         </div>
         <div className="grid gap-3 p-4 sm:grid-cols-2">
           <Field label="Hình thức xe">
@@ -7253,6 +7251,7 @@ function DispatchPanel({
           <Field label="Biển số xe đang chạy"><input className={inputClass()} defaultValue={transport.vehiclePlate === "-" ? "" : transport.vehiclePlate} name="vehiclePlateNo" /></Field>
           <Field label="Họ tên tài xế"><input className={inputClass()} defaultValue={transport.driverName === "-" ? "" : transport.driverName} name="driverFullName" /></Field>
           <Field label="SĐT tài xế"><input className={inputClass()} defaultValue={transport.driverPhone === "-" ? "" : transport.driverPhone} name="driverPhone" /></Field>
+          <Field label="CCCD tài xế"><input className={inputClass()} defaultValue={selectedOrder.driverCccd ?? driver?.cccd ?? ""} name="driverCccd" /></Field>
           <Field label="Chủ sở hữu xe cá nhân"><input className={inputClass()} defaultValue={selectedOrder.supplierOwnerName ?? transport.ownerName ?? ""} name="supplierOwnerName" /></Field>
           <Field label="CCCD chủ sở hữu"><input className={inputClass()} defaultValue={selectedOrder.supplierCccd ?? transport.ownerCccd ?? ""} name="supplierCccd" /></Field>
           <Field label="Xuất HĐ đầu vào">
@@ -7278,7 +7277,7 @@ function DispatchPanel({
         <div className="sticky bottom-0 grid grid-cols-[0.8fr_1.2fr] gap-2 border-t border-line bg-white/95 p-3 backdrop-blur">
           <button className="h-11 rounded-lg border border-line bg-white text-sm font-extrabold text-ink" onClick={() => { setMobileView("detail"); setDesktopView("detail"); }} type="button">Quay lại</button>
           <button className="h-11 rounded-lg bg-brand text-sm font-extrabold text-white disabled:bg-slate-300" disabled={isActionPending("order.update_details")} type="submit">
-            <Save className="mr-2 inline" size={17} />Lưu NCC
+            <Save className="mr-2 inline" size={17} />Lưu lệnh
           </button>
         </div>
       </form>
@@ -7745,17 +7744,7 @@ function DispatchPanel({
           <div className="mt-4 space-y-3">
             <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
               <p className="mb-3 flex items-center gap-2 text-sm font-extrabold text-slate-900"><MapPin size={16} className="text-brand" />Lộ trình di chuyển</p>
-              <div className="relative pl-7">
-                <div className="absolute left-[9px] top-3 bottom-3 border-l-2 border-dashed border-slate-300" />
-                {routeLegs.map((leg, index) => (
-                  <div className="relative mb-4 last:mb-0" key={`${leg.pickup}-${leg.dropoff}-${index}`}>
-                    <span className={`absolute -left-7 top-0.5 size-5 rounded-full ${index === 0 ? "border-4 border-brand bg-white" : "border-2 border-white bg-rose-500 shadow-sm"}`} />
-                    <p className={`text-[11px] font-extrabold uppercase ${index === 0 ? "text-brand" : "text-rose-500"}`}>{index === 0 ? "Điểm đón" : "Điểm trả"}</p>
-                    <p className="mt-0.5 line-clamp-2 text-sm font-extrabold text-slate-900">{index === 0 ? leg.pickup : leg.dropoff}</p>
-                    <p className="text-xs font-semibold text-slate-500">{timeOnly(leg.startAt ?? selectedOrder.startAt)}{leg.endAt ? ` - ${timeOnly(leg.endAt)}` : ""}</p>
-                  </div>
-                ))}
-              </div>
+              <RouteTimelineCard order={selectedOrder} />
             </div>
             <div className="grid grid-cols-3 gap-2">
               <div className="rounded-xl border border-line bg-white p-3 text-center"><Car className="mx-auto text-brand" size={18} /><p className="mt-1 truncate text-xs font-bold text-slate-900" title={selectedVehicleLabel}>{selectedVehicleLabel}</p><p className="text-[10px] text-slate-400">Xe</p></div>
@@ -7779,8 +7768,8 @@ function DispatchPanel({
             <InfoLine label="Tiền trước thuế" value={money(selectedOrder.subtotalAmount ?? selectedOrder.amountDue - (selectedOrder.vatAmount ?? 0))} />
             <InfoLine label="Thuế suất" value={`${selectedOrder.vatRate ?? 0}%`} />
             <InfoLine label="Tiền thuế" value={money(selectedOrder.vatAmount ?? 0)} />
-            <InfoLine label="Đã thu / tạm ứng" value={money(selectedOrder.driverCollectedAmount ?? 0)} />
-            <InfoLine label="Còn phải thu" value={money(Math.max(0, selectedOrder.amountDue - (selectedOrder.driverCollectedAmount ?? 0)))} />
+            <InfoLine label="Đã thu / tạm ứng" value={money(summarizeOrderPayments(selectedOrder, payments).paidAmount)} />
+            <InfoLine label="Còn phải thu" value={money(summarizeOrderPayments(selectedOrder, payments).remainingAmount)} />
           </div>
         )}
         {selectedOrder.orderStatus === "pending_dispatch_review" && (
@@ -7794,7 +7783,7 @@ function DispatchPanel({
           onClick={() => { setDesktopView("supplier"); setMobileView("supplier"); }}
           type="button"
         >
-          <Settings2 size={17} /> Sửa xe thuê ngoài / NCC
+          <Settings2 size={17} /> Sửa lệnh
         </button>
         <button
           className="mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 text-sm font-extrabold text-white hover:bg-teal-800 disabled:bg-slate-300"
@@ -7861,9 +7850,9 @@ function DispatchPanel({
           <Badge tone={pendingReviewOrders.length ? "warn" : "good"}>{pendingReviewOrders.length} chờ duyệt</Badge>
         </div>
         <div className="mt-3 divide-y divide-line">
-          {pendingReviewOrders.slice(0, 5).map((order) => (
+          {pendingReviewOrders.map((order) => (
             <div className="grid gap-3 py-3 lg:grid-cols-[1fr_260px]" key={order.id}>
-              <button className="text-left" onClick={() => setSelectedOrderId(order.id)} type="button">
+              <button className="min-w-0 text-left [overflow-wrap:anywhere]" onClick={() => selectOrder(order.id)} type="button">
                 <p className="font-extrabold text-ink">{order.code}</p>
                 <p className="mt-1 text-sm font-semibold text-slate-600">{timeOnly(order.startAt)} · {routeSummaryForOrder(order)} · {money(order.amountDue)}</p>
               </button>
@@ -7882,6 +7871,7 @@ function DispatchPanel({
   function renderDesktopWorkspace() {
     return (
       <>
+        {renderPendingReviewCompact()}
         <div className="dispatch-metrics grid grid-cols-4 gap-3">
           {stats.map(renderDispatchMetric)}
         </div>
@@ -7906,6 +7896,7 @@ function DispatchPanel({
     return (
       <div className="dispatch-orders-layout">
         <section className="space-y-4 rounded-2xl border border-line bg-white p-4 shadow-sm">
+          {renderPendingReviewCompact()}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-xl font-extrabold text-ink">Danh sách lệnh</h3>
@@ -7920,7 +7911,6 @@ function DispatchPanel({
           <div className="grid gap-3">
             {dispatchQueue.map(renderDispatcherOrderCard)}
           </div>
-          {renderPendingReviewCompact()}
         </section>
         <div className="sticky top-5 space-y-4">
           {renderCompactOrderDetail()}
@@ -7981,7 +7971,7 @@ function DispatchPanel({
   }
 
   function renderMobileHeader() {
-    const title = mobileView === "detail" ? "Chi tiết chuyến đi" : mobileView === "schedule" ? "Lịch xe & Điều phối" : mobileView === "vehicleDetail" ? `Xe ${selectedScheduleVehicle?.plateNo ?? "chưa phân"}` : mobileView === "supplier" ? "Sửa NCC" : mobileView === "assign" ? `Điều xe cho lệnh` : mobileView === "orders" ? "Điều lệnh chuyến đi" : "Angel One Travel";
+    const title = mobileView === "detail" ? "Chi tiết chuyến đi" : mobileView === "schedule" ? "Lịch xe & Điều phối" : mobileView === "vehicleDetail" ? `Xe ${selectedScheduleVehicle?.plateNo ?? "chưa phân"}` : mobileView === "supplier" ? "Sửa lệnh" : mobileView === "assign" ? `Điều xe cho lệnh` : mobileView === "orders" ? "Điều lệnh chuyến đi" : "Angel One Travel";
     const subtitle = mobileView === "overview" ? "Điều hành SaaS" : mobileView === "orders" ? `${dispatchBaseQueue.length} lệnh vận hành hôm nay` : mobileView === "schedule" ? `Hôm nay · ${dateOnly(calendarDay.toISOString())}` : mobileView === "vehicleDetail" ? `${selectedScheduleVehicle?.type ?? "Nguồn lực"} · ${selectedScheduleVehicle?.seats ?? "-"} chỗ` : selectedOrder.code;
     return (
       <header className="dispatch-mobile-header bg-white">
@@ -8015,6 +8005,7 @@ function DispatchPanel({
     ];
     return (
       <div className="dispatch-overview space-y-4 pb-24">
+        {renderPendingReviewCompact()}
         <label className="dispatch-date flex items-center justify-between rounded-2xl border border-slate-100 bg-white px-3.5 py-2.5 shadow-sm">
           <span className="flex items-center gap-2 text-[13.5px] font-bold text-slate-800"><span className="grid size-7 place-items-center rounded-lg bg-slate-50"><CalendarClock size={15} className="text-slate-500" /></span>{dateOnly(calendarDay.toISOString())}</span>
           <input aria-label="Ngày điều hành" className="absolute opacity-0" type="date" value={inputDateValue(calendarDay)} onChange={(event) => setCalendarDay(new Date(`${event.target.value}T00:00:00`))} />
@@ -8066,6 +8057,7 @@ function DispatchPanel({
     };
     return (
       <section className="space-y-3 pb-24">
+        {renderPendingReviewCompact()}
         <div className="relative">
           <Search className="absolute left-3 top-3 text-slate-400" size={17} />
           <input className="h-10 w-full rounded-full border-0 bg-slate-100 pl-9 pr-3 text-sm font-semibold outline-none focus:bg-white focus:ring-2 focus:ring-teal-100" placeholder="Tìm mã lệnh, lộ trình, khách hàng..." value={dispatchSearch} onChange={(event) => setDispatchSearch(event.target.value)} />
@@ -8088,7 +8080,7 @@ function DispatchPanel({
             : desktopView === "orders"
               ? renderDispatchHeader("Danh sách lệnh", "Lọc, chọn và duyệt các lệnh cần xử lý")
               : desktopView === "supplier"
-                ? renderDispatchHeader("Sửa NCC", "Bổ sung hồ sơ xe thuê ngoài và nhà cung cấp")
+                ? renderDispatchHeader("Sửa lệnh", "Bổ sung hồ sơ xe thuê ngoài và nhà cung cấp")
               : desktopView === "assign"
                 ? renderDispatchHeader("Điều xe", "Chọn xe, tài xế và xác nhận phân công")
                 : renderDispatchHeader("Điều xe", "Theo dõi lệnh, điều phối phương tiện và xử lý nhanh các yêu cầu")}
