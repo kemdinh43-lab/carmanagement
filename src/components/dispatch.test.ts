@@ -2,7 +2,7 @@
 import { createElement, type FormEvent } from "react";
 import { cleanup, fireEvent, render, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { DispatchPanel } from "./ops-app";
+import { DispatchPanel, DriverMobilePanel } from "./ops-app";
 import type { DispatchOrder, Driver, Payment, Vehicle } from "@/lib/types";
 
 afterEach(cleanup);
@@ -186,4 +186,48 @@ it("submits dispatch edit data for rented vehicle supplier profile without dropp
   fireEvent.submit(form);
 
   expect(updateOrder).toHaveBeenCalledOnce();
+});
+
+it("requires driver confirmation before accepting an assigned trip and removes swipe actions", () => {
+  const assignedOrder = orderFixture({
+    id: "assigned-trip",
+    code: "ASSIGNED-TRIP",
+    orderStatus: "confirmed",
+    dispatchStatus: "assigned"
+  });
+  const updateStatus = vi.fn(async () => true);
+  const { container } = render(createElement(DriverMobilePanel, {
+    authDriverId: driver.id,
+    authLabel: driver.fullName,
+    currentRole: "driver",
+    drivers: [driver],
+    isActionPending: () => false,
+    mobileDriverId: driver.id,
+    notifications: [],
+    now: new Date("2026-09-15T08:00:00+07:00"),
+    onSignOut: vi.fn(),
+    orders: [assignedOrder],
+    payments: [],
+    selectedOrderId: undefined,
+    setMobileDriverId: vi.fn(),
+    setSelectedOrderId: vi.fn(),
+    submitDriverProposal: vi.fn(async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      return true;
+    }),
+    submitDriverTripReport: vi.fn(async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      return true;
+    }),
+    updateOrderDispatchStatus: updateStatus,
+    vehicles: [vehicle]
+  }));
+
+  expect(container.textContent).not.toContain("Vuốt");
+  fireEvent.click(within(container).getByRole("button", { name: /Nhận chuyến/ }));
+  expect(within(container).getByText("Bạn có xác nhận nhận chuyến này không?")).toBeTruthy();
+  expect(updateStatus).not.toHaveBeenCalled();
+  fireEvent.click(within(container).getByRole("button", { name: "Có" }));
+
+  expect(updateStatus).toHaveBeenCalledWith("assigned-trip", "driver_accepted", "Nhận chuyến", "Driver");
 });

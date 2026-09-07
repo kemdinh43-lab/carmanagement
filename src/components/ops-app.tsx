@@ -8470,65 +8470,6 @@ function DriverTripBrief({ order, payments, vehicle }: { driver?: Driver; order:
   );
 }
 
-function SwipeAction({
-  disabled = false,
-  loading = false,
-  label,
-  onComplete
-}: {
-  disabled?: boolean;
-  loading?: boolean;
-  label: string;
-  onComplete: () => void;
-}) {
-  const [dragX, setDragX] = useState(0);
-  const [startX, setStartX] = useState<number | null>(null);
-  const threshold = 190;
-  const maxDrag = 260;
-
-  function endDrag() {
-    if (disabled || loading) {
-      setDragX(0);
-      setStartX(null);
-      return;
-    }
-    if (dragX >= threshold) {
-      onComplete();
-    }
-    setDragX(0);
-    setStartX(null);
-  }
-
-  return (
-    <div
-      className={`relative h-14 overflow-hidden rounded-xl bg-gradient-to-r from-brand to-teal-600 shadow-[0_10px_24px_rgba(15,118,110,0.25)] ${disabled ? "opacity-60" : ""}`}
-      onPointerCancel={endDrag}
-      onPointerDown={(event) => {
-        if (disabled || loading) return;
-        setStartX(event.clientX);
-        event.currentTarget.setPointerCapture(event.pointerId);
-      }}
-      onPointerMove={(event) => {
-        if (startX === null || disabled || loading) return;
-        setDragX(Math.max(0, Math.min(event.clientX - startX, maxDrag)));
-      }}
-      onPointerUp={endDrag}
-      role="button"
-      tabIndex={disabled ? -1 : 0}
-    >
-      <div className="absolute inset-0 flex items-center justify-center text-base font-bold text-white">
-        {loading ? "Đang cập nhật..." : `Vuốt để ${label.toLowerCase()}`}
-      </div>
-      <div
-        className="absolute left-1 top-1 grid size-12 place-items-center rounded-lg bg-white text-brand shadow-md transition-transform"
-        style={{ transform: `translateX(${dragX}px)` }}
-      >
-        <ChevronRight size={24} />
-      </div>
-    </div>
-  );
-}
-
 function DriverSuccessCard({ onClose, onHistory, success }: { onClose: () => void; onHistory: () => void; success: DriverSuccessState }) {
   return (
     <section className="rounded-[26px] border border-emerald-200 bg-white p-7 text-center shadow-[0_18px_44px_rgba(15,23,42,0.14)]">
@@ -8549,6 +8490,14 @@ function DriverSuccessCard({ onClose, onHistory, success }: { onClose: () => voi
 }
 
 type DriverView = "today" | "schedule" | "detail" | "checklist" | "collect" | "proposal";
+
+type DriverConfirmState = {
+  action: "status" | "report";
+  detail: string;
+  nextStatus?: DispatchStatus;
+  order: DispatchOrder;
+  title: string;
+};
 
 function DriverMobileTitle({ onBack, right, subtitle, title }: { onBack?: () => void; right?: ReactNode; subtitle?: string; title: string }) {
   return (
@@ -8729,7 +8678,7 @@ function DriverCollectMobile({ form, onBack, order, payments }: { form?: ReactNo
   );
 }
 
-function DriverMobilePanel({
+export function DriverMobilePanel({
   authLabel,
   authDriverId,
   currentRole,
@@ -8773,7 +8722,7 @@ function DriverMobilePanel({
   const [driverChecklist, setDriverChecklist] = useState<Record<string, boolean>>({ papers: true, clean: true, contact: true });
   const [driverNotificationsOpen, setDriverNotificationsOpen] = useState(false);
   const [driverSuccess, setDriverSuccess] = useState<DriverSuccessState | null>(null);
-  const collectionFormRef = useRef<HTMLFormElement | null>(null);
+  const [driverConfirm, setDriverConfirm] = useState<DriverConfirmState | null>(null);
   const lockedDriverId = currentRole === "driver" ? authDriverId : undefined;
   const selectedDriver = currentRole === "driver"
     ? drivers.find((driver) => driver.id === lockedDriverId)
@@ -8785,6 +8734,9 @@ function DriverMobilePanel({
     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
   const todayDriverOrders = driverOrders.filter((order) => orderDateKey(order) === todayKey);
   const activeOrder = driverOrders.find((order) => order.dispatchStatus === "in_progress") ?? driverOrders.find((order) => order.dispatchStatus === "driver_accepted");
+  const newlyAssignedTrips = driverOrders
+    .filter((order) => order.dispatchStatus === "assigned")
+    .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
   const upcomingTrips = driverOrders
     .filter((order) => !["completed", "cancelled", "in_progress", "driver_accepted"].includes(order.dispatchStatus) && new Date(order.startAt).getTime() >= nowMs)
     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
@@ -8807,7 +8759,8 @@ function DriverMobilePanel({
   ]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 5);
-  const selectedTrip = driverOrders.find((order) => order.id === selectedOrderId) ?? activeOrder ?? upcomingTrips[0] ?? driverOrders[0];
+  const nextTrip = activeOrder ?? newlyAssignedTrips[0] ?? upcomingTrips[0] ?? todayDriverOrders.find((order) => order.dispatchStatus !== "completed") ?? driverOrders.find((order) => order.dispatchStatus !== "completed") ?? driverOrders[0];
+  const selectedTrip = driverOrders.find((order) => order.id === selectedOrderId) ?? nextTrip;
   const completedTripsToday = todayDriverOrders.filter((order) => order.dispatchStatus === "completed");
   const completedTrips = driverOrders.filter((order) => order.dispatchStatus === "completed");
   const reportTrip = selectedTrip?.dispatchStatus === "completed" ? selectedTrip : completedTripsToday[completedTripsToday.length - 1] ?? completedTrips[completedTrips.length - 1];
@@ -8816,7 +8769,6 @@ function DriverMobilePanel({
   const reportTripExtraChargeAmount = collectionTrip?.driverExpenseOther ?? 0;
   const reportTripNoteParts = driverReportNoteParts(collectionTrip?.driverExpenseNote);
   const nextDriverStatus = selectedTrip ? driverNextDispatchStatus(selectedTrip) : null;
-  const nextTrip = activeOrder ?? upcomingTrips[0] ?? driverOrders[0];
   const nextTripVehicle = nextTrip ? vehicles.find((item) => item.id === nextTrip.vehicleId) : undefined;
   const selectedTripVehicle = selectedTrip ? vehicles.find((item) => item.id === selectedTrip.vehicleId) : undefined;
   const todayCollectionAmount = todayDriverOrders.reduce((sum, order) => sum + driverPaymentSnapshot(order, payments).driverCollectionAmount, 0);
@@ -8833,26 +8785,42 @@ function DriverMobilePanel({
     { label: "Tài khoản", view: "today", icon: UserRound }
   ];
   const actionButton = selectedTrip && nextDriverStatus ? (
-    <SwipeAction
+    <button
+      className="inline-flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand to-teal-600 px-4 text-base font-extrabold text-white shadow-[0_12px_26px_rgba(15,118,110,0.24)] disabled:bg-slate-300 disabled:from-slate-300 disabled:to-slate-300"
       disabled={!canUpdate || isActionPending(`dispatch:status:${selectedTrip.id}:${nextDriverStatus}`)}
-      label={nextDriverStatus === "in_progress" ? "Bắt đầu chuyến" : nextDriverStatus === "driver_accepted" ? "Sẵn sàng khởi hành" : "Hoàn thành chuyến"}
-      loading={isActionPending(`dispatch:status:${selectedTrip.id}:${nextDriverStatus}`)}
-      onComplete={() => {
-        void updateOrderDispatchStatus(selectedTrip.id, nextDriverStatus, driverActionLabel(selectedTrip), "Driver").then((saved) => {
-          if (!saved) return;
-          setDriverSuccess({
-            title: nextDriverStatus === "completed" ? "Hoàn thành chuyến đi!" : `Đã ${driverActionLabel(selectedTrip).toLowerCase()}`,
-            detail: nextDriverStatus === "completed" ? "Chuyến đã được ghi nhận, bạn có thể nhập thu hộ để kế toán đối soát." : driverActionDetail({ ...selectedTrip, dispatchStatus: nextDriverStatus }),
-            orderCode: selectedTrip.code
-          });
-        });
-      }}
-    />
+      onClick={() => setDriverConfirm({
+        action: "status",
+        detail: nextDriverStatus === "driver_accepted"
+          ? "Bạn có xác nhận nhận chuyến này không?"
+          : nextDriverStatus === "in_progress"
+            ? "Bạn có xác nhận bắt đầu chạy chuyến này không?"
+            : "Bạn có xác nhận hoàn thành chuyến này không?",
+        nextStatus: nextDriverStatus,
+        order: selectedTrip,
+        title: driverActionLabel(selectedTrip)
+      })}
+      type="button"
+    >
+      <CheckCircle2 size={18} /> {driverActionLabel(selectedTrip)}
+    </button>
+  ) : selectedTrip?.dispatchStatus === "completed" ? (
+    <button
+      className="inline-flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand to-teal-600 px-4 text-base font-extrabold text-white shadow-[0_12px_26px_rgba(15,118,110,0.24)] disabled:bg-slate-300 disabled:from-slate-300 disabled:to-slate-300"
+      disabled={!can(currentRole, "submit_driver_report") || isActionPending(`driver:report:${selectedTrip.id}`)}
+      onClick={() => setDriverConfirm({
+        action: "report",
+        detail: "Bạn có muốn mở báo cáo chuyến để xác nhận thu hộ và phụ phí không?",
+        order: selectedTrip,
+        title: selectedTrip.driverReportStatus === "reported" ? "Xem báo cáo chuyến" : "Báo cáo chuyến"
+      })}
+      type="button"
+    >
+      <ReceiptText size={18} /> {selectedTrip.driverReportStatus === "reported" ? "Xem báo cáo chuyến" : "Báo cáo chuyến"}
+    </button>
   ) : null;
   const collectionForm = collectionTrip ? (
     <form
       className="grid gap-3"
-      ref={collectionFormRef}
       onSubmit={(event) => {
         const reportForm = new FormData(event.currentTarget);
         const collectedValue = Number(reportForm.get("driverCollectedAmount") || 0);
@@ -8888,12 +8856,13 @@ function DriverMobilePanel({
       <Field label="Lý do phụ phí">
         <textarea className={`${inputClass()} min-h-20 resize-none py-2`} name="driverExtraChargeReason" placeholder="Khách đổi điểm đến, đi thêm chặng..." defaultValue={reportTripNoteParts.extraChargeReason} />
       </Field>
-      <SwipeAction
+      <button
+        className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand to-teal-600 px-4 text-base font-extrabold text-white shadow-[0_10px_24px_rgba(15,118,110,0.22)] disabled:bg-slate-300 disabled:from-slate-300 disabled:to-slate-300"
         disabled={!can(currentRole, "submit_driver_report") || isActionPending(`driver:report:${collectionTrip.id}`)}
-        label="Xác nhận đã thu"
-        loading={isActionPending(`driver:report:${collectionTrip.id}`)}
-        onComplete={() => collectionFormRef.current?.requestSubmit()}
-      />
+        type="submit"
+      >
+        <ReceiptText size={17} /> {isActionPending(`driver:report:${collectionTrip.id}`) ? "Đang gửi..." : "Gửi báo cáo chuyến"}
+      </button>
     </form>
   ) : null;
 
@@ -8998,6 +8967,54 @@ function DriverMobilePanel({
             ))}
           </div>
         </section>
+      )}
+
+      {driverConfirm && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/35 px-4 backdrop-blur-sm">
+          <section className="w-full max-w-[380px] rounded-[24px] border border-slate-200 bg-white p-5 shadow-[0_22px_60px_rgba(15,23,42,0.24)]">
+            <div className="flex items-start gap-3">
+              <span className="grid size-11 shrink-0 place-items-center rounded-full bg-teal-50 text-brand">
+                <CheckCircle2 size={22} />
+              </span>
+              <div className="min-w-0">
+                <h3 className="text-lg font-extrabold text-ink">{driverConfirm.title}</h3>
+                <p className="mt-1 text-sm font-semibold text-slate-600">{driverConfirm.detail}</p>
+                <p className="mt-3 break-words rounded-xl bg-slate-50 px-3 py-2 text-sm font-bold text-slate-800">{driverConfirm.order.code}</p>
+              </div>
+            </div>
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button className="h-11 rounded-xl border border-line bg-white text-sm font-extrabold text-slate-700" onClick={() => setDriverConfirm(null)} type="button">
+                Không
+              </button>
+              <button
+                className="h-11 rounded-xl bg-brand text-sm font-extrabold text-white disabled:bg-slate-300"
+                disabled={driverConfirm.nextStatus ? isActionPending(`dispatch:status:${driverConfirm.order.id}:${driverConfirm.nextStatus}`) : false}
+                onClick={() => {
+                  const pending = driverConfirm;
+                  setDriverConfirm(null);
+                  setSelectedOrderId(pending.order.id);
+                  if (pending.action === "report") {
+                    setDriverView("collect");
+                    return;
+                  }
+                  const nextStatus = pending.nextStatus;
+                  if (!nextStatus) return;
+                  void updateOrderDispatchStatus(pending.order.id, nextStatus, driverActionLabel(pending.order), "Driver").then((saved) => {
+                    if (!saved) return;
+                    setDriverSuccess({
+                      title: nextStatus === "completed" ? "Hoàn thành chuyến đi!" : `Đã ${driverActionLabel(pending.order).toLowerCase()}`,
+                      detail: nextStatus === "completed" ? "Chuyến đã được ghi nhận, hãy gửi báo cáo chuyến để kế toán đối soát." : driverActionDetail({ ...pending.order, dispatchStatus: nextStatus }),
+                      orderCode: pending.order.code
+                    });
+                  });
+                }}
+                type="button"
+              >
+                Có
+              </button>
+            </div>
+          </section>
+        </div>
       )}
 
       {currentRole !== "driver" && (
