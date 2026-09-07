@@ -225,7 +225,7 @@ it("requires driver confirmation before accepting an assigned trip and removes s
   }));
 
   expect(container.textContent).not.toContain("Vuốt");
-  fireEvent.click(within(container).getByRole("button", { name: /Nhận chuyến/ }));
+  fireEvent.click(within(container).getAllByRole("button", { name: /Nhận chuyến/ }).at(-1)!);
   expect(within(container).getByText("Bạn có xác nhận nhận chuyến này không?")).toBeTruthy();
   expect(updateStatus).not.toHaveBeenCalled();
   fireEvent.click(within(container).getByRole("button", { name: "Có" }));
@@ -394,4 +394,49 @@ it("prioritizes the active driver trip before completed trips across today and s
   expect(within(container).getAllByText("Sắp chạy (0)").length).toBeGreaterThan(0);
   expect(within(container).getAllByText("Đang chạy (1)").length).toBeGreaterThan(0);
   expect(within(container).getAllByText("Hoàn thành (1)").length).toBeGreaterThan(0);
+});
+
+it("keeps completed driver trips in searchable history without promoting them as the next action", () => {
+  const completedTrip = orderFixture({
+    id: "completed-history",
+    code: "V0001/08.2026/NĐ/DL/T/DAD-DAD",
+    dispatchStatus: "completed",
+    startAt: "2026-09-15T10:33:00+07:00",
+    endAt: "2026-09-15T13:33:00+07:00"
+  });
+  const { container } = render(createElement(DriverMobilePanel, {
+    authDriverId: driver.id,
+    authLabel: driver.fullName,
+    currentRole: "driver",
+    drivers: [driver],
+    isActionPending: () => false,
+    mobileDriverId: driver.id,
+    notifications: [],
+    now: new Date("2026-09-15T15:31:00+07:00"),
+    onSignOut: vi.fn(),
+    orders: [completedTrip],
+    payments: [],
+    selectedOrderId: undefined,
+    setMobileDriverId: vi.fn(),
+    setSelectedOrderId: vi.fn(),
+    submitDriverProposal: vi.fn(async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      return true;
+    }),
+    submitDriverTripReport: vi.fn(async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      return true;
+    }),
+    updateOrderDispatchStatus: vi.fn(async () => true),
+    vehicles: [vehicle]
+  }));
+
+  expect(within(container).getByText("Chưa có chuyến cần xử lý")).toBeTruthy();
+  expect(within(container).queryByText("Chuyến đã hoàn thành")).toBeNull();
+  expect(within(container).getByText("Lịch sử gần đây")).toBeTruthy();
+  expect(within(container).getAllByText("V0001/08.2026/NĐ/DL/T/DAD-DAD").length).toBeGreaterThan(0);
+
+  fireEvent.change(within(container).getByPlaceholderText("Tìm mã lệnh, khách, tuyến, biển số..."), { target: { value: "V0001" } });
+
+  expect(within(container).getAllByText("V0001/08.2026/NĐ/DL/T/DAD-DAD").length).toBeGreaterThan(1);
 });

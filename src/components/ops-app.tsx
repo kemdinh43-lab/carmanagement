@@ -8778,6 +8778,7 @@ export function DriverMobilePanel({
   const [driverNotificationsOpen, setDriverNotificationsOpen] = useState(false);
   const [driverSuccess, setDriverSuccess] = useState<DriverSuccessState | null>(null);
   const [driverConfirm, setDriverConfirm] = useState<DriverConfirmState | null>(null);
+  const [driverTripSearch, setDriverTripSearch] = useState("");
   const lockedDriverId = currentRole === "driver" ? authDriverId : undefined;
   const selectedDriver = currentRole === "driver"
     ? drivers.find((driver) => driver.id === lockedDriverId)
@@ -8816,9 +8817,9 @@ export function DriverMobilePanel({
   ]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 5);
-  const nextTrip = activeOrder ?? newlyAssignedTrips[0] ?? upcomingTrips[0] ?? todayDriverTripsForWork.find((order) => order.dispatchStatus !== "completed") ?? driverTripsForWork.find((order) => order.dispatchStatus !== "completed") ?? todayDriverTripsForWork[0] ?? driverTripsForWork[0];
+  const nextTrip = activeOrder ?? newlyAssignedTrips[0] ?? upcomingTrips[0] ?? todayDriverTripsForWork.find((order) => order.dispatchStatus !== "completed") ?? driverTripsForWork.find((order) => order.dispatchStatus !== "completed");
   const explicitlySelectedTrip = driverOrders.find((order) => order.id === selectedOrderId);
-  const selectedTrip = explicitlySelectedTrip ?? nextTrip;
+  const selectedTrip = explicitlySelectedTrip ?? nextTrip ?? todayDriverTripsForWork[0] ?? driverTripsForWork[0];
   const completedTripsToday = todayDriverOrders.filter((order) => order.dispatchStatus === "completed");
   const completedTrips = driverOrders.filter((order) => order.dispatchStatus === "completed");
   const reportTrip = selectedTrip?.dispatchStatus === "completed" ? selectedTrip : completedTripsToday[completedTripsToday.length - 1] ?? completedTrips[completedTrips.length - 1];
@@ -8833,8 +8834,24 @@ export function DriverMobilePanel({
   const tripCountToday = todayDriverOrders.length;
   const completedCountToday = completedTripsToday.length;
   const pendingCollectionCount = todayDriverOrders.filter((order) => driverPaymentSnapshot(order, payments).driverCollectionAmount > 0).length;
+  const recentDriverTrips = driverTripsForWork.slice(0, 5);
   const canUpdate = can(currentRole, "update_dispatch_status");
   const driverDisplayName = selectedDriver?.fullName ?? readableAuthName(authLabel, "tài xế");
+  const driverSearchTerm = driverTripSearch.trim().toLowerCase();
+  const searchedDriverTrips = driverSearchTerm
+    ? driverTripsForWork.filter((order) => [
+      order.code,
+      order.customerName,
+      order.companyName,
+      order.contactName,
+      order.contactPhone,
+      order.pickup,
+      order.dropoff,
+      order.vehiclePlateNo,
+      order.externalVehiclePlate,
+      routeSummaryForOrder(order)
+    ].filter(Boolean).join(" ").toLowerCase().includes(driverSearchTerm)).slice(0, 5)
+    : [];
   const driverNavItems: Array<{ label: string; view: DriverView; icon: typeof Smartphone }> = [
     { label: "Tổng quan", view: "today", icon: Smartphone },
     { label: "Lịch chạy", view: "schedule", icon: CalendarClock },
@@ -8874,6 +8891,30 @@ export function DriverMobilePanel({
       type="button"
     >
       <ReceiptText size={18} /> {selectedTrip.driverReportStatus === "reported" ? "Xem báo cáo chuyến" : "Báo cáo chuyến"}
+    </button>
+  ) : null;
+  const nextTripNextStatus = nextTrip ? driverNextDispatchStatus(nextTrip) : null;
+  const nextTripActionButton = nextTrip && nextTripNextStatus ? (
+    <button
+      className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand to-teal-600 px-4 text-base font-extrabold text-white shadow-[0_12px_26px_rgba(15,118,110,0.24)] disabled:bg-slate-300 disabled:from-slate-300 disabled:to-slate-300"
+      disabled={!canUpdate || isActionPending(`dispatch:status:${nextTrip.id}:${nextTripNextStatus}`)}
+      onClick={() => {
+        setSelectedOrderId(nextTrip.id);
+        setDriverConfirm({
+          action: "status",
+          detail: nextTripNextStatus === "driver_accepted"
+            ? "Bạn có xác nhận nhận chuyến này không?"
+            : nextTripNextStatus === "in_progress"
+              ? "Bạn có xác nhận bắt đầu chạy chuyến này không?"
+              : "Bạn có xác nhận hoàn thành chuyến này không?",
+          nextStatus: nextTripNextStatus,
+          order: nextTrip,
+          title: driverActionLabel(nextTrip)
+        });
+      }}
+      type="button"
+    >
+      <CheckCircle2 size={18} /> {driverActionLabel(nextTrip)}
     </button>
   ) : null;
   const collectionForm = collectionTrip ? (
@@ -9126,7 +9167,7 @@ export function DriverMobilePanel({
                 <p className="text-sm font-bold text-slate-500">Tài xế</p>
                 <h3 className="text-xl font-extrabold text-ink">Lịch chạy</h3>
               </div>
-              <Badge tone="info">{todayDriverOrders.length || driverOrders.length} chuyến</Badge>
+              <Badge tone="info">{driverTripsForWork.length} chuyến</Badge>
             </div>
             <div className="mt-4">
               <DriverScheduleMobile
@@ -9134,7 +9175,7 @@ export function DriverMobilePanel({
                   setSelectedOrderId(orderId);
                   setDriverView("detail");
                 }}
-                orders={todayDriverTripsForWork.length > 0 ? todayDriverTripsForWork : driverTripsForWork}
+                orders={driverTripsForWork}
                 selectedOrderId={selectedTrip?.id}
                 vehicles={vehicles}
               />
@@ -9208,34 +9249,61 @@ export function DriverMobilePanel({
       <div className="space-y-4 lg:hidden">
         {driverView === "today" && (
           <>
+            <section className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-center gap-2 rounded-2xl border border-line bg-slate-50 px-3">
+                <Search className="shrink-0 text-slate-400" size={18} />
+                <input
+                  className="h-11 min-w-0 flex-1 bg-transparent text-sm font-semibold text-ink outline-none placeholder:text-slate-400"
+                  onChange={(event) => setDriverTripSearch(event.target.value)}
+                  placeholder="Tìm mã lệnh, khách, tuyến, biển số..."
+                  value={driverTripSearch}
+                />
+              </div>
+              {driverTripSearch.trim() && (
+                <div className="mt-3 grid gap-2">
+                  {searchedDriverTrips.map((order) => (
+                    <button className="grid grid-cols-[1fr_auto] gap-2 rounded-2xl border border-slate-200 p-3 text-left" key={order.id} onClick={() => { setSelectedOrderId(order.id); setDriverView("detail"); }} type="button">
+                      <span className="min-w-0">
+                        <span className="block truncate font-extrabold text-ink">{order.code}</span>
+                        <span className="mt-1 block truncate text-sm text-slate-500">{routeSummaryForOrder(order)}</span>
+                        <span className="mt-1 block text-xs font-semibold text-slate-500">{timeOnly(order.startAt)} · {vietnamFriendlyDate(new Date(order.startAt))}</span>
+                      </span>
+                      <Badge tone={order.dispatchStatus === "completed" ? "good" : order.dispatchStatus === "in_progress" || order.dispatchStatus === "driver_accepted" ? "info" : "warn"}>{dispatchLabels[order.dispatchStatus]}</Badge>
+                    </button>
+                  ))}
+                  {searchedDriverTrips.length === 0 && <p className="rounded-xl bg-slate-50 p-3 text-sm font-semibold text-slate-500">Không tìm thấy chuyến phù hợp.</p>}
+                </div>
+              )}
+            </section>
             {nextTrip ? (
               <section className="space-y-3">
                 <DriverTripBrief order={nextTrip} payments={payments} vehicle={nextTripVehicle} />
-                <button className="h-12 w-full rounded-xl bg-brand text-base font-extrabold text-white shadow-[0_12px_26px_rgba(15,118,110,0.24)]" onClick={() => setDriverView("detail")} type="button">
+                {nextTripActionButton}
+                <button className="h-12 w-full rounded-xl border border-teal-200 bg-white text-base font-extrabold text-brand shadow-sm" onClick={() => { setSelectedOrderId(nextTrip.id); setDriverView("detail"); }} type="button">
                   Xem chi tiết chuyến
                 </button>
               </section>
             ) : (
               <section className="rounded-[22px] border border-slate-200 bg-white p-5 shadow-sm">
-                <h3 className="text-xl font-extrabold text-ink">Hôm nay chưa có chuyến</h3>
-                <p className="mt-2 text-sm text-slate-500">Khi điều hành phân xe, chuyến tiếp theo sẽ hiện ở đây.</p>
+                <h3 className="text-xl font-extrabold text-ink">Chưa có chuyến cần xử lý</h3>
+                <p className="mt-2 text-sm text-slate-500">Chuyến đã hoàn thành vẫn nằm trong lịch sử bên dưới và trong Lịch chạy.</p>
               </section>
             )}
-            {todayDriverTripsForWork.length > 0 && (
+            {recentDriverTrips.length > 0 && (
               <section className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center justify-between">
-                  <h4 className="font-extrabold text-ink">Lệnh gần đây</h4>
+                  <h4 className="font-extrabold text-ink">Lịch sử gần đây</h4>
                   <button className="text-sm font-bold text-brand" onClick={() => setDriverView("schedule")} type="button">Xem tất cả</button>
                 </div>
                 <div className="mt-3 grid gap-2">
-                  {todayDriverTripsForWork.slice(0, 3).map((order) => (
+                  {recentDriverTrips.map((order) => (
                     <button className="grid grid-cols-[1fr_auto] rounded-2xl border border-slate-200 p-3 text-left" key={order.id} onClick={() => { setSelectedOrderId(order.id); setDriverView("detail"); }} type="button">
                       <span className="min-w-0">
                         <span className="block truncate font-extrabold text-ink">{order.code}</span>
                         <span className="mt-1 block truncate text-sm text-slate-500">{routeSummaryForOrder(order)}</span>
-                        <span className="mt-1 block text-xs text-slate-500">{timeOnly(order.startAt)} · {order.guestCount ?? "-"} khách</span>
+                        <span className="mt-1 block text-xs text-slate-500">{timeOnly(order.startAt)} · {vietnamFriendlyDate(new Date(order.startAt))} · {order.guestCount ?? "-"} khách</span>
                       </span>
-                      <Badge tone={order.dispatchStatus === "completed" ? "good" : "warn"}>{dispatchLabels[order.dispatchStatus]}</Badge>
+                      <Badge tone={order.dispatchStatus === "completed" ? "good" : order.dispatchStatus === "in_progress" || order.dispatchStatus === "driver_accepted" ? "info" : "warn"}>{dispatchLabels[order.dispatchStatus]}</Badge>
                     </button>
                   ))}
                 </div>
@@ -9251,7 +9319,7 @@ export function DriverMobilePanel({
                 setSelectedOrderId(orderId);
                 setDriverView("detail");
               }}
-              orders={todayDriverTripsForWork.length > 0 ? todayDriverTripsForWork : driverTripsForWork}
+              orders={driverTripsForWork}
               selectedOrderId={selectedTrip?.id}
               vehicles={vehicles}
             />
