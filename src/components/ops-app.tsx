@@ -473,7 +473,6 @@ function VatCalculatorFields({ initialSubtotal = 0, initialVatRate = 0, initialT
 }
 
 function SalesCreatePaymentFields({ initialSubtotal = 0, initialVatRate = 0 }: { initialSubtotal?: number; initialVatRate?: number }) {
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [subtotal, setSubtotal] = useState(initialSubtotal);
   const [vatRate, setVatRate] = useState(initialVatRate);
   const [prepaid, setPrepaid] = useState(0);
@@ -481,39 +480,29 @@ function SalesCreatePaymentFields({ initialSubtotal = 0, initialVatRate = 0 }: {
   const { vatAmount, amountDue: total } = paymentSummary;
   const remaining = Math.max(total - prepaid, 0);
 
-  useEffect(() => {
-    window.requestAnimationFrame(() => {
-      wrapperRef.current?.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-  }, [subtotal, vatRate, vatAmount, total, prepaid]);
-
   return (
-    <div className="contents" ref={wrapperRef}>
+    <>
       <input name="vatBasis" type="hidden" value="subtotal" />
-      <input name="subtotalAmount" type="hidden" value={subtotal} />
-      <input name="vatRate" type="hidden" value={vatRate} />
-      <input name="vatAmount" type="hidden" value={vatAmount} />
-      <input name="amountDue" type="hidden" value={total} />
       <Field label="Tiền trước thuế">
         <input
           className={inputClass()}
           min="0"
-          name="subtotalAmountDisplay"
+          name="subtotalAmount"
           onChange={(event) => setSubtotal(Math.max(0, Number(event.target.value || 0)))}
           type="number"
           value={subtotal}
         />
       </Field>
       <Field label="VAT">
-        <select className={inputClass()} name="vatRateDisplay" onChange={(event) => setVatRate(Number(event.target.value))} value={vatRate}>
+        <select className={inputClass()} name="vatRate" onChange={(event) => setVatRate(Number(event.target.value))} value={vatRate}>
           <option value={0}>0% / Không VAT</option>
           <option value={5}>5%</option>
           <option value={8}>8%</option>
           <option value={10}>10%</option>
         </select>
       </Field>
-      <Field label="Tiền thuế"><input className={inputClass()} min="0" name="vatAmountDisplay" readOnly type="number" value={vatAmount} /></Field>
-      <Field label="Tổng thanh toán"><input className={inputClass()} min="0" name="amountDueDisplay" readOnly type="number" value={total} /></Field>
+      <Field label="Tiền thuế"><input className={inputClass()} min="0" name="vatAmount" readOnly type="number" value={vatAmount} /></Field>
+      <Field label="Tổng thanh toán"><input className={inputClass()} min="0" name="amountDue" readOnly required type="number" value={total} /></Field>
       <div className="grid gap-3 rounded-md border border-teal-100 bg-teal-50/50 p-3 md:col-span-2">
         <div className="grid gap-3 md:grid-cols-2">
           <Field label="Đã thu / Tạm ứng trước chuyến">
@@ -545,7 +534,7 @@ function SalesCreatePaymentFields({ initialSubtotal = 0, initialVatRate = 0 }: {
           <input className={inputClass()} name="prepaymentNote" placeholder="Ví dụ: khách cọc trước, phần còn lại tài xế thu..." />
         </Field>
       </div>
-    </div>
+    </>
   );
 }
 
