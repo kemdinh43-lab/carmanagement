@@ -6,15 +6,7 @@ const SUPABASE_URL = readConfig("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = readConfig("SUPABASE_SERVICE_ROLE_KEY");
 const TELEGRAM_BOT_TOKEN = readConfig("TELEGRAM_BOT_TOKEN");
 const APP_URL = (readConfig("APP_URL") || "https://carmanagement-seven.vercel.app").replace(/\/$/, "");
-
-const chatByAudience = {
-  admin: readConfig("TELEGRAM_CHAT_ADMIN"),
-  manager: readConfig("TELEGRAM_CHAT_MANAGER") || readConfig("TELEGRAM_CHAT_ADMIN"),
-  dispatcher: readConfig("TELEGRAM_CHAT_DISPATCHER") || readConfig("TELEGRAM_CHAT_ADMIN"),
-  sale: readConfig("TELEGRAM_CHAT_SALE") || readConfig("TELEGRAM_CHAT_ADMIN"),
-  accountant: readConfig("TELEGRAM_CHAT_ACCOUNTANT") || readConfig("TELEGRAM_CHAT_ADMIN"),
-  driver: readConfig("TELEGRAM_CHAT_DRIVER") || readConfig("TELEGRAM_CHAT_ADMIN")
-};
+const TELEGRAM_CHAT_ADMIN = readConfig("TELEGRAM_CHAT_ADMIN");
 
 const audienceLabels = {
   admin: "Admin/Owner",
@@ -46,7 +38,7 @@ function assertEnv(name, value) {
 assertEnv("SUPABASE_URL", SUPABASE_URL);
 assertEnv("SUPABASE_SERVICE_ROLE_KEY", SUPABASE_SERVICE_ROLE_KEY);
 assertEnv("TELEGRAM_BOT_TOKEN", TELEGRAM_BOT_TOKEN);
-assertEnv("TELEGRAM_CHAT_ADMIN", chatByAudience.admin);
+assertEnv("TELEGRAM_CHAT_ADMIN", TELEGRAM_CHAT_ADMIN);
 
 const supabaseHeaders = {
   apikey: SUPABASE_SERVICE_ROLE_KEY,
@@ -159,6 +151,92 @@ async function getRow(table, select, id) {
   }
 }
 
+async function getRows(table, select, filters = [], limit = 50) {
+  try {
+    const filterQuery = filters.map(([column, operator, value]) => {
+      return `${encodeURIComponent(column)}=${operator}.${encodeURIComponent(String(value))}`;
+    }).join("&");
+    const query = [
+      `select=${encodeURIComponent(select)}`,
+      filterQuery,
+      `limit=${encodeURIComponent(String(limit))}`
+    ].filter(Boolean).join("&");
+    const rows = await httpRequest({
+      method: "GET",
+      url: `${SUPABASE_URL}/rest/v1/${table}?${query}`,
+      headers: supabaseHeaders,
+      json: true
+    });
+    return Array.isArray(rows) ? rows : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function recipientFromDriver(driver) {
+  if (!driver?.telegram_enabled || !driver.telegram_chat_id) return null;
+  return {
+    chatId: driver.telegram_chat_id,
+    recipientKey: `driver:${driver.id}`,
+    label: driver.full_name || driver.id,
+    type: "driver"
+  };
+}
+
+function recipientFromUser(user) {
+  if (!user?.telegram_enabled || !user.telegram_chat_id) return null;
+  return {
+    chatId: user.telegram_chat_id,
+    recipientKey: `user:${user.user_id}`,
+    label: user.full_name || user.phone || user.user_id,
+    type: user.role || "user"
+  };
+}
+
+async function resolveRecipients(event) {
+  const payload = event.payload || {};
+  const targetDriverId = event.target_driver_id || payload.targetDriverId || payload.driverId;
+  const targetUserId = event.target_user_id || payload.targetUserId || payload.userId;
+
+  if (targetDriverId) {
+    const driver = await getRow(
+      "app_drivers",
+      "id,full_name,phone,status,telegram_chat_id,telegram_username,telegram_enabled",
+      targetDriverId
+    );
+    if (!driver) return { recipients: [], error: `Khong tim thay tai xe Telegram target ${targetDriverId}` };
+    const recipient = recipientFromDriver(driver);
+    if (!recipient) return { recipients: [], error: `Tai xe ${driver.full_name || driver.id} chua lien ket Telegram` };
+    return { recipients: [recipient] };
+  }
+
+  if (targetUserId) {
+    const users = await getRows(
+      "app_user_profiles",
+      "user_id,full_name,phone,role,telegram_chat_id,telegram_username,telegram_enabled",
+      [["user_id", "eq", targetUserId]],
+      1
+    );
+    const user = users[0] || null;
+    if (!user) return { recipients: [], error: `Khong tim thay user Telegram target ${targetUserId}` };
+    const recipient = recipientFromUser(user);
+    if (!recipient) return { recipients: [], error: `User ${user.full_name || user.user_id} chua lien ket Telegram` };
+    return { recipients: [recipient] };
+  }
+
+  const audience = String(event.audience || "").trim();
+  if (!audience) return { recipients: [], error: "Event khong co audience" };
+  const users = await getRows(
+    "app_user_profiles",
+    "user_id,full_name,phone,role,telegram_chat_id,telegram_username,telegram_enabled",
+    [["role", "eq", audience], ["telegram_enabled", "eq", true]],
+    50
+  );
+  const recipients = users.map(recipientFromUser).filter(Boolean);
+  if (recipients.length === 0) return { recipients: [], error: `Role ${audience} chua co nguoi lien ket Telegram` };
+  return { recipients };
+}
+
 async function getOrderDetails(event) {
   const orderId = event.entity_id || event.payload?.entityId;
   if (!orderId) return { order: null, vehicle: null, driver: null };
@@ -182,7 +260,7 @@ async function getOrderDetails(event) {
     });
     const order = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
     const vehicle = order?.vehicle_id ? await getRow("app_vehicles", "id,plate_no,vehicle_type,seats,status", order.vehicle_id) : null;
-    const driver = order?.driver_id ? await getRow("app_drivers", "id,full_name,phone,status", order.driver_id) : null;
+    const driver = order?.driver_id ? await getRow("app_drivers", "id,full_name,phone,status,telegram_chat_id,telegram_username,telegram_enabled", order.driver_id) : null;
     return { order, vehicle, driver };
   } catch (error) {
     return { order: null, vehicle: null, driver: null };
@@ -346,7 +424,57 @@ async function sendTelegram(chatId, text) {
 const claimed = await supabaseRpc("claim_pending_integration_events", { p_limit: 10 });
 const events = Array.isArray(claimed) ? claimed : [];
 const results = [];
-const deliveryGroups = new Map();
+let sentMessages = 0;
+
+async function reserveDelivery(event, recipient, dedupeKey, channel = "telegram") {
+  return await optionalSupabaseRpc("reserve_integration_delivery", {
+    p_event_id: event.id,
+    p_channel: channel,
+    p_recipient_key: recipient.recipientKey,
+    p_dedupe_key: dedupeKey
+  }, true);
+}
+
+async function markDeliverySent(recipient, dedupeKey, response, channel = "telegram") {
+  await optionalSupabaseRpc("mark_integration_delivery_sent", {
+    p_channel: channel,
+    p_recipient_key: recipient.recipientKey,
+    p_dedupe_key: dedupeKey,
+    p_provider_message_id: response?.result?.message_id ? String(response.result.message_id) : null
+  }, null);
+}
+
+async function markDeliveryFailed(recipient, dedupeKey, error, channel = "telegram") {
+  await optionalSupabaseRpc("mark_integration_delivery_failed", {
+    p_channel: channel,
+    p_recipient_key: recipient.recipientKey,
+    p_dedupe_key: dedupeKey,
+    p_error: error.message || String(error)
+  }, null);
+}
+
+async function alertAdminOnce(event, errorMessage) {
+  const recipient = {
+    chatId: TELEGRAM_CHAT_ADMIN,
+    recipientKey: `admin:${TELEGRAM_CHAT_ADMIN}`,
+    label: "Telegram admin",
+    type: "admin"
+  };
+  const dedupeKey = [event.id, event.event_type, "recipient_error", errorMessage].join("::");
+  const reserved = await reserveDelivery(event, recipient, dedupeKey, "telegram_admin_alert");
+  if (!reserved) return "skipped_duplicate_admin_alert";
+  const text = [
+    "<b>Can cau hinh nguoi nhan Telegram</b>",
+    `Event: <b>${escapeHtml(event.event_type || event.id)}</b>`,
+    `Audience: ${escapeHtml(event.audience || "-")}`,
+    `Loi: ${escapeHtml(errorMessage)}`,
+    event.entity_id ? `Lenh: ${escapeHtml(event.entity_id)}` : ""
+  ].filter(Boolean).join("\n");
+  const response = await sendTelegram(TELEGRAM_CHAT_ADMIN, text);
+  await markDeliverySent(recipient, dedupeKey, response, "telegram_admin_alert");
+  sentMessages += 1;
+  return "admin_alert_sent";
+}
 
 for (const event of events) {
   if (!v1EventTypes.has(event.event_type)) {
@@ -354,55 +482,46 @@ for (const event of events) {
     results.push({ id: event.id, event_type: event.event_type, audience: event.audience, status: "skipped_non_v1" });
     continue;
   }
-  const chatId = chatByAudience[event.audience] || chatByAudience.admin;
-  const text = await formatMessage(event);
-  const dedupeKey = dedupeKeyFor(event, text);
-  const groupKey = `${chatId}::${dedupeKey}`;
-  const group = deliveryGroups.get(groupKey) || { chatId, text, dedupeKey, events: [] };
-  group.events.push(event);
-  deliveryGroups.set(groupKey, group);
-}
 
-for (const group of deliveryGroups.values()) {
-  const reserved = await optionalSupabaseRpc("reserve_integration_delivery", {
-    p_event_id: group.events[0].id,
-    p_channel: "telegram",
-    p_recipient_key: String(group.chatId),
-    p_dedupe_key: group.dedupeKey
-  }, true);
-
-  if (!reserved) {
-    for (const event of group.events) {
-      await supabaseRpc("mark_integration_event_sent", { p_event_id: event.id });
-      results.push({ id: event.id, event_type: event.event_type, audience: event.audience, status: "skipped_duplicate_delivery" });
-    }
+  const { recipients, error: recipientError } = await resolveRecipients(event);
+  if (recipients.length === 0) {
+    const errorMessage = recipientError || "Khong tim thay nguoi nhan Telegram";
+    const adminAlert = await alertAdminOnce(event, errorMessage);
+    await supabaseRpc("mark_integration_event_failed", { p_event_id: event.id, p_error: errorMessage });
+    results.push({ id: event.id, event_type: event.event_type, audience: event.audience, status: "failed_no_recipient", error: errorMessage, adminAlert });
     continue;
   }
 
-  try {
-    const response = await sendTelegram(group.chatId, group.text);
-    await optionalSupabaseRpc("mark_integration_delivery_sent", {
-      p_channel: "telegram",
-      p_recipient_key: String(group.chatId),
-      p_dedupe_key: group.dedupeKey,
-      p_provider_message_id: response?.result?.message_id ? String(response.result.message_id) : null
-    }, null);
-    for (const event of group.events) {
-      await supabaseRpc("mark_integration_event_sent", { p_event_id: event.id });
-      results.push({ id: event.id, event_type: event.event_type, audience: event.audience, status: "sent" });
+  const text = await formatMessage(event);
+  const dedupeKey = dedupeKeyFor(event, text);
+  const eventResults = [];
+
+  for (const recipient of recipients) {
+    const reserved = await reserveDelivery(event, recipient, dedupeKey);
+    if (!reserved) {
+      eventResults.push({ recipient: recipient.recipientKey, status: "skipped_duplicate_delivery" });
+      continue;
     }
-  } catch (error) {
-    await optionalSupabaseRpc("mark_integration_delivery_failed", {
-      p_channel: "telegram",
-      p_recipient_key: String(group.chatId),
-      p_dedupe_key: group.dedupeKey,
-      p_error: error.message
-    }, null);
-    for (const event of group.events) {
-      await supabaseRpc("mark_integration_event_failed", { p_event_id: event.id, p_error: error.message });
-      results.push({ id: event.id, event_type: event.event_type, audience: event.audience, status: "failed", error: error.message });
+
+    try {
+      const response = await sendTelegram(recipient.chatId, text);
+      await markDeliverySent(recipient, dedupeKey, response);
+      sentMessages += 1;
+      eventResults.push({ recipient: recipient.recipientKey, status: "sent" });
+    } catch (error) {
+      await markDeliveryFailed(recipient, dedupeKey, error);
+      eventResults.push({ recipient: recipient.recipientKey, status: "failed", error: error.message });
     }
+  }
+
+  const failedDelivery = eventResults.find((item) => item.status === "failed");
+  if (failedDelivery) {
+    await supabaseRpc("mark_integration_event_failed", { p_event_id: event.id, p_error: failedDelivery.error });
+    results.push({ id: event.id, event_type: event.event_type, audience: event.audience, status: "failed", deliveries: eventResults });
+  } else {
+    await supabaseRpc("mark_integration_event_sent", { p_event_id: event.id });
+    results.push({ id: event.id, event_type: event.event_type, audience: event.audience, status: "sent", deliveries: eventResults });
   }
 }
 
-return [{ json: { claimed: events.length, sentMessages: deliveryGroups.size, results } }];
+return [{ json: { claimed: events.length, sentMessages, results } }];

@@ -5,8 +5,7 @@ const readConfig = (name) => vars[name] || env[name];
 const SUPABASE_URL = readConfig("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = readConfig("SUPABASE_SERVICE_ROLE_KEY");
 const TELEGRAM_BOT_TOKEN = readConfig("TELEGRAM_BOT_TOKEN");
-const TELEGRAM_CHAT_DRIVER = readConfig("TELEGRAM_CHAT_DRIVER") || readConfig("TELEGRAM_CHAT_ADMIN");
-const TELEGRAM_CHAT_DISPATCHER = readConfig("TELEGRAM_CHAT_DISPATCHER") || readConfig("TELEGRAM_CHAT_ADMIN");
+const TELEGRAM_CHAT_ADMIN = readConfig("TELEGRAM_CHAT_ADMIN");
 const APP_URL = (readConfig("APP_URL") || "https://carmanagement-seven.vercel.app").replace(/\/$/, "");
 
 function assertEnv(name, value) {
@@ -16,8 +15,7 @@ function assertEnv(name, value) {
 assertEnv("SUPABASE_URL", SUPABASE_URL);
 assertEnv("SUPABASE_SERVICE_ROLE_KEY", SUPABASE_SERVICE_ROLE_KEY);
 assertEnv("TELEGRAM_BOT_TOKEN", TELEGRAM_BOT_TOKEN);
-assertEnv("TELEGRAM_CHAT_DRIVER/ADMIN", TELEGRAM_CHAT_DRIVER);
-assertEnv("TELEGRAM_CHAT_DISPATCHER/ADMIN", TELEGRAM_CHAT_DISPATCHER);
+assertEnv("TELEGRAM_CHAT_ADMIN", TELEGRAM_CHAT_ADMIN);
 
 const supabaseHeaders = {
   apikey: SUPABASE_SERVICE_ROLE_KEY,
@@ -83,6 +81,70 @@ async function supabaseRpc(name, body) {
   });
 }
 
+async function optionalSupabaseRpc(name, body, fallback) {
+  try {
+    return await supabaseRpc(name, body);
+  } catch (error) {
+    if (String(error.message || "").includes("Could not find the function")) return fallback;
+    throw error;
+  }
+}
+
+async function getRows(table, select, filters = [], limit = 50) {
+  try {
+    const filterQuery = filters.map(([column, operator, value]) => {
+      return `${encodeURIComponent(column)}=${operator}.${encodeURIComponent(String(value))}`;
+    }).join("&");
+    const query = [
+      `select=${encodeURIComponent(select)}`,
+      filterQuery,
+      `limit=${encodeURIComponent(String(limit))}`
+    ].filter(Boolean).join("&");
+    const rows = await httpRequest({
+      method: "GET",
+      url: `${SUPABASE_URL}/rest/v1/${table}?${query}`,
+      headers: supabaseHeaders,
+      json: true
+    });
+    return Array.isArray(rows) ? rows : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+async function resolveDriverRecipient(driverId) {
+  if (!driverId) return null;
+  const rows = await getRows(
+    "app_drivers",
+    "id,full_name,phone,telegram_chat_id,telegram_username,telegram_enabled",
+    [["id", "eq", driverId]],
+    1
+  );
+  const driver = rows[0] || null;
+  if (!driver?.telegram_enabled || !driver.telegram_chat_id) return null;
+  return {
+    chatId: driver.telegram_chat_id,
+    recipientKey: `driver:${driver.id}`,
+    label: driver.full_name || driver.id
+  };
+}
+
+async function resolveRoleRecipients(role) {
+  const rows = await getRows(
+    "app_user_profiles",
+    "user_id,full_name,phone,role,telegram_chat_id,telegram_username,telegram_enabled",
+    [["role", "eq", role], ["telegram_enabled", "eq", true]],
+    50
+  );
+  return rows
+    .filter((row) => row.telegram_enabled && row.telegram_chat_id)
+    .map((row) => ({
+      chatId: row.telegram_chat_id,
+      recipientKey: `user:${row.user_id}`,
+      label: row.full_name || row.user_id
+    }));
+}
+
 async function sendTelegram(chatId, text) {
   return await httpRequest({
     method: "POST",
@@ -91,6 +153,25 @@ async function sendTelegram(chatId, text) {
     body: { chat_id: chatId, text, parse_mode: "HTML", disable_web_page_preview: false },
     json: true
   });
+}
+
+async function sendAdminAlertOnce(dedupeKey, text) {
+  const recipientKey = `admin:${TELEGRAM_CHAT_ADMIN}`;
+  const reserved = await optionalSupabaseRpc("reserve_integration_delivery", {
+    p_event_id: null,
+    p_channel: "telegram_admin_alert",
+    p_recipient_key: recipientKey,
+    p_dedupe_key: dedupeKey
+  }, true);
+  if (!reserved) return false;
+  await sendTelegram(TELEGRAM_CHAT_ADMIN, text);
+  await optionalSupabaseRpc("mark_integration_delivery_sent", {
+    p_channel: "telegram_admin_alert",
+    p_recipient_key: recipientKey,
+    p_dedupe_key: dedupeKey,
+    p_provider_message_id: null
+  }, null);
+  return true;
 }
 
 function shouldRemind(order, nowMs) {
@@ -172,9 +253,21 @@ const results = [];
 
 for (const order of dueOrders) {
   const nextCount = Number(order.driver_ack_count || 0) + 1;
-  await sendTelegram(TELEGRAM_CHAT_DRIVER, driverReminderMessage(order, nextCount));
+  const driverRecipient = await resolveDriverRecipient(order.driver_id);
+  if (!driverRecipient) {
+    const message = `Tai xe cua lenh ${order.code} chua lien ket Telegram nen khong the gui nhac nhan chuyen.`;
+    await sendAdminAlertOnce(`driver_ack_missing_driver:${order.id}:${nextCount}`, [
+      "<b>Can lien ket Telegram tai xe</b>",
+      `Lenh: <b>${escapeHtml(order.code)}</b>`,
+      `Tai xe: ${escapeHtml(order.driver_full_name || order.driver_id || "-")} / ${escapeHtml(order.driver_phone || "")}`,
+      `Loi: ${escapeHtml(message)}`
+    ].join("\n"));
+    results.push({ order: order.code, action: "missing_driver_telegram", error: message });
+    continue;
+  }
+  await sendTelegram(driverRecipient.chatId, driverReminderMessage(order, nextCount));
   const savedCount = await supabaseRpc("record_driver_ack_reminder", { p_order_id: order.id });
-  results.push({ order: order.code, action: "reminded_driver", count: savedCount || nextCount });
+  results.push({ order: order.code, action: "reminded_driver", recipient: driverRecipient.recipientKey, count: savedCount || nextCount });
 }
 
 const escalationRows = await httpRequest({
@@ -185,12 +278,26 @@ const escalationRows = await httpRequest({
 });
 
 for (const order of Array.isArray(escalationRows) ? escalationRows : []) {
-  await sendTelegram(TELEGRAM_CHAT_DISPATCHER, dispatcherEscalationMessage(order));
+  const dispatcherRecipients = await resolveRoleRecipients("dispatcher");
+  if (dispatcherRecipients.length === 0) {
+    const message = `Khong co dieu hanh nao da lien ket Telegram de nhan canh bao lenh ${order.code}.`;
+    await sendAdminAlertOnce(`driver_ack_missing_dispatcher:${order.id}`, [
+      "<b>Can lien ket Telegram dieu hanh</b>",
+      `Lenh: <b>${escapeHtml(order.code)}</b>`,
+      `Tai xe: ${escapeHtml(order.driver_full_name || order.driver_id || "-")} / ${escapeHtml(order.driver_phone || "")}`,
+      `Loi: ${escapeHtml(message)}`
+    ].join("\n"));
+    results.push({ order: order.code, action: "missing_dispatcher_telegram", error: message });
+    continue;
+  }
+  for (const recipient of dispatcherRecipients) {
+    await sendTelegram(recipient.chatId, dispatcherEscalationMessage(order));
+  }
   await supabaseRpc("escalate_driver_ack", {
     p_order_id: order.id,
     p_reason: "Tài xế chưa nhận chuyến sau 3 lần nhắc tự động"
   });
-  results.push({ order: order.code, action: "escalated_to_dispatcher" });
+  results.push({ order: order.code, action: "escalated_to_dispatcher", recipients: dispatcherRecipients.map((recipient) => recipient.recipientKey) });
 }
 
 return [{ json: { due: dueOrders.length, results } }];

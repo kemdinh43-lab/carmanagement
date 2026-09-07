@@ -1,0 +1,51 @@
+{
+  "name": "Angel One Telegram Account Linking",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "telegram-start-trigger",
+      "name": "Telegram /start TOKEN",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "angel-one-telegram-linking"
+    },
+    {
+      "parameters": {
+        "jsCode": "const vars = typeof $vars !== \"undefined\" ? $vars : {};\nconst env = typeof $env !== \"undefined\" ? $env : {};\nconst readConfig = (name) => vars[name] || env[name];\n\nconst SUPABASE_URL = readConfig(\"SUPABASE_URL\");\nconst SUPABASE_SERVICE_ROLE_KEY = readConfig(\"SUPABASE_SERVICE_ROLE_KEY\");\nconst TELEGRAM_BOT_TOKEN = readConfig(\"TELEGRAM_BOT_TOKEN\");\n\nfunction assertEnv(name, value) {\n  if (!value) throw new Error(`Missing n8n env: ${name}`);\n}\n\nassertEnv(\"SUPABASE_URL\", SUPABASE_URL);\nassertEnv(\"SUPABASE_SERVICE_ROLE_KEY\", SUPABASE_SERVICE_ROLE_KEY);\nassertEnv(\"TELEGRAM_BOT_TOKEN\", TELEGRAM_BOT_TOKEN);\n\nconst httpRequest = this.helpers.httpRequest.bind(this.helpers);\n\nfunction escapeHtml(value) {\n  return String(value ?? \"\")\n    .replaceAll(\"&\", \"&amp;\")\n    .replaceAll(\"<\", \"&lt;\")\n    .replaceAll(\">\", \"&gt;\")\n    .replaceAll('\"', \"&quot;\");\n}\n\nasync function sendTelegram(chatId, text) {\n  return await httpRequest({\n    method: \"POST\",\n    url: `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,\n    headers: { \"Content-Type\": \"application/json\" },\n    body: { chat_id: chatId, text, parse_mode: \"HTML\", disable_web_page_preview: true },\n    json: true\n  });\n}\n\nasync function connectTelegramRecipient(token, chatId, username) {\n  return await httpRequest({\n    method: \"POST\",\n    url: `${SUPABASE_URL}/rest/v1/rpc/connect_telegram_recipient`,\n    headers: {\n      apikey: SUPABASE_SERVICE_ROLE_KEY,\n      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,\n      \"Content-Type\": \"application/json\"\n    },\n    body: {\n      p_token: token,\n      p_chat_id: String(chatId),\n      p_username: username || null\n    },\n    json: true\n  });\n}\n\nconst message = items[0]?.json?.message || items[0]?.json || {};\nconst chatId = message.chat?.id;\nconst from = message.from || {};\nconst text = String(message.text || \"\").trim();\nconst token = text.replace(/^\\/start(?:@\\w+)?\\s*/i, \"\").trim();\nconst username = from.username || message.chat?.username || null;\n\nif (!chatId) throw new Error(\"Telegram update does not include chat.id\");\n\nif (!token) {\n  await sendTelegram(chatId, \"Vui lòng mở link kết nối Telegram từ Angel One Ops.\");\n  return [{ json: { ok: false, reason: \"missing_token\" } }];\n}\n\ntry {\n  const result = await connectTelegramRecipient(token, chatId, username);\n  const targetLabel = result?.target_type === \"driver\" ? \"tài xế\" : \"người dùng nội bộ\";\n  await sendTelegram(chatId, `Đã kết nối Telegram cho <b>${escapeHtml(targetLabel)}</b>. Từ giờ thông báo Angel One Ops sẽ gửi vào chat này.`);\n  return [{ json: { ok: true, result } }];\n} catch (error) {\n  await sendTelegram(chatId, \"Link kết nối không hợp lệ hoặc đã hết hạn. Vui lòng tạo link mới trong Angel One Ops.\");\n  return [{ json: { ok: false, reason: \"invalid_or_expired_token\", error: error.message } }];\n}\n"
+      },
+      "id": "connect-recipient",
+      "name": "Connect Telegram Recipient",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Telegram /start TOKEN": {
+      "main": [
+        [
+          {
+            "node": "Connect Telegram Recipient",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
