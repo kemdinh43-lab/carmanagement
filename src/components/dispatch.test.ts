@@ -343,3 +343,55 @@ it("shows individual customer identity fields in driver detail", () => {
   expect(within(container).getByText("201234567")).toBeTruthy();
   expect(within(container).getByText("34 Hai Phong, Da Nang")).toBeTruthy();
 });
+
+it("prioritizes the active driver trip before completed trips across today and schedule views", () => {
+  const completedTrip = orderFixture({
+    id: "completed-trip",
+    code: "V0001/08.2026/NĐ/DL/T/DAD-DAD",
+    dispatchStatus: "completed",
+    startAt: "2026-09-15T10:33:00+07:00",
+    endAt: "2026-09-15T13:33:00+07:00"
+  });
+  const activeTrip = orderFixture({
+    id: "active-trip",
+    code: "V0003/08.2026/NĐ/DL/T/DAD-DAD",
+    dispatchStatus: "in_progress",
+    startAt: "2026-09-15T13:04:00+07:00",
+    endAt: "2026-09-15T19:09:00+07:00"
+  });
+  const { container } = render(createElement(DriverMobilePanel, {
+    authDriverId: driver.id,
+    authLabel: driver.fullName,
+    currentRole: "driver",
+    drivers: [driver],
+    isActionPending: () => false,
+    mobileDriverId: driver.id,
+    notifications: [],
+    now: new Date("2026-09-15T15:22:00+07:00"),
+    onSignOut: vi.fn(),
+    orders: [completedTrip, activeTrip],
+    payments: [],
+    selectedOrderId: undefined,
+    setMobileDriverId: vi.fn(),
+    setSelectedOrderId: vi.fn(),
+    submitDriverProposal: vi.fn(async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      return true;
+    }),
+    submitDriverTripReport: vi.fn(async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      return true;
+    }),
+    updateOrderDispatchStatus: vi.fn(async () => true),
+    vehicles: [vehicle]
+  }));
+
+  expect(within(container).getByText("Chuyến đang chạy")).toBeTruthy();
+  expect(container.textContent!.indexOf("V0003/08.2026/NĐ/DL/T/DAD-DAD")).toBeLessThan(container.textContent!.indexOf("V0001/08.2026/NĐ/DL/T/DAD-DAD"));
+
+  fireEvent.click(within(container).getAllByRole("button", { name: /Lịch chạy/ }).at(-1)!);
+
+  expect(within(container).getAllByText("Sắp chạy (0)").length).toBeGreaterThan(0);
+  expect(within(container).getAllByText("Đang chạy (1)").length).toBeGreaterThan(0);
+  expect(within(container).getAllByText("Hoàn thành (1)").length).toBeGreaterThan(0);
+});

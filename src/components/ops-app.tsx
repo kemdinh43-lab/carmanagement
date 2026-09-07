@@ -8415,6 +8415,34 @@ function DriverRouteLine({ order }: { order: DispatchOrder }) {
   );
 }
 
+function driverTripPriority(order: DispatchOrder, nowMs: number) {
+  if (order.dispatchStatus === "in_progress") return 0;
+  if (order.dispatchStatus === "driver_accepted") return 1;
+  if (order.dispatchStatus === "assigned") return 2;
+  if (order.dispatchStatus !== "completed" && new Date(order.startAt).getTime() >= nowMs) return 3;
+  if (order.dispatchStatus !== "completed") return 4;
+  return 5;
+}
+
+function sortDriverTripsForWork(orders: DispatchOrder[], nowMs: number) {
+  return [...orders].sort((a, b) => {
+    const priorityDiff = driverTripPriority(a, nowMs) - driverTripPriority(b, nowMs);
+    if (priorityDiff !== 0) return priorityDiff;
+    if (a.dispatchStatus === "completed" && b.dispatchStatus === "completed") {
+      return new Date(b.endAt || b.startAt).getTime() - new Date(a.endAt || a.startAt).getTime();
+    }
+    return new Date(a.startAt).getTime() - new Date(b.startAt).getTime();
+  });
+}
+
+function driverTripHeroLabel(order: DispatchOrder) {
+  if (order.dispatchStatus === "in_progress") return "Chuyến đang chạy";
+  if (order.dispatchStatus === "driver_accepted") return "Chuyến đã nhận";
+  if (order.dispatchStatus === "assigned") return "Chuyến mới được phân";
+  if (order.dispatchStatus === "completed") return "Chuyến đã hoàn thành";
+  return "Chuyến tiếp theo";
+}
+
 function DriverCustomerInfoCard({ order }: { order: DispatchOrder }) {
   const isCompany = order.customerKind === "company";
   return (
@@ -8456,7 +8484,7 @@ function DriverTripBrief({ order, payments, vehicle }: { driver?: Driver; order:
       <div className="bg-gradient-to-r from-brand to-teal-600 p-4 text-white">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-sm font-bold opacity-90">Chuyến tiếp theo</p>
+            <p className="text-sm font-bold opacity-90">{driverTripHeroLabel(order)}</p>
             <p className="mt-1 text-xs opacity-80">{order.code}</p>
           </div>
           <Badge tone={order.dispatchStatus === "in_progress" ? "info" : "good"}>{dispatchLabels[order.dispatchStatus]}</Badge>
@@ -8545,7 +8573,7 @@ function DriverMobileTitle({ onBack, right, subtitle, title }: { onBack?: () => 
 }
 
 function DriverScheduleMobile({ orders, onOpen, selectedOrderId, vehicles }: { orders: DispatchOrder[]; onOpen: (orderId: string) => void; selectedOrderId?: string; vehicles: Vehicle[] }) {
-  const soonOrders = orders.filter((order) => order.dispatchStatus !== "completed");
+  const soonOrders = orders.filter((order) => !["completed", "in_progress", "driver_accepted"].includes(order.dispatchStatus));
   const runningOrders = orders.filter((order) => order.dispatchStatus === "in_progress" || order.dispatchStatus === "driver_accepted");
   const doneOrders = orders.filter((order) => order.dispatchStatus === "completed");
   return (
@@ -8559,16 +8587,17 @@ function DriverScheduleMobile({ orders, onOpen, selectedOrderId, vehicles }: { o
         {orders.map((order) => {
           const vehicle = vehicles.find((item) => item.id === order.vehicleId);
           const isSelected = order.id === selectedOrderId;
+          const rowTone = order.dispatchStatus === "completed" ? "good" : order.dispatchStatus === "in_progress" || order.dispatchStatus === "driver_accepted" ? "info" : "warn";
           return (
             <button className={`grid grid-cols-[48px_1fr_auto] items-center gap-3 rounded-2xl border bg-white p-4 text-left shadow-[0_8px_22px_rgba(15,23,42,0.06)] ${isSelected ? "border-teal-200" : "border-slate-200"}`} key={order.id} onClick={() => onOpen(order.id)} type="button">
-              <span className="grid size-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><Clock3 size={20} /></span>
+              <span className={`grid size-10 place-items-center rounded-xl ${rowTone === "good" ? "bg-emerald-50 text-emerald-600" : rowTone === "info" ? "bg-teal-50 text-brand" : "bg-amber-50 text-amber-600"}`}><Clock3 size={20} /></span>
               <div className="min-w-0">
                 <p className="text-xl font-extrabold text-ink">{timeOnly(order.startAt)}</p>
                 <p className="truncate text-sm font-bold text-slate-700">{routeSummaryForOrder(order)}</p>
                 <p className="mt-1 truncate text-xs text-slate-500">{order.guestCount ?? "-"} khách · {vehicle?.plateNo ?? order.code}</p>
               </div>
               <div className="flex items-center gap-2">
-                <Badge tone={order.dispatchStatus === "completed" ? "good" : order.dispatchStatus === "in_progress" ? "info" : "warn"}>{dispatchLabels[order.dispatchStatus]}</Badge>
+                <Badge tone={rowTone}>{dispatchLabels[order.dispatchStatus]}</Badge>
                 <ChevronRight className="text-slate-400" size={18} />
               </div>
             </button>
@@ -8759,6 +8788,8 @@ export function DriverMobilePanel({
     .filter((order) => selectedDriver && order.driverId === selectedDriver.id && order.dispatchStatus !== "cancelled")
     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
   const todayDriverOrders = driverOrders.filter((order) => orderDateKey(order) === todayKey);
+  const driverTripsForWork = sortDriverTripsForWork(driverOrders, nowMs);
+  const todayDriverTripsForWork = sortDriverTripsForWork(todayDriverOrders, nowMs);
   const activeOrder = driverOrders.find((order) => order.dispatchStatus === "in_progress") ?? driverOrders.find((order) => order.dispatchStatus === "driver_accepted");
   const newlyAssignedTrips = driverOrders
     .filter((order) => order.dispatchStatus === "assigned")
@@ -8785,7 +8816,7 @@ export function DriverMobilePanel({
   ]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 5);
-  const nextTrip = activeOrder ?? newlyAssignedTrips[0] ?? upcomingTrips[0] ?? todayDriverOrders.find((order) => order.dispatchStatus !== "completed") ?? driverOrders.find((order) => order.dispatchStatus !== "completed") ?? driverOrders[0];
+  const nextTrip = activeOrder ?? newlyAssignedTrips[0] ?? upcomingTrips[0] ?? todayDriverTripsForWork.find((order) => order.dispatchStatus !== "completed") ?? driverTripsForWork.find((order) => order.dispatchStatus !== "completed") ?? todayDriverTripsForWork[0] ?? driverTripsForWork[0];
   const explicitlySelectedTrip = driverOrders.find((order) => order.id === selectedOrderId);
   const selectedTrip = explicitlySelectedTrip ?? nextTrip;
   const completedTripsToday = todayDriverOrders.filter((order) => order.dispatchStatus === "completed");
@@ -9103,7 +9134,7 @@ export function DriverMobilePanel({
                   setSelectedOrderId(orderId);
                   setDriverView("detail");
                 }}
-                orders={todayDriverOrders.length > 0 ? todayDriverOrders : driverOrders}
+                orders={todayDriverTripsForWork.length > 0 ? todayDriverTripsForWork : driverTripsForWork}
                 selectedOrderId={selectedTrip?.id}
                 vehicles={vehicles}
               />
@@ -9128,7 +9159,7 @@ export function DriverMobilePanel({
               <button className="text-sm font-bold text-brand" type="button">Xem tất cả</button>
             </div>
             <div className="mt-4 grid gap-3">
-              {todayDriverOrders.map((order) => {
+              {todayDriverTripsForWork.map((order) => {
                 const isSelected = order.id === selectedTrip?.id;
                 return (
                   <button className={`grid grid-cols-[78px_1fr_auto] items-center gap-3 rounded-2xl border p-4 text-left ${isSelected ? "border-teal-200 bg-teal-50" : "border-slate-200 bg-white"}`} key={order.id} onClick={() => setSelectedOrderId(order.id)} type="button">
@@ -9141,7 +9172,7 @@ export function DriverMobilePanel({
                   </button>
                 );
               })}
-              {todayDriverOrders.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">Hôm nay chưa có chuyến được phân.</p>}
+              {todayDriverTripsForWork.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">Hôm nay chưa có chuyến được phân.</p>}
             </div>
           </section>
 
@@ -9190,14 +9221,14 @@ export function DriverMobilePanel({
                 <p className="mt-2 text-sm text-slate-500">Khi điều hành phân xe, chuyến tiếp theo sẽ hiện ở đây.</p>
               </section>
             )}
-            {todayDriverOrders.length > 0 && (
+            {todayDriverTripsForWork.length > 0 && (
               <section className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center justify-between">
                   <h4 className="font-extrabold text-ink">Lệnh gần đây</h4>
                   <button className="text-sm font-bold text-brand" onClick={() => setDriverView("schedule")} type="button">Xem tất cả</button>
                 </div>
                 <div className="mt-3 grid gap-2">
-                  {todayDriverOrders.slice(0, 3).map((order) => (
+                  {todayDriverTripsForWork.slice(0, 3).map((order) => (
                     <button className="grid grid-cols-[1fr_auto] rounded-2xl border border-slate-200 p-3 text-left" key={order.id} onClick={() => { setSelectedOrderId(order.id); setDriverView("detail"); }} type="button">
                       <span className="min-w-0">
                         <span className="block truncate font-extrabold text-ink">{order.code}</span>
@@ -9220,7 +9251,7 @@ export function DriverMobilePanel({
                 setSelectedOrderId(orderId);
                 setDriverView("detail");
               }}
-              orders={todayDriverOrders.length > 0 ? todayDriverOrders : driverOrders}
+              orders={todayDriverTripsForWork.length > 0 ? todayDriverTripsForWork : driverTripsForWork}
               selectedOrderId={selectedTrip?.id}
               vehicles={vehicles}
             />
