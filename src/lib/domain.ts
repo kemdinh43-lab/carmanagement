@@ -50,6 +50,23 @@ export function calculateVatSummary(input: VatInput): VatSummary {
   };
 }
 
+function firstFormNumber(form: { get(name: string): unknown }, names: string[]) {
+  for (const name of names) {
+    const value = form.get(name);
+    if (value !== null && value !== undefined && String(value) !== "") return Number(value);
+  }
+  return 0;
+}
+
+export function calculateVatSummaryFromForm(form: { get(name: string): unknown }): VatSummary {
+  return calculateVatSummary({
+    subtotalAmount: firstFormNumber(form, ["subtotalAmountDisplay", "subtotalAmount"]),
+    vatRate: firstFormNumber(form, ["vatRateDisplay", "vatRate"]),
+    amountDue: firstFormNumber(form, ["amountDueDisplay", "amountDue"]),
+    basis: form.get("vatBasis") === "total" ? "total" : "subtotal"
+  });
+}
+
 export function summarizeOrderPayments(order: Pick<DispatchOrder, "id" | "amountDue">, payments: Payment[]) {
   const validPayments = payments
     .filter((payment) => payment.orderId === order.id && payment.status === "valid")

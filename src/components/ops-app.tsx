@@ -48,7 +48,7 @@ import {
   vehicles as seedVehicles
 } from "@/data/demo";
 import { hasSupabaseBrowserConfig } from "@/lib/config";
-import { calculateVatSummary, canMoveDispatchStatus, findAssignmentConflict, getOperationalAlerts, money, notificationDedupeId, summarizeOrderPayments } from "@/lib/domain";
+import { calculateVatSummary, calculateVatSummaryFromForm, canMoveDispatchStatus, findAssignmentConflict, getOperationalAlerts, money, notificationDedupeId, summarizeOrderPayments } from "@/lib/domain";
 import { emptyOpsState } from "@/lib/empty-ops-state";
 import {
   appOrderActionUrl,
@@ -1131,12 +1131,7 @@ function tripAccessUrl(token?: string) {
 }
 
 function vatFromForm(form: FormData) {
-  return calculateVatSummary({
-    subtotalAmount: Number(form.get("subtotalAmount") || 0),
-    vatRate: Number(form.get("vatRate") || 0),
-    amountDue: Number(form.get("amountDue") || 0),
-    basis: form.get("vatBasis") === "total" ? "total" : "subtotal"
-  });
+  return calculateVatSummaryFromForm(form);
 }
 
 function downloadTextFile(filename: string, content: string, type = "text/plain;charset=utf-8") {
@@ -1859,13 +1854,13 @@ export default function OpsApp() {
     };
   }
 
-  function notify(input: Omit<AppNotification, "id" | "createdAt">) {
+  async function notify(input: Omit<AppNotification, "id" | "createdAt">) {
     const notification: AppNotification = { ...input, id: notificationDedupeId(input), createdAt: new Date().toISOString() };
     setState((current) => ({
       ...current,
       notifications: [notification, ...(current.notifications ?? []).filter((item) => item.id !== notification.id)].slice(0, 30)
     }));
-    if (!supabaseConfigured) return;
+    if (!supabaseConfigured) return true;
     const supabase = createSupabaseBrowserClient();
     const basePayload = {
       id: notification.id,
@@ -1882,26 +1877,23 @@ export default function OpsApp() {
       target_user_id: notification.targetUserId ?? null,
       target_driver_id: notification.targetDriverId ?? null
     };
-    supabase
+    const { error: initialError } = await supabase
       .from("app_notifications" as never)
-      .upsert(targetedPayload as never)
-      .then(async ({ error }) => {
-        if (!error) {
-          await emitIntegrationEvent(notification);
-          return;
-        }
-        const missingNewColumns = error.message.includes("target_user_id") || error.message.includes("target_driver_id") || error.message.includes("event_type");
-        if (missingNewColumns) {
-          const retry = await supabase.from("app_notifications" as never).upsert(basePayload as never);
-          if (!retry.error) {
-            await emitIntegrationEvent(notification);
-            return;
-          }
-          error = retry.error;
-        }
-        setMessage(`Không ghi được thông báo ${notification.audience}: ${error.message}`);
-        if (process.env.NODE_ENV !== "production") console.warn("[notification-write]", error);
-      });
+      .upsert(targetedPayload as never);
+    let notificationError = initialError;
+    if (notificationError) {
+      const missingNewColumns = notificationError.message.includes("target_user_id") || notificationError.message.includes("target_driver_id") || notificationError.message.includes("event_type");
+      if (missingNewColumns) {
+        const retry = await supabase.from("app_notifications" as never).upsert(basePayload as never);
+        notificationError = retry.error;
+      }
+    }
+    if (notificationError) {
+      setMessage(`Không ghi được thông báo ${notification.audience}: ${notificationError.message}`);
+      if (process.env.NODE_ENV !== "production") console.warn("[notification-write]", notificationError);
+      return false;
+    }
+    return emitIntegrationEvent(notification);
 
     async function emitIntegrationEvent(event: AppNotification) {
       const eventType = event.eventType ?? event.title;
@@ -1926,9 +1918,14 @@ export default function OpsApp() {
         status: "pending",
         created_at: event.createdAt
       } as never);
-      if (error && process.env.NODE_ENV !== "production" && !error.message.includes("app_integration_events")) {
-        console.warn("[integration-event-write]", error);
+      if (error) {
+        if (!error.message.includes("app_integration_events")) {
+          setMessage(`Không đưa được thông báo ${event.audience} vào hàng chờ n8n/Telegram: ${error.message}`);
+          if (process.env.NODE_ENV !== "production") console.warn("[integration-event-write]", error);
+        }
+        return false;
       }
+      return true;
     }
   }
 
@@ -1992,7 +1989,7 @@ export default function OpsApp() {
     );
   }
 
-  async function createOrder(event: FormEvent<HTMLFormElement>) {
+  async function createOrder(event: FormEvent<HTMLFormElement>): Promise<SalesOrderCreatedResult | null | void> {
     event.preventDefault();
     if (!can(currentRole, "create_order")) {
       setMessage(`${roleLabels[currentRole]} không có quyền tạo lệnh.`);
@@ -2229,43 +2226,49 @@ export default function OpsApp() {
         },
         `Không lưu được tạm ứng ${order.code}`
       );
-      if (!savedPrepayment) return;
-      applySalesPrepayment(order, prepayment, paymentStatus);
+      if (savedPrepayment) {
+        applySalesPrepayment(order, prepayment, paymentStatus);
+      } else {
+        setMessage(`Đã tạo lệnh ${order.code}, nhưng chưa ghi được tạm ứng. Vui lòng ghi nhận lại ở Tài chính.`);
+      }
     }
     setSelectedOrderId(order.id);
     setTab("Lệnh điều xe");
-    notify({
-      audience: "sale",
-      eventType: "dispatch_proposal_submitted",
-      title: "Đã tạo lệnh điều xe",
-      body: `${order.code} / ${order.customerName}`,
-      entityId: order.id,
-      targetUserId: authUserId ?? undefined,
-      payload: buildDispatchProposalIntegrationPayload(order, "sale")
-    });
-    (["dispatcher", "manager", "admin"] as AppNotification["audience"][]).forEach((audience) => {
+    const notificationResults = await Promise.all([
       notify({
+        audience: "sale",
+        eventType: "dispatch_proposal_submitted",
+        title: "Đã tạo lệnh điều xe",
+        body: `${order.code} / ${order.customerName}`,
+        entityId: order.id,
+        targetUserId: authUserId ?? undefined,
+        payload: buildDispatchProposalIntegrationPayload(order, "sale")
+      }),
+      ...(["dispatcher", "manager", "admin"] as AppNotification["audience"][]).map((audience) => notify({
         audience,
         eventType: "dispatch_proposal_submitted",
         title: "Đề xuất điều xe mới",
         body: `${order.code} / ${order.customerName}`,
         entityId: order.id,
         payload: buildDispatchProposalIntegrationPayload(order, audience)
-      });
-    });
+      }))
+    ]);
+    const notificationsQueued = notificationResults.every(Boolean);
+    const result: SalesOrderCreatedResult = {
+      orderCode: order.code,
+      orderId: order.id,
+      route: routeSummaryForOrder(order),
+      vehicle: order.vehiclePlateNo || order.externalVehiclePlate || "Chờ điều hành phân xe",
+      driver: order.driverFullName || order.externalDriverName || "Chờ điều hành phân tài xế",
+      notification: notificationsQueued && supabaseConfigured
+        ? "Đã ghi thông báo cho điều hành và đưa event vào hàng chờ n8n/Telegram."
+        : supabaseConfigured
+          ? "Đã tạo lệnh, nhưng thông báo/n8n queue cần kiểm tra lại."
+        : "Local demo: đã tạo thông báo trong trình duyệt, không gửi Telegram."
+    };
     formElement.reset();
-    window.dispatchEvent(new CustomEvent("sales-order-created", {
-      detail: {
-        orderCode: order.code,
-        orderId: order.id,
-        route: routeSummaryForOrder(order),
-        vehicle: order.vehiclePlateNo || order.externalVehiclePlate || "Chờ điều hành phân xe",
-        driver: order.driverFullName || order.externalDriverName || "Chờ điều hành phân tài xế",
-        notification: supabaseConfigured
-          ? "Đã ghi thông báo cho điều hành và đưa event vào hàng chờ n8n/Telegram."
-          : "Local demo: đã tạo thông báo trong trình duyệt, không gửi Telegram."
-      }
-    }));
+    window.dispatchEvent(new CustomEvent("sales-order-created", { detail: result }));
+    return result;
     } finally {
       endAction(actionKey);
     }
@@ -5012,6 +5015,15 @@ function DashboardPanel({
   );
 }
 
+type SalesOrderCreatedResult = {
+  orderCode: string;
+  orderId: string;
+  route: string;
+  vehicle: string;
+  driver: string;
+  notification: string;
+};
+
 function OrdersPanel({
   assignments,
   auditEvents,
@@ -5057,7 +5069,7 @@ function OrdersPanel({
   setQuery: (query: string) => void;
   setSelectedOrderId: (id: string) => void;
   setTab: (tab: Tab) => void;
-  createOrder: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  createOrder: (event: FormEvent<HTMLFormElement>) => Promise<SalesOrderCreatedResult | null | void>;
   cancelOrder: (event: FormEvent<HTMLFormElement>) => void;
   promoteDriverProposalToDispatch: (orderId: string) => Promise<void>;
   resendSelectedOrderToDispatch: () => void;
@@ -5383,7 +5395,14 @@ function OrdersPanel({
         className={`${salesScreen === "create" ? "block" : "hidden"} overflow-hidden rounded-[22px] border border-line bg-white shadow-[0_10px_28px_rgba(15,23,42,0.08)]`}
         onChange={(event) => refreshSalesDraftPreview(event.currentTarget)}
         onInput={(event) => refreshSalesDraftPreview(event.currentTarget)}
-        onSubmit={createOrder}
+        onSubmit={async (event) => {
+          const result = await createOrder(event);
+          if (!result?.orderCode) return;
+          setSalesSuccess(result);
+          setSalesScreen("success");
+          setSalesMobileView("success");
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
       >
         <div className="flex items-center justify-between border-b border-line px-4 py-4">
           <button

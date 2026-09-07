@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculatePaymentStatus, calculateVatSummary, canMoveDispatchStatus, findAssignmentConflict, notificationDedupeId, overlaps, summarizeOrderPayments } from "./domain";
+import { calculatePaymentStatus, calculateVatSummary, calculateVatSummaryFromForm, canMoveDispatchStatus, findAssignmentConflict, notificationDedupeId, overlaps, summarizeOrderPayments } from "./domain";
 import type { Assignment } from "./types";
 
 const assignments: Assignment[] = [
@@ -104,6 +104,24 @@ describe("vat summary", () => {
       vatRate: 8,
       vatAmount: 96000,
       amountDue: 1296000
+    });
+  });
+
+  it("prefers visible create-form VAT values over stale hidden defaults", () => {
+    const form = new FormData();
+    form.set("vatBasis", "subtotal");
+    form.set("subtotalAmount", "1000000");
+    form.set("vatRate", "0");
+    form.set("vatAmount", "0");
+    form.set("amountDue", "1000000");
+    form.set("subtotalAmountDisplay", "1000000");
+    form.set("vatRateDisplay", "10");
+
+    expect(calculateVatSummaryFromForm(form)).toEqual({
+      subtotalAmount: 1000000,
+      vatRate: 10,
+      vatAmount: 100000,
+      amountDue: 1100000
     });
   });
 });
