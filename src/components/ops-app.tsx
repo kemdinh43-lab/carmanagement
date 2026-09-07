@@ -1730,11 +1730,14 @@ export default function OpsApp() {
     return true;
   }
 
-  function applySalesPrepayment(order: DispatchOrder, payment: Payment, paymentStatus: DispatchOrder["paymentStatus"]) {
+  function applySalesPrepayment(order: DispatchOrder, payment: Payment) {
     setState((current) => ({
       ...current,
-      payments: [payment, ...current.payments],
-      orders: current.orders.map((item) => (item.id === order.id ? { ...item, paymentStatus } : item)),
+      payments: [payment, ...current.payments.filter((item) => item.id !== payment.id)],
+      orders: current.orders.map((item) => (item.id === order.id ? {
+        ...item,
+        paymentStatus: summarizeOrderPayments(item, [payment, ...current.payments.filter((entry) => entry.id !== payment.id)]).paymentStatus
+      } : item)),
       auditEvents: [
         audit({
           actor: "Sale",
@@ -1746,7 +1749,7 @@ export default function OpsApp() {
         ...current.auditEvents
       ]
     }));
-    setMessage(`Đã gửi đề xuất điều xe ${order.code} và ghi tạm ứng ${money(payment.amount)}.`);
+    setMessage(`Đã cập nhật tạm ứng ${order.code}: ${money(payment.status === "valid" ? payment.amount : 0)}.`);
   }
 
   function orderRpcPayload(order: DispatchOrder) {
@@ -2207,7 +2210,6 @@ export default function OpsApp() {
         reference: "Tạm ứng trước chuyến",
         note: String(form.get("prepaymentNote") || "").trim() || undefined
       };
-      const paymentStatus = summarizeOrderPayments(order, [prepayment]).paymentStatus;
       const savedPrepayment = await runSupabaseRpc(
         "record_sales_prepayment",
         {
@@ -2224,7 +2226,7 @@ export default function OpsApp() {
         `Không lưu được tạm ứng ${order.code}`
       );
       if (savedPrepayment) {
-        applySalesPrepayment(order, prepayment, paymentStatus);
+        applySalesPrepayment(order, prepayment);
       } else {
         submissionWarnings.push("Tạm ứng chưa được ghi nhận; cần kiểm tra và ghi nhận lại ở Tài chính.");
         setMessage(`Đã tạo lệnh ${order.code}, nhưng chưa ghi được tạm ứng. Vui lòng ghi nhận lại ở Tài chính.`);
@@ -2999,6 +3001,13 @@ export default function OpsApp() {
     const customerConfirmationNote = readMaybeText("customerConfirmationNote", selectedOrder.customerConfirmationNote, canEditSales);
     const priority = readText("priority", selectedOrder.priority ?? "normal", canEditSales) as DispatchPriority;
     const salesNote = readMaybeText("salesNote", selectedOrder.salesNote, canEditSales || canEditDispatch);
+    const prepaymentIds = canEditSales ? form.getAll("salesPrepaymentId").map(String) : [];
+    const prepaymentAmounts = form.getAll("salesPrepaymentAmount").map(Number);
+    if (prepaymentIds.some((id, index) => !Number.isFinite(prepaymentAmounts[index]) || prepaymentAmounts[index] < 0 ||
+      (id && !state.payments.some((payment) => payment.id === id && payment.orderId === selectedOrder.id && payment.reference === "Tạm ứng trước chuyến")))) {
+      setMessage("Thông tin tạm ứng không hợp lệ. Vui lòng kiểm tra lại số tiền và khoản thu.");
+      return;
+    }
 
     if (!startAt || !endAt || new Date(primaryRoute.endAt) <= new Date(primaryRoute.startAt)) {
       setMessage("Giờ kết thúc phải sau giờ bắt đầu.");
@@ -3194,6 +3203,31 @@ export default function OpsApp() {
         ),
       `Đã cập nhật lệnh ${selectedOrder.code}.`
     );
+    for (const [index, id] of prepaymentIds.entries()) {
+      const previous = state.payments.find((payment) => payment.id === id);
+      const amount = prepaymentAmounts[index];
+      if (!previous && amount === 0) continue;
+      const payment: Payment = {
+        id: id || `pay_advance_${selectedOrder.id}`,
+        orderId: selectedOrder.id,
+        amount: amount === 0 ? previous?.amount ?? 0 : amount,
+        status: amount === 0 ? "voided" : "valid",
+        paidAt: previous?.paidAt ?? new Date().toISOString(),
+        method: String(form.getAll("salesPrepaymentMethod")[index] || "bank_transfer") as Payment["method"],
+        reference: "Tạm ứng trước chuyến",
+        collector: previous?.collector ?? selectedOrder.salesOwner,
+        bankAccount: previous?.bankAccount,
+        bankName: previous?.bankName,
+        note: String(form.getAll("salesPrepaymentNote")[index] || "").trim() || undefined
+      };
+      const savedPrepayment = await runSupabaseRpc("record_sales_prepayment", {
+        p_payment_id: payment.id, p_order_id: payment.orderId, p_amount: amount,
+        p_method: payment.method, p_paid_at: payment.paidAt, p_collector: payment.collector ?? null,
+        p_bank_account: payment.bankAccount ?? null, p_bank_name: payment.bankName ?? null, p_note: payment.note ?? null
+      }, `Lệnh đã cập nhật, nhưng chưa lưu được tạm ứng ${selectedOrder.code}`);
+      if (!savedPrepayment) return;
+      applySalesPrepayment(selectedOrder, payment);
+    }
   }
 
   async function cancelOrder(event: FormEvent<HTMLFormElement>) {
@@ -3660,6 +3694,15 @@ export default function OpsApp() {
                 Hôm nay, {dateOnly(now.toISOString())}
               </div>
               <div className="relative ml-auto flex items-center gap-3 lg:ml-0" ref={notificationsRef}>
+                <button
+                  aria-label="Đăng xuất"
+                  title="Đăng xuất"
+                  className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white text-rose-700 lg:hidden"
+                  onClick={() => void signOutFromApp()}
+                  type="button"
+                >
+                  <LogOut size={20} />
+                </button>
                 <button
                   className="relative grid h-12 w-12 place-items-center rounded-full bg-white text-ink shadow-sm lg:h-11 lg:w-11 lg:border lg:border-line lg:shadow-none"
                   onClick={() => setShowNotifications((open) => !open)}
@@ -5980,6 +6023,7 @@ export function OrdersPanel({
                 <SalesSectionEditPanel
                   section={salesEditSection}
                   order={selectedOrder}
+                  payments={payments}
                   onBack={() => openSalesDetail(selectedOrder.id)}
                   setSection={setSalesEditSection}
                   updateOrder={updateOrder}
@@ -6292,15 +6336,17 @@ function RouteTimelineCard({ order }: { order: DispatchOrder }) {
   );
 }
 
-function SalesSectionEditPanel({
+export function SalesSectionEditPanel({
   onBack,
   order,
+  payments,
   section,
   setSection,
   updateOrder
 }: {
   onBack: () => void;
   order: DispatchOrder;
+  payments: Payment[];
   section: SalesEditSection;
   setSection: (section: SalesEditSection) => void;
   updateOrder: (event: FormEvent<HTMLFormElement>) => void;
@@ -6316,6 +6362,7 @@ function SalesSectionEditPanel({
   const activeMeta = sectionMeta[section];
   const ActiveIcon = activeMeta.icon;
   const hiddenFields = salesEditHiddenFields(order, section);
+  const prepayments = payments.filter((payment) => payment.orderId === order.id && payment.reference === "Tạm ứng trước chuyến");
 
   return (
     <form className="overflow-hidden rounded-[22px] border border-line bg-white shadow-[0_10px_28px_rgba(15,23,42,0.08)]" onSubmit={updateOrder}>
@@ -6463,6 +6510,20 @@ function SalesSectionEditPanel({
         {section === "payment" && (
           <section className="grid gap-3 md:grid-cols-2">
             <VatCalculatorFields initialSubtotal={order.subtotalAmount ?? 0} initialVatRate={order.vatRate ?? 0} initialTotal={order.amountDue} />
+            {(prepayments.length ? prepayments : [undefined]).map((payment, index) => (
+              <div className="grid gap-3 border-t border-line pt-3 md:col-span-2 md:grid-cols-2" key={payment?.id ?? "new"}>
+                <input name="salesPrepaymentId" type="hidden" value={payment?.id ?? ""} />
+                <Field label={`Tạm ứng${prepayments.length > 1 ? ` ${index + 1}` : ""}`}>
+                  <input className={inputClass()} defaultValue={payment?.status === "valid" ? payment.amount : 0} min="0" name="salesPrepaymentAmount" type="number" required />
+                </Field>
+                <Field label="Hình thức tạm ứng">
+                  <select className={inputClass()} defaultValue={payment?.method ?? "bank_transfer"} name="salesPrepaymentMethod">
+                    <option value="bank_transfer">Chuyển khoản</option><option value="cash">Tiền mặt</option><option value="card">Thẻ</option><option value="other">Khác</option>
+                  </select>
+                </Field>
+                <Field label="Ghi chú tạm ứng"><input className={inputClass()} defaultValue={payment?.note ?? ""} name="salesPrepaymentNote" /></Field>
+              </div>
+            ))}
             <div className="md:col-span-2">
               <Field label="Ghi chú báo giá"><textarea className={`${inputClass()} min-h-20 resize-none py-2`} defaultValue={order.quoteNote ?? ""} name="quoteNote" /></Field>
             </div>

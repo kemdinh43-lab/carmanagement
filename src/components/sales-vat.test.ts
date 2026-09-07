@@ -2,10 +2,32 @@
 import { createElement } from "react";
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { OrdersPanel } from "./ops-app";
+import { OrdersPanel, SalesSectionEditPanel } from "./ops-app";
 import { calculateVatSummaryFromForm } from "@/lib/domain";
+import { orders } from "@/data/demo";
 
 afterEach(cleanup);
+
+it("edits the existing advance id and excludes other accounting payments", async () => {
+  const order = orders[0];
+  const payment = { id: "advance1", orderId: order.id, amount: 300000, status: "valid" as const, paidAt: "2026-09-01", method: "cash" as const, reference: "Tạm ứng trước chuyến" };
+  const submit = vi.fn((event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    expect(form.getAll("salesPrepaymentId")).toEqual(["advance1"]);
+    expect(form.getAll("salesPrepaymentAmount")).toEqual(["500000"]);
+  });
+  const { container } = render(createElement(SalesSectionEditPanel, {
+    order, payments: [payment, { ...payment, id: "accounting", reference: "Thu tiền" }],
+    section: "payment", setSection: vi.fn(), onBack: vi.fn(), updateOrder: submit
+  }));
+  const form = container.querySelector("form")!;
+  const amount = within(form).getByLabelText("Tạm ứng");
+  expect((amount as HTMLInputElement).value).toBe("300000");
+  fireEvent.change(amount, { target: { value: "500000" } });
+  fireEvent.submit(form);
+  expect(submit).toHaveBeenCalledOnce();
+});
 
 it.each([0, 8, 10])("preserves VAT rate %s through native input/change, preview and submission", async (rate) => {
   vi.stubGlobal("scrollTo", vi.fn());
