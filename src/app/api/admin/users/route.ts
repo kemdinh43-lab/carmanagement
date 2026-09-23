@@ -9,6 +9,9 @@ type AdminDriver = {
   full_name: string;
   phone: string;
   status: string;
+  telegram_enabled?: boolean | null;
+  telegram_username?: string | null;
+  telegram_connected_at?: string | null;
 };
 
 type AdminUserProfile = {
@@ -18,6 +21,9 @@ type AdminUserProfile = {
   role: AppRole;
   driver_id: string | null;
   updated_at: string;
+  telegram_enabled?: boolean | null;
+  telegram_username?: string | null;
+  telegram_connected_at?: string | null;
 };
 
 const internalLoginDomain = "angel-one.local";
@@ -82,8 +88,8 @@ export async function GET() {
   const service = access.service;
   const [{ data: authUsers, error: authError }, { data: profiles, error: profileError }, { data: drivers, error: driverError }] = await Promise.all([
     service.auth.admin.listUsers({ page: 1, perPage: 200 }),
-    service.from("app_user_profiles").select("user_id,full_name,phone,role,driver_id,updated_at"),
-    service.from("app_drivers").select("id,full_name,phone,status").order("full_name", { ascending: true })
+    service.from("app_user_profiles").select("user_id,full_name,phone,role,driver_id,updated_at,telegram_enabled,telegram_username,telegram_connected_at"),
+    service.from("app_drivers").select("id,full_name,phone,status,telegram_enabled,telegram_username,telegram_connected_at").order("full_name", { ascending: true })
   ]);
 
   if (authError) return NextResponse.json({ error: authError.message }, { status: 500 });
@@ -105,11 +111,24 @@ export async function GET() {
       fullName: profile?.full_name ?? authUser.user_metadata?.full_name ?? "",
       phone: profile?.phone ?? null,
       role: normalizeRole(profile?.role),
-      driverId: profile?.driver_id ?? null
+      driverId: profile?.driver_id ?? null,
+      telegramEnabled: Boolean(profile?.telegram_enabled),
+      telegramUsername: profile?.telegram_username ?? null,
+      telegramConnectedAt: profile?.telegram_connected_at ?? null
     };
   });
 
-  return NextResponse.json({ users, drivers });
+  const normalizedDrivers = ((drivers ?? []) as AdminDriver[]).map((driver) => ({
+    id: driver.id,
+    fullName: driver.full_name,
+    phone: driver.phone,
+    status: driver.status,
+    telegramEnabled: Boolean(driver.telegram_enabled),
+    telegramUsername: driver.telegram_username ?? null,
+    telegramConnectedAt: driver.telegram_connected_at ?? null
+  }));
+
+  return NextResponse.json({ users, drivers: normalizedDrivers });
 }
 
 export async function POST(request: Request) {

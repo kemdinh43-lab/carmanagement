@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Link2, RefreshCw, Save, ShieldCheck, UserPlus, UsersRound } from "lucide-react";
+import { CheckCircle2, Link2, RefreshCw, Save, ShieldCheck, UserPlus, UsersRound } from "lucide-react";
 import { roleLabels, type AppRole } from "@/lib/permissions";
 import type { Driver } from "@/lib/types";
 
@@ -28,18 +28,30 @@ type AdminUser = {
   confirmedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  telegramEnabled: boolean;
+  telegramUsername: string | null;
+  telegramConnectedAt: string | null;
 };
 
 type AdminUsersResponse = {
   users: AdminUser[];
-  drivers: Driver[];
+  drivers: AdminDriver[];
+};
+
+type AdminDriver = Driver & {
+  telegramEnabled?: boolean;
+  telegram_enabled?: boolean;
+  telegramUsername?: string | null;
+  telegram_username?: string | null;
+  telegramConnectedAt?: string | null;
+  telegram_connected_at?: string | null;
 };
 
 const roleOptions: AppRole[] = ["sale", "dispatcher", "driver", "accountant", "manager", "admin"];
 
 export function AdminUsersPanel({ currentRole }: { currentRole: AppRole }) {
   const [users, setUsers] = useState<AdminUser[]>([]);
-  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [drivers, setDrivers] = useState<AdminDriver[]>([]);
   const [message, setMessage] = useState("Chưa tải danh sách user.");
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -264,7 +276,7 @@ function UserRow({
   user
 }: {
   driverLabelMap: Map<string, string>;
-  drivers: Driver[];
+  drivers: AdminDriver[];
   onCreateTelegramLink: (user: AdminUser) => void;
   onSave: (event: FormEvent<HTMLFormElement>) => void;
   saving: boolean;
@@ -273,6 +285,14 @@ function UserRow({
   user: AdminUser;
 }) {
   const [role, setRole] = useState<AppRole>(() => user.role);
+  const selectedDriver = role === "driver" && user.driverId ? drivers.find((driver) => driver.id === user.driverId) : undefined;
+  const telegramEnabled = selectedDriver ? Boolean(selectedDriver.telegramEnabled ?? selectedDriver.telegram_enabled) : user.telegramEnabled;
+  const telegramUsername = selectedDriver
+    ? selectedDriver.telegramUsername ?? selectedDriver.telegram_username ?? null
+    : user.telegramUsername;
+  const telegramConnectedAt = selectedDriver
+    ? selectedDriver.telegramConnectedAt ?? selectedDriver.telegram_connected_at ?? null
+    : user.telegramConnectedAt;
 
   return (
     <form className="grid gap-3 px-4 py-4 xl:grid-cols-[1.1fr_1fr_1fr_130px_180px_140px] xl:items-end" onSubmit={onSave}>
@@ -309,7 +329,17 @@ function UserRow({
       <div className="xl:col-span-6 flex flex-wrap items-center justify-between gap-3">
         <div className="text-xs text-slate-500">
           <p>{user.confirmedAt ? "Sẵn sàng đăng nhập" : "Chưa bật đăng nhập"}</p>
-          {telegramStartCommand ? <p className="font-mono text-slate-700">Telegram: {telegramStartCommand}</p> : null}
+          {telegramEnabled ? (
+            <p className="inline-flex items-center gap-1 font-semibold text-teal-700">
+              <CheckCircle2 size={14} />
+              Telegram đã liên kết{telegramUsername ? `: @${telegramUsername}` : ""}
+              {telegramConnectedAt ? ` lúc ${formatVietnamDateTime(telegramConnectedAt)}` : ""}
+            </p>
+          ) : telegramStartCommand ? (
+            <p className="font-mono text-slate-700">Telegram chờ xác nhận: {telegramStartCommand}</p>
+          ) : (
+            <p>Telegram chưa liên kết</p>
+          )}
           <p>Cập nhật: {formatVietnamDateTime(user.updatedAt)}</p>
         </div>
         <div className="flex flex-wrap gap-2">
