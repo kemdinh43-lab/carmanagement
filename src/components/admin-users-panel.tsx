@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { RefreshCw, Save, ShieldCheck, UserPlus, UsersRound } from "lucide-react";
+import { Link2, RefreshCw, Save, ShieldCheck, UserPlus, UsersRound } from "lucide-react";
 import { roleLabels, type AppRole } from "@/lib/permissions";
 import type { Driver } from "@/lib/types";
 
@@ -20,6 +20,7 @@ function formatVietnamDateTime(value: string) {
 type AdminUser = {
   id: string;
   email: string;
+  loginName: string;
   fullName: string;
   phone: string | null;
   role: AppRole;
@@ -43,6 +44,8 @@ export function AdminUsersPanel({ currentRole }: { currentRole: AppRole }) {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
+  const [telegramLinkByUserId, setTelegramLinkByUserId] = useState<Record<string, string>>({});
+  const [linkingUserId, setLinkingUserId] = useState<string | null>(null);
 
   const driverLabelMap = useMemo(() => new Map(drivers.map((driver) => [driver.id, `${driver.fullName} / ${driver.phone}`])), [drivers]);
 
@@ -77,7 +80,7 @@ export function AdminUsersPanel({ currentRole }: { currentRole: AppRole }) {
     if (currentRole !== "admin") return;
     const form = new FormData(event.currentTarget);
     const payload = {
-      email: String(form.get("email") || "").trim(),
+      loginName: String(form.get("loginName") || "").trim(),
       password: String(form.get("password") || ""),
       fullName: String(form.get("fullName") || "").trim(),
       phone: String(form.get("phone") || "").trim(),
@@ -93,7 +96,7 @@ export function AdminUsersPanel({ currentRole }: { currentRole: AppRole }) {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Không tạo được user");
-      setMessage(`Đã tạo user ${payload.email}.`);
+      setMessage(`Đã tạo user ${payload.loginName}.`);
       event.currentTarget.reset();
       await loadUsers();
     } catch (error) {
@@ -136,6 +139,36 @@ export function AdminUsersPanel({ currentRole }: { currentRole: AppRole }) {
     }
   }
 
+  async function handleCreateTelegramLink(user: AdminUser) {
+    if (currentRole !== "admin") return;
+    const isDriverTarget = user.role === "driver" && Boolean(user.driverId);
+    const payload = isDriverTarget
+      ? { targetType: "driver", targetDriverId: user.driverId }
+      : { targetType: "user", targetUserId: user.id };
+
+    setLinkingUserId(user.id);
+    try {
+      const response = await fetch("/api/admin/telegram-link", {
+        body: JSON.stringify(payload),
+        headers: { "Content-Type": "application/json" },
+        method: "POST"
+      });
+      const data = (await response.json()) as { error?: string; startCommand?: string };
+      if (!response.ok || !data.startCommand) throw new Error(data.error || "Không tạo được link Telegram");
+      setTelegramLinkByUserId((current) => ({ ...current, [user.id]: data.startCommand || "" }));
+      setMessage(`Đã tạo mã Telegram cho ${user.fullName || user.loginName}.`);
+      try {
+        await navigator.clipboard?.writeText(data.startCommand);
+      } catch {
+        // The command is still shown in the row when browser clipboard access is blocked.
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Không tạo được link Telegram");
+    } finally {
+      setLinkingUserId(null);
+    }
+  }
+
   if (currentRole !== "admin") {
     return (
       <section className="border border-amber-200 bg-amber-50 p-5 shadow-sm">
@@ -171,7 +204,7 @@ export function AdminUsersPanel({ currentRole }: { currentRole: AppRole }) {
           <h4 className="font-semibold text-ink">Tạo user mới</h4>
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          <label className="block text-sm"><span className="mb-1 block font-medium text-slate-700">Tên đăng nhập / email</span><input className="h-10 w-full rounded-md border border-line px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-teal-100" name="email" required type="email" /></label>
+          <label className="block text-sm"><span className="mb-1 block font-medium text-slate-700">Tên tài khoản</span><input className="h-10 w-full rounded-md border border-line px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-teal-100" name="loginName" placeholder="Ví dụ: sale01" required type="text" /></label>
           <label className="block text-sm"><span className="mb-1 block font-medium text-slate-700">Mật khẩu</span><input className="h-10 w-full rounded-md border border-line px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-teal-100" minLength={6} name="password" required type="password" /></label>
           <label className="block text-sm"><span className="mb-1 block font-medium text-slate-700">Họ tên</span><input className="h-10 w-full rounded-md border border-line px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-teal-100" name="fullName" required /></label>
           <label className="block text-sm"><span className="mb-1 block font-medium text-slate-700">SĐT</span><input className="h-10 w-full rounded-md border border-line px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-teal-100" name="phone" /></label>
@@ -205,7 +238,10 @@ export function AdminUsersPanel({ currentRole }: { currentRole: AppRole }) {
               drivers={drivers}
               key={`${user.id}-${user.updatedAt}`}
               onSave={handleSaveUser}
+              onCreateTelegramLink={handleCreateTelegramLink}
               saving={savingUserId === user.id}
+              telegramStartCommand={telegramLinkByUserId[user.id] || ""}
+              telegramLinking={linkingUserId === user.id}
               user={user}
             />
           ))}
@@ -219,14 +255,20 @@ export function AdminUsersPanel({ currentRole }: { currentRole: AppRole }) {
 function UserRow({
   driverLabelMap,
   drivers,
+  onCreateTelegramLink,
   onSave,
   saving,
+  telegramLinking,
+  telegramStartCommand,
   user
 }: {
   driverLabelMap: Map<string, string>;
   drivers: Driver[];
+  onCreateTelegramLink: (user: AdminUser) => void;
   onSave: (event: FormEvent<HTMLFormElement>) => void;
   saving: boolean;
+  telegramLinking: boolean;
+  telegramStartCommand: string;
   user: AdminUser;
 }) {
   const [role, setRole] = useState<AppRole>(() => user.role);
@@ -235,8 +277,8 @@ function UserRow({
     <form className="grid gap-3 px-4 py-4 xl:grid-cols-[1.1fr_1fr_1fr_130px_180px_140px] xl:items-end" onSubmit={onSave}>
       <input name="userId" type="hidden" value={user.id} />
       <label className="block text-sm">
-        <span className="mb-1 block font-medium text-slate-700">Email</span>
-        <input className="h-10 w-full rounded-md border border-line bg-slate-50 px-3 text-sm text-slate-600 outline-none" readOnly value={user.email} />
+        <span className="mb-1 block font-medium text-slate-700">Tên tài khoản</span>
+        <input className="h-10 w-full rounded-md border border-line bg-slate-50 px-3 text-sm text-slate-600 outline-none" readOnly value={user.loginName || user.email} />
       </label>
       <label className="block text-sm">
         <span className="mb-1 block font-medium text-slate-700">Họ tên</span>
@@ -265,12 +307,18 @@ function UserRow({
       </label>
       <div className="xl:col-span-6 flex flex-wrap items-center justify-between gap-3">
         <div className="text-xs text-slate-500">
-          <p>{user.confirmedAt ? "Đã xác thực email" : "Chưa xác thực email"}</p>
+          <p>{user.confirmedAt ? "Sẵn sàng đăng nhập" : "Chưa bật đăng nhập"}</p>
+          {telegramStartCommand ? <p className="font-mono text-slate-700">Telegram: {telegramStartCommand}</p> : null}
           <p>Cập nhật: {formatVietnamDateTime(user.updatedAt)}</p>
         </div>
-        <button className="inline-flex h-10 items-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={saving} type="submit">
-          <Save size={16} /> {saving ? "Đang lưu..." : "Lưu user"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button className="inline-flex h-10 items-center gap-2 rounded-md border border-line bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100" disabled={telegramLinking} onClick={() => onCreateTelegramLink(user)} type="button">
+            <Link2 size={16} /> {telegramLinking ? "Đang tạo..." : "Link Telegram"}
+          </button>
+          <button className="inline-flex h-10 items-center gap-2 rounded-md bg-brand px-4 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={saving} type="submit">
+            <Save size={16} /> {saving ? "Đang lưu..." : "Lưu user"}
+          </button>
+        </div>
       </div>
     </form>
   );

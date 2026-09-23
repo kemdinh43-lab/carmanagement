@@ -20,9 +20,27 @@ type AdminUserProfile = {
   updated_at: string;
 };
 
+const internalLoginDomain = "angel-one.local";
+
 function serviceClient() {
   const { url, serviceRoleKey } = getSupabaseServiceConfig();
   return createClient(url, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } });
+}
+
+function normalizeLoginName(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9._-]/g, "");
+}
+
+function loginToEmail(value: string) {
+  const raw = value.trim();
+  if (raw.includes("@")) return raw.toLowerCase();
+  const loginName = normalizeLoginName(raw);
+  if (!loginName) return "";
+  return `${loginName}@${internalLoginDomain}`;
+}
+
+function emailToLoginName(email: string) {
+  return email.endsWith(`@${internalLoginDomain}`) ? email.slice(0, -(`@${internalLoginDomain}`).length) : email;
 }
 
 async function requireAdmin() {
@@ -80,6 +98,7 @@ export async function GET() {
     return {
       id: authUser.id,
       email: authUser.email ?? "",
+      loginName: emailToLoginName(authUser.email ?? ""),
       createdAt: authUser.created_at,
       updatedAt: profile?.updated_at ?? authUser.updated_at ?? authUser.created_at,
       confirmedAt: authUser.email_confirmed_at,
@@ -103,6 +122,7 @@ export async function POST(request: Request) {
 
   const body = (await request.json().catch(() => null)) as Partial<{
     email: string;
+    loginName: string;
     password: string;
     fullName: string;
     phone: string;
@@ -110,17 +130,20 @@ export async function POST(request: Request) {
     driverId: string | null;
   }> | null;
 
-  if (!body?.email || !body.password) {
-    return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
+  const loginName = body?.loginName || body?.email || "";
+  const email = loginToEmail(loginName);
+
+  if (!email || !body?.password) {
+    return NextResponse.json({ error: "Tên tài khoản và mật khẩu là bắt buộc" }, { status: 400 });
   }
 
   const service = access.service;
   const role = normalizeRole(body.role);
   const { data: created, error: createError } = await service.auth.admin.createUser({
-    email: body.email.trim(),
+    email,
     password: body.password,
     email_confirm: true,
-    user_metadata: { full_name: body.fullName?.trim() || body.email.trim() }
+    user_metadata: { full_name: body.fullName?.trim() || loginName.trim(), login_name: emailToLoginName(email) }
   });
 
   if (createError) return NextResponse.json({ error: createError.message }, { status: 400 });
@@ -128,7 +151,7 @@ export async function POST(request: Request) {
 
   const { error: profileError } = await service.from("app_user_profiles").upsert({
     user_id: created.user.id,
-    full_name: body.fullName?.trim() || body.email.trim(),
+    full_name: body.fullName?.trim() || loginName.trim(),
     phone: body.phone?.trim() || null,
     role,
     driver_id: role === "driver" ? body.driverId ?? null : null

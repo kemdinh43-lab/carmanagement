@@ -15,13 +15,26 @@ type AppUserProfile = {
   driver_id: string | null;
 };
 
+const internalLoginDomain = "angel-one.local";
+
+function normalizeLoginName(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9._-]/g, "");
+}
+
+function loginToEmail(value: string) {
+  const raw = value.trim();
+  if (raw.includes("@")) return raw.toLowerCase();
+  const loginName = normalizeLoginName(raw);
+  if (!loginName) return "";
+  return `${loginName}@${internalLoginDomain}`;
+}
+
 export default function AuthPage() {
-  const [message, setMessage] = useState(hasSupabaseBrowserConfig() ? "Supabase auth ready." : "Thiếu NEXT_PUBLIC_SUPABASE_URL và NEXT_PUBLIC_SUPABASE_ANON_KEY.");
+  const [message, setMessage] = useState(hasSupabaseBrowserConfig() ? "Nhập tài khoản và mật khẩu do Admin cấp." : "Thiếu NEXT_PUBLIC_SUPABASE_URL và NEXT_PUBLIC_SUPABASE_ANON_KEY.");
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentRole, setCurrentRole] = useState<AppRole | null>(null);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [profiles, setProfiles] = useState<AppUserProfile[]>([]);
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
 
   async function loadAuthContext(userId?: string) {
     if (!hasSupabaseBrowserConfig()) return;
@@ -111,15 +124,15 @@ export default function AuthPage() {
     }
 
     const form = new FormData(event.currentTarget);
-    const email = String(form.get("email"));
+    const loginName = String(form.get("loginName") || form.get("email") || "").trim();
+    const email = loginToEmail(loginName);
     const password = String(form.get("password"));
-    const fullName = String(form.get("fullName") || "").trim();
-    const phone = String(form.get("phone") || "").trim();
+    if (!email || !password) {
+      setMessage("Tên tài khoản và mật khẩu là bắt buộc.");
+      return;
+    }
     const supabase = createSupabaseBrowserClient();
-    const { data, error } =
-      mode === "signin"
-        ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (!error && data.user) {
       const { data: profile } = await supabase.from("app_user_profiles" as never).select("user_id" as never).eq("user_id" as never, data.user.id as never).maybeSingle();
@@ -127,8 +140,8 @@ export default function AuthPage() {
       if (!profile) {
         await supabase.from("app_user_profiles" as never).upsert({
           user_id: data.user.id,
-          full_name: fullName || data.user.email || "",
-          phone: phone || null,
+          full_name: data.user.user_metadata?.full_name || loginName || data.user.email || "",
+          phone: null,
           role: shouldBootstrapAdmin ? "admin" : ("sale" as AppRole),
           driver_id: null
         } as never);
@@ -150,13 +163,8 @@ export default function AuthPage() {
       return;
     }
 
-    if (mode === "signin") {
-      setMessage("Đăng nhập thành công, đang mở dashboard...");
-      window.location.replace("/");
-      return;
-    }
-
-    setMessage("Đã tạo tài khoản. Kiểm tra email nếu Supabase yêu cầu xác nhận.");
+    setMessage("Đăng nhập thành công, đang mở dashboard...");
+    window.location.replace("/");
   }
 
   async function signOut() {
@@ -203,44 +211,16 @@ export default function AuthPage() {
         <p className="mt-2 border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm text-cyan-900">{message}</p>
         <div className="mt-5 grid gap-6 lg:grid-cols-[1fr_1.2fr]">
           <form className="space-y-3" onSubmit={handleAuth}>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                className={`h-10 rounded-md px-3 text-sm font-semibold ${mode === "signin" ? "bg-brand text-white" : "border border-line bg-white text-slate-700"}`}
-                onClick={() => setMode("signin")}
-                type="button"
-              >
-                Đăng nhập
-              </button>
-              <button
-                className={`h-10 rounded-md px-3 text-sm font-semibold ${mode === "signup" ? "bg-brand text-white" : "border border-line bg-white text-slate-700"}`}
-                onClick={() => setMode("signup")}
-                type="button"
-              >
-                Đăng ký
-              </button>
-            </div>
             <label className="block text-sm">
-              <span className="mb-1 block font-medium text-slate-700">Email</span>
-              <input className="h-10 w-full rounded-md border border-line px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-teal-100" name="email" required type="email" />
+              <span className="mb-1 block font-medium text-slate-700">Tên tài khoản</span>
+              <input className="h-10 w-full rounded-md border border-line px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-teal-100" name="loginName" placeholder="Ví dụ: sale01" required type="text" />
             </label>
             <label className="block text-sm">
-              <span className="mb-1 block font-medium text-slate-700">Password</span>
+              <span className="mb-1 block font-medium text-slate-700">Mật khẩu</span>
               <input className="h-10 w-full rounded-md border border-line px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-teal-100" minLength={6} name="password" required type="password" />
             </label>
-            {mode === "signup" && (
-              <>
-                <label className="block text-sm">
-                  <span className="mb-1 block font-medium text-slate-700">Họ tên</span>
-                  <input className="h-10 w-full rounded-md border border-line px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-teal-100" name="fullName" />
-                </label>
-                <label className="block text-sm">
-                  <span className="mb-1 block font-medium text-slate-700">SĐT</span>
-                  <input className="h-10 w-full rounded-md border border-line px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-teal-100" name="phone" />
-                </label>
-              </>
-            )}
             <button className="h-10 w-full rounded-md bg-brand px-3 text-sm font-semibold text-white hover:bg-teal-800" type="submit">
-              {mode === "signin" ? "Đăng nhập" : "Tạo tài khoản"}
+              Đăng nhập
             </button>
           </form>
 
