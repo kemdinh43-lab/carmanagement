@@ -1914,7 +1914,7 @@ export default function OpsApp() {
         },
         status: "pending",
         created_at: event.createdAt
-      } as never, { onConflict: "id", ignoreDuplicates }).abortSignal(AbortSignal.timeout(10000));
+      } as never, { onConflict: "id" }).abortSignal(AbortSignal.timeout(10000));
       if (error) {
         if (!error.message.includes("app_integration_events")) {
           setMessage(`Không đưa được thông báo ${event.audience} vào hàng chờ n8n/Telegram: ${error.message}`);
