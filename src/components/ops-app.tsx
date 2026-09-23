@@ -2596,12 +2596,16 @@ export default function OpsApp() {
       }),
       `Đã gửi lại ${selectedOrder.code} vào hàng chờ điều hành duyệt.`
     );
-    notifyMany(["dispatcher", "manager", "admin"], {
-      eventType: "sales_order_resent_to_dispatch",
-      title: "Sales gửi lại lệnh",
-      body: `${selectedOrder.code} / ${selectedOrder.customerName}`,
-      entityId: selectedOrder.id
-    });
+    for (const audience of ["dispatcher", "manager", "admin"] as AppNotification["audience"][]) {
+      void notify({
+        audience,
+        eventType: "sales_order_resent_to_dispatch",
+        title: "Sales gửi lại lệnh",
+        body: `${selectedOrder.code} / ${selectedOrder.customerName}`,
+        entityId: selectedOrder.id,
+        payload: buildDispatchProposalIntegrationPayload(nextOrder, audience)
+      });
+    }
   }
 
   async function assignOrder(event: FormEvent<HTMLFormElement>) {
