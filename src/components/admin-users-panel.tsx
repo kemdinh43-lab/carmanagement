@@ -114,6 +114,7 @@ export function AdminUsersPanel({ currentRole }: { currentRole: AppRole }) {
     if (!userId) return;
     const payload = {
       userId,
+      loginName: String(form.get("loginName") || "").trim(),
       fullName: String(form.get("fullName") || "").trim(),
       phone: String(form.get("phone") || "").trim(),
       role: String(form.get("role") || "sale") as AppRole,
@@ -278,7 +279,7 @@ function UserRow({
       <input name="userId" type="hidden" value={user.id} />
       <label className="block text-sm">
         <span className="mb-1 block font-medium text-slate-700">Tên tài khoản</span>
-        <input className="h-10 w-full rounded-md border border-line bg-slate-50 px-3 text-sm text-slate-600 outline-none" readOnly value={user.loginName || user.email} />
+        <input className="h-10 w-full rounded-md border border-line px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-teal-100" defaultValue={user.loginName || user.email} name="loginName" />
       </label>
       <label className="block text-sm">
         <span className="mb-1 block font-medium text-slate-700">Họ tên</span>

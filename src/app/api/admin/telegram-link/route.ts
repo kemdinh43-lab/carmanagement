@@ -26,7 +26,7 @@ async function requireAdmin() {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
   }
 
-  return { user, service };
+  return { supabase, user, service };
 }
 
 export async function POST(request: Request) {
@@ -55,7 +55,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "targetDriverId is required" }, { status: 400 });
   }
 
-  const { data, error } = await access.service.rpc("create_telegram_link_token", {
+  const { data, error } = await (access.supabase as any).rpc("create_telegram_link_token", {
     p_target_type: targetType,
     p_target_user_id: targetType === "user" ? targetUserId : null,
     p_target_driver_id: targetType === "driver" ? targetDriverId : null,
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-  const first = Array.isArray(data) ? data[0] : null;
+  const first = Array.isArray(data) ? (data[0] as { token?: string; expires_at?: string }) : null;
   const token = first?.token ? String(first.token) : "";
   const expiresAt = first?.expires_at ? String(first.expires_at) : "";
 

@@ -172,6 +172,7 @@ export async function PATCH(request: Request) {
 
   const body = (await request.json().catch(() => null)) as Partial<{
     userId: string;
+    loginName: string;
     fullName: string;
     phone: string;
     role: AppRole;
@@ -184,6 +185,20 @@ export async function PATCH(request: Request) {
   }
 
   const service = access.service;
+  const loginName = body.loginName?.trim();
+  if (loginName) {
+    const email = loginToEmail(loginName);
+    if (!email) {
+      return NextResponse.json({ error: "Tên tài khoản không hợp lệ" }, { status: 400 });
+    }
+    const { error: loginError } = await service.auth.admin.updateUserById(body.userId, {
+      email,
+      email_confirm: true,
+      user_metadata: { full_name: body.fullName?.trim() || loginName, login_name: emailToLoginName(email) }
+    });
+    if (loginError) return NextResponse.json({ error: loginError.message }, { status: 400 });
+  }
+
   const { data: existingProfile, error: profileFetchError } = await service
     .from("app_user_profiles")
     .select("user_id,full_name,phone,role,driver_id,updated_at")
